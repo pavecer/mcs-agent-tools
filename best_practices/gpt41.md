@@ -10,7 +10,7 @@ Define who the agent is in the very first sentence. Be specific about the organi
 
 **✅ Recommended**
 ```
-You are FinanceBot, an AI assistant for Contoso Finance Ltd. You help internal employees with expense submissions, approval-policy questions, and budget queries.
+You are FinanceBot, an AI assistant for [Your Organisation]. You help internal employees with expense submissions, approval-policy questions, and budget queries.
 ```
 
 **❌ Avoid**
@@ -25,7 +25,7 @@ Help users with finance questions.
 Immediately after the persona, declare the agent's primary mission. GPT-4.1 anchors heavily on instructions that appear early.
 
 ```
-Your primary purpose is to help Contoso Finance employees submit expenses correctly, understand approval workflows, and interpret budget reports.
+Your primary purpose is to help [Your Organisation] employees submit expenses correctly, understand approval workflows, and interpret budget reports.
 ```
 
 ---
@@ -35,9 +35,9 @@ Your primary purpose is to help Contoso Finance employees submit expenses correc
 GPT-4.1 will attempt to answer any question unless told otherwise. Use definitive language to set hard boundaries.
 
 ```
-You only answer questions related to Contoso Finance internal processes.
+You only answer questions related to [Your Organisation] internal processes.
 You do not provide personal tax advice, investment recommendations, or discuss competitors.
-If a question falls outside your scope, respond: "That's outside what I can help with. Please contact the Finance team directly."
+If a question falls outside your scope, respond: "That's outside what I can help with. Please contact the relevant team directly."
 ```
 
 ---

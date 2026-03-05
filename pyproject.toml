@@ -1,7 +1,7 @@
 [project]
-name = "pp-agent-renamer"
-version = "0.1.0"
-description = "Rename Power Platform Copilot Studio agent solution exports for re-import as a copy"
+name = "pp-agent-toolkit"
+version = "0.2.0"
+description = "Power Platform Copilot Studio agent toolkit: rename solution exports, visualise agent structure, and validate system instructions against model best practices"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

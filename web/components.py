@@ -133,7 +133,7 @@ def name_inputs() -> rx.Component:
                 rx.box(
                     label("Display name"),
                     rx.input(
-                        placeholder="e.g. ACME Legal Bot",
+                        placeholder="e.g. My New Bot",
                         value=State.new_agent_name,
                         on_change=State.set_new_agent_name,
                         size="3",
@@ -157,7 +157,7 @@ def name_inputs() -> rx.Component:
                 rx.box(
                     label("Display name"),
                     rx.input(
-                        placeholder="e.g. ACME Legal Bot",
+                        placeholder="e.g. My New Bot Solution",
                         value=State.new_solution_display_name,
                         on_change=State.set_new_solution_display_name,
                         size="3",
@@ -318,7 +318,7 @@ def navbar() -> rx.Component:
             rx.hstack(
                 rx.icon("bot", color="white", size=24),
                 rx.heading(
-                    "Power Platform Agent Renamer",
+                    "Power Platform Agent Toolkit",
                     size="5",
                     color="white",
                     font_weight="600",
@@ -327,7 +327,7 @@ def navbar() -> rx.Component:
                 align="center",
             ),
             rx.text(
-                "Rename Copilot Studio solution exports for re-import",
+                "Rename · Visualise · Validate — Copilot Studio solution exports",
                 color="rgba(255,255,255,0.7)",
                 font_size="13px",
                 display=["none", "none", "block"],

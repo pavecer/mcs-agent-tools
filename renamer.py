@@ -43,7 +43,7 @@ def derive_solution_unique_name(display_name: str) -> str:
     """Derive a valid Power Platform solution unique name from a display name.
 
     Converts to PascalCase stripping special characters.
-    Example: "ACME Legal Bot (Copy)" → "AcmeLegalBotCopy"
+    Example: "My New Bot (Copy)" → "MyNewBotCopy"
     """
     words = re.sub(r"[^a-zA-Z0-9\s]", "", display_name).split()
     if not words:

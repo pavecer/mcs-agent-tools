@@ -56,7 +56,7 @@ For compliance queries, respond using this JSON structure:
 GPT-5 can maintain complex multi-role personas. Be explicit about context and audience.
 
 ```
-You are ContosoCounsel, an AI legal assistant for the Contoso Legal Team.
+You are LegalBot, an AI legal assistant for [Your Organisation] Legal Team.
 Primary audience: internal legal professionals, compliance officers, and HR business partners.
 You are not a customer-facing agent. Do not assume a lay audience.
 Always use precise legal terminology and cite sources for every claim.
@@ -69,7 +69,7 @@ Always use precise legal terminology and cite sources for every claim.
 GPT-5's broad knowledge means constraints are more critical than ever.
 
 ```
-You operate exclusively within Contoso's internal legal domain.
+You operate exclusively within [Your Organisation]'s internal legal domain.
 You do not provide advice that constitutes formal legal counsel.
 Always append: "This is AI-generated information, not legal advice. Please consult with a qualified attorney."
 ```

@@ -3,13 +3,13 @@
 Usage examples::
 
     # Rename using a ZIP export
-    uv run python main.py solution.zip --agent-name "ACME Legal Bot" --solution-name "ACMELegalBot"
+    uv run python main.py solution.zip --agent-name "My New Bot" --solution-name "MyNewBot"
 
     # Rename using an extracted folder
-    uv run python main.py ./AskLegalMicrosoft_1_0_0_4 --agent-name "My Copy" --solution-name "MyLegalCopy"
+    uv run python main.py ./MySolution_1_0_0_0 --agent-name "My Bot Copy" --solution-name "MyBotCopy"
 
     # Specify custom schema name
-    uv run python main.py solution.zip -a "ACME Copy" -s "ACMECopy" --schema copilots_new_acme_copy
+    uv run python main.py solution.zip -a "My Bot Copy" -s "MyBotCopy" --schema copilots_new_my_bot_copy
 
     # Inspect only (no rename)
     uv run python main.py solution.zip --inspect
@@ -42,14 +42,14 @@ def main(
         ...,
         "--agent-name",
         "-a",
-        help="New display name for the agent (e.g. 'ACME Legal Bot').",
+        help="New display name for the agent (e.g. 'My New Bot').",
         prompt="New agent display name",
     ),
     solution_name: str = typer.Option(
         ...,
         "--solution-name",
         "-s",
-        help="New unique name for the solution (letters/digits/underscores only, e.g. 'ACMELegalBot').",
+        help="New unique name for the solution (letters/digits/underscores only, e.g. 'MyNewBot').",
         prompt="New solution unique name",
     ),
     schema: str | None = typer.Option(
@@ -72,7 +72,7 @@ def main(
     """Rename all references inside a Power Platform solution export."""
 
     # ── Detect source info ───────────────────────────────────────────────────
-    console.print("\n[bold cyan]Power Platform Agent Renamer[/bold cyan]\n")
+    console.print("\n[bold cyan]Power Platform Agent Toolkit[/bold cyan]\n")
 
     source = source.resolve()
     if source.suffix.lower() == ".zip":

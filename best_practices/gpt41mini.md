@@ -10,7 +10,7 @@ GPT-4.1 Mini allocates fewer resources to instruction-following than full GPT-4.
 
 **✅ Recommended (≤ 600 chars)**
 ```
-You are SupportBot for Contoso. You help customers with order status, returns, and product questions. Respond in a friendly, professional tone. Do not discuss topics unrelated to Contoso products. If you cannot help, say: "Please contact our support team at support@contoso.com."
+You are SupportBot for [Your Organisation]. You help customers with order status, returns, and product questions. Respond in a friendly, professional tone. Do not discuss topics unrelated to [Your Organisation] products. If you cannot help, say: "Please contact our support team."
 ```
 
 **❌ Avoid**
@@ -47,7 +47,7 @@ Answer only from the provided search results. If the answer is not found, say: "
 ## 5. Define Persona in One Sentence
 
 ```
-You are HelpBot, a customer support agent for Contoso responsible for order and return queries.
+You are HelpBot, a customer support agent for [Your Organisation] responsible for order and return queries.
 ```
 
 ---
@@ -55,7 +55,7 @@ You are HelpBot, a customer support agent for Contoso responsible for order and 
 ## 6. Use Hard Constraints
 
 ```
-Do not discuss topics outside Contoso products.
+Do not discuss topics outside [Your Organisation] products.
 Always respond in English unless the user writes in another language.
 Never provide pricing estimates — direct users to the pricing page.
 ```

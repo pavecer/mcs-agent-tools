@@ -189,4 +189,4 @@ def index() -> rx.Component:
 app = rx.App(
     theme=rx.theme(appearance="light", accent_color="blue"),
 )
-app.add_page(index, route="/", title="PP Agent Renamer")
+app.add_page(index, route="/", title="PP Agent Toolkit")
