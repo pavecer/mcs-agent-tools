@@ -20,13 +20,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import typer
-from loguru import logger
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
 from models import RenameConfig
-from renamer import inspect_solution, inspect_zip, rename_solution, sanitize_schema_name
+from renamer import inspect_solution, inspect_zip, rename_solution
 
 app = typer.Typer(help="Rename a Power Platform Copilot Studio agent solution export.")
 console = Console()
@@ -73,7 +72,7 @@ def main(
     """Rename all references inside a Power Platform solution export."""
 
     # ── Detect source info ───────────────────────────────────────────────────
-    console.print(f"\n[bold cyan]Power Platform Agent Renamer[/bold cyan]\n")
+    console.print("\n[bold cyan]Power Platform Agent Renamer[/bold cyan]\n")
 
     source = source.resolve()
     if source.suffix.lower() == ".zip":

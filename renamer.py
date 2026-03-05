@@ -12,7 +12,6 @@ import shutil
 import tempfile
 import zipfile
 import xml.etree.ElementTree as ET
-from io import BytesIO
 from pathlib import Path
 
 from loguru import logger

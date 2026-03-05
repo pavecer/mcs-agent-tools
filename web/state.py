@@ -9,6 +9,7 @@ from pathlib import Path
 import reflex as rx
 
 from renamer import derive_schema_name, derive_solution_unique_name, inspect_zip, rename_solution_from_bytes
+from visualizer import visualize_zip_bytes
 
 
 class State(rx.State):
@@ -32,6 +33,25 @@ class State(rx.State):
     # auto-derived technical names (read-only previews)
     derived_schema: str = ""
     derived_solution_unique: str = ""
+
+    # ── Visualization ─────────────────────────────────────────────────────
+    is_visualizing: bool = False
+    viz_error: str = ""
+    viz_segments: list[dict] = []
+
+    # ── Validation ───────────────────────────────────────────────────────────
+    is_validating: bool = False
+    validation_error: str = ""
+    validation_ran: bool = False
+    validation_model_key: str = ""
+    validation_model_display: str = ""
+    validation_results: list[dict] = []
+    validation_best_practices: str = ""
+    validation_instructions_length: int = 0
+    show_best_practices: bool = False
+
+    # ── Active tab ("rename" | "visualize" | "validate") ─────────────────────
+    active_tab: str = "rename"
 
     # ── Processing ────────────────────────────────────────────────────────
     is_processing: bool = False
@@ -58,6 +78,26 @@ class State(rx.State):
     @rx.var
     def has_detection(self) -> bool:
         return bool(self.detected_bot_schema)
+
+    @rx.var
+    def has_visualization(self) -> bool:
+        return len(self.viz_segments) > 0
+
+    @rx.var
+    def has_validation(self) -> bool:
+        return self.validation_ran
+
+    @rx.var
+    def validation_pass_count(self) -> int:
+        return sum(1 for r in self.validation_results if r.get("severity") == "pass")
+
+    @rx.var
+    def validation_warn_count(self) -> int:
+        return sum(1 for r in self.validation_results if r.get("severity") == "warning")
+
+    @rx.var
+    def validation_fail_count(self) -> int:
+        return sum(1 for r in self.validation_results if r.get("severity") == "fail")
 
     @rx.var
     def can_process(self) -> bool:
@@ -90,15 +130,9 @@ class State(rx.State):
         self.result_zip_b64 = ""
         yield  # flush state to UI
 
-        try:
-            with rx.get_upload_dir() as udir:
-                tmp_zip = Path(str(udir)) / "uploaded.zip"
-        except Exception:
-            # Fallback: keep in memory only
-            tmp_zip = None
-
-            # Write to temp so inspect_zip can use it
-        import tempfile, os
+        # Write to temp so inspect_zip can use it
+        import tempfile
+        import os
         with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tf:
             tf.write(file_bytes)
             tmp_path = Path(tf.name)
@@ -126,6 +160,40 @@ class State(rx.State):
         finally:
             os.unlink(tmp_path)
             self.is_inspecting = False
+
+        # ── Visualization (runs only when inspection succeeded) ───────────
+        if not self.inspect_error:
+            self.is_visualizing = True
+            yield
+            try:
+                self.viz_segments = visualize_zip_bytes(file_bytes)
+                self.viz_error = ""
+            except Exception as viz_exc:
+                self.viz_error = str(viz_exc)
+                self.viz_segments = []
+            finally:
+                self.is_visualizing = False
+
+        # ── Validation (runs only when inspection succeeded) ─────────────
+        if not self.inspect_error:
+            self.is_validating = True
+            yield
+            try:
+                from validator import validate_zip_bytes
+                report = validate_zip_bytes(file_bytes)
+                self.validation_model_key = report["model_key"]
+                self.validation_model_display = report["model_display"]
+                self.validation_results = report["results"]
+                self.validation_best_practices = report.get("best_practices_md", "")
+                self.validation_instructions_length = report.get("instructions_length", 0)
+                self.validation_ran = True
+                self.validation_error = ""
+            except Exception as val_exc:
+                self.validation_error = str(val_exc)
+                self.validation_results = []
+                self.validation_ran = False
+            finally:
+                self.is_validating = False
 
     @rx.event
     def set_new_agent_name(self, value: str):
@@ -201,6 +269,27 @@ class State(rx.State):
         self.process_error = ""
         self.process_success = False
         self.result_zip_b64 = ""
+        self.viz_segments = []
+        self.viz_error = ""
+        self.is_visualizing = False
+        self.is_validating = False
+        self.validation_error = ""
+        self.validation_ran = False
+        self.validation_model_key = ""
+        self.validation_model_display = ""
+        self.validation_results = []
+        self.validation_best_practices = ""
+        self.validation_instructions_length = 0
+        self.show_best_practices = False
+        self.active_tab = "rename"
+
+    @rx.event
+    def set_active_tab(self, tab: str):
+        self.active_tab = tab
+
+    @rx.event
+    def toggle_best_practices(self):
+        self.show_best_practices = not self.show_best_practices
 
     # ── Private helpers ───────────────────────────────────────────────────
 
