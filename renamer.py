@@ -40,6 +40,22 @@ def sanitize_schema_name(display_name: str) -> str:
     return sanitized.strip("_")[:50]
 
 
+def derive_solution_unique_name(display_name: str) -> str:
+    """Derive a valid Power Platform solution unique name from a display name.
+
+    Converts to PascalCase stripping special characters.
+    Example: "ACME Legal Bot (Copy)" → "AcmeLegalBotCopy"
+    """
+    words = re.sub(r"[^a-zA-Z0-9\s]", "", display_name).split()
+    if not words:
+        return ""
+    result = "".join(w.capitalize() for w in words)
+    # Ensure starts with a letter (PP requirement)
+    if result and not result[0].isalpha():
+        result = "S" + result
+    return result[:100]
+
+
 def derive_schema_name(old_schema: str, new_agent_name: str) -> str:
     """Derive a new bot schema name from the old one, preserving the prefix.
 
@@ -322,6 +338,15 @@ def rename_solution(config: RenameConfig) -> RenameResult:
 
         # ── 2. Detect current names ──────────────────────────────────────────
         info = inspect_solution(src_dir)
+
+        # Apply user-provided overrides for current names when supplied.
+        # The display-name override changes the text that gets replaced inside
+        # file contents; the solution-name override replaces the unique name.
+        if config.old_agent_name_override:
+            info = info.model_copy(update={"bot_display_name": config.old_agent_name_override})
+        if config.old_solution_name_override:
+            info = info.model_copy(update={"solution_unique_name": config.old_solution_name_override})
+
         logger.info(
             f"Detected → bot schema: '{info.bot_schema_name}', "
             f"solution: '{info.solution_unique_name}', "
@@ -365,7 +390,7 @@ def rename_solution(config: RenameConfig) -> RenameResult:
             old_unique_name=info.solution_unique_name,
             new_unique_name=config.new_solution_name,
             old_display_name=info.solution_display_name,
-            new_display_name=config.new_agent_name,
+            new_display_name=config.new_solution_display_name or config.new_agent_name,
         )
 
         # bot.xml – display name (schema name already replaced in step 5)
@@ -427,10 +452,20 @@ def rename_solution_from_bytes(
     new_agent_name: str,
     new_solution_name: str,
     new_bot_schema_name: str | None = None,
+    old_agent_name_override: str | None = None,
+    old_solution_name_override: str | None = None,
+    new_solution_display_name: str | None = None,
 ) -> tuple[bytes, RenameResult]:
     """Convenience wrapper that accepts and returns raw ZIP bytes.
 
     Used by the web UI state to process in-memory uploads.
+
+    If *old_agent_name_override* or *old_solution_name_override* are provided
+    they are used in place of the values auto-detected from the ZIP, which lets
+    the user correct detection mistakes via the CLI before renaming.
+
+    *new_solution_display_name* sets the human-readable name written into
+    solution.xml; defaults to *new_agent_name* when omitted.
     """
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp = Path(tmpdir)
@@ -444,6 +479,9 @@ def rename_solution_from_bytes(
             new_solution_name=new_solution_name,
             new_bot_schema_name=new_bot_schema_name,
             output_path=output_zip,
+            old_agent_name_override=old_agent_name_override,
+            old_solution_name_override=old_solution_name_override,
+            new_solution_display_name=new_solution_display_name,
         )
         result = rename_solution(config)
         return output_zip.read_bytes(), result

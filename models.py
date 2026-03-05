@@ -13,6 +13,10 @@ class RenameConfig(BaseModel):
     new_solution_name: str
     new_bot_schema_name: str | None = None  # auto-derived from new_agent_name if not set
     output_path: Path
+    new_solution_display_name: str | None = None  # human-readable solution name for solution.xml
+    # Optional user-provided overrides for the *current* names (corrects bad auto-detection)
+    old_agent_name_override: str | None = None
+    old_solution_name_override: str | None = None
 
     @field_validator("new_agent_name", "new_solution_name")
     @classmethod

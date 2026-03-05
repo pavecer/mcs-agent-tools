@@ -8,7 +8,7 @@ from pathlib import Path
 
 import reflex as rx
 
-from renamer import derive_schema_name, inspect_zip, rename_solution_from_bytes
+from renamer import derive_schema_name, derive_solution_unique_name, inspect_zip, rename_solution_from_bytes
 
 
 class State(rx.State):
@@ -28,9 +28,10 @@ class State(rx.State):
 
     # ── User inputs ───────────────────────────────────────────────────────
     new_agent_name: str = ""
-    new_solution_name: str = ""
-    # derived schema preview (read-only, updated as user types)
+    new_solution_display_name: str = ""
+    # auto-derived technical names (read-only previews)
     derived_schema: str = ""
+    derived_solution_unique: str = ""
 
     # ── Processing ────────────────────────────────────────────────────────
     is_processing: bool = False
@@ -63,21 +64,9 @@ class State(rx.State):
         return (
             self.has_detection
             and bool(self.new_agent_name.strip())
-            and bool(self.new_solution_name.strip())
+            and bool(self.new_solution_display_name.strip())
+            and bool(self.derived_solution_unique)
         )
-
-    @rx.var
-    def solution_name_valid(self) -> bool:
-        import re
-        return bool(re.match(r'^[A-Za-z][A-Za-z0-9_]{0,99}$', self.new_solution_name))
-
-    @rx.var
-    def solution_name_error(self) -> str:
-        if not self.new_solution_name:
-            return ""
-        if not self.solution_name_valid:
-            return "Must start with a letter; only letters, digits, underscores allowed."
-        return ""
 
     # ── Event handlers ────────────────────────────────────────────────────
 
@@ -127,10 +116,11 @@ class State(rx.State):
             # Pre-fill suggestion fields if empty
             if not self.new_agent_name:
                 self.new_agent_name = info.bot_display_name + " Copy"
-            if not self.new_solution_name:
-                self.new_solution_name = info.solution_unique_name + "Copy"
+            if not self.new_solution_display_name:
+                self.new_solution_display_name = info.solution_display_name + " Copy"
 
             self._update_derived_schema()
+            self._update_derived_solution_unique()
         except Exception as exc:
             self.inspect_error = f"Could not inspect ZIP: {exc}"
         finally:
@@ -143,8 +133,9 @@ class State(rx.State):
         self._update_derived_schema()
 
     @rx.event
-    def set_new_solution_name(self, value: str):
-        self.new_solution_name = value
+    def set_new_solution_display_name(self, value: str):
+        self.new_solution_display_name = value
+        self._update_derived_solution_unique()
 
     @rx.event
     async def process(self):
@@ -162,7 +153,8 @@ class State(rx.State):
             output_bytes, result = rename_solution_from_bytes(
                 zip_bytes=zip_bytes,
                 new_agent_name=self.new_agent_name.strip(),
-                new_solution_name=self.new_solution_name.strip(),
+                new_solution_name=self.derived_solution_unique,
+                new_solution_display_name=self.new_solution_display_name.strip(),
             )
             self.result_old_schema = result.old_bot_schema
             self.result_new_schema = result.new_bot_schema
@@ -171,7 +163,7 @@ class State(rx.State):
             self.result_files_modified = result.files_modified
             self.result_folders_renamed = result.folders_renamed
             self.result_warnings = result.warnings
-            self.result_filename = f"{self.new_solution_name}.zip"
+            self.result_filename = f"{self.derived_solution_unique}.zip"
             self.result_zip_b64 = base64.b64encode(output_bytes).decode()
             self.process_success = True
         except Exception as exc:
@@ -190,7 +182,7 @@ class State(rx.State):
         )
 
     @rx.event
-    def reset(self):
+    def clear_all(self):
         """Clear all state to start over."""
         self.upload_filename = ""
         self.zip_bytes_b64 = ""
@@ -202,8 +194,9 @@ class State(rx.State):
         self.detected_solution_display = ""
         self.detected_component_count = 0
         self.new_agent_name = ""
-        self.new_solution_name = ""
+        self.new_solution_display_name = ""
         self.derived_schema = ""
+        self.derived_solution_unique = ""
         self.is_processing = False
         self.process_error = ""
         self.process_success = False
@@ -218,3 +211,11 @@ class State(rx.State):
             )
         else:
             self.derived_schema = ""
+
+    def _update_derived_solution_unique(self):
+        if self.new_solution_display_name.strip():
+            self.derived_solution_unique = derive_solution_unique_name(
+                self.new_solution_display_name.strip()
+            )
+        else:
+            self.derived_solution_unique = ""

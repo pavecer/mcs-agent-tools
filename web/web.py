@@ -59,7 +59,7 @@ def index() -> rx.Component:
                     width="100%",
                 ),
                 inspect_error_banner(),
-                # ── Detection + inputs ────────────────────────────────────
+                # ── Detected solution info + new names ───────────────────────
                 detected_info_panel(),
                 name_inputs(),
                 action_bar(),

@@ -48,6 +48,16 @@ def info_row(field: str, value: rx.Component | str) -> rx.Component:
         padding_y="4px",
     )
 
+def sub_heading(text: str) -> rx.Component:
+    """Small uppercase section label used inside cards."""
+    return rx.text(
+        text,
+        font_size="10px",
+        font_weight="700",
+        color=PRIMARY,
+        letter_spacing="0.08em",
+        margin_bottom="6px",
+    )
 
 # ── Upload area ───────────────────────────────────────────────────────────────
 
@@ -82,16 +92,14 @@ def upload_area() -> rx.Component:
     )
 
 
-# ── Detected info panel ───────────────────────────────────────────────────────
+# ── Detected info panel (read-only summary) ────────────────────────────────────
 
 def detected_info_panel() -> rx.Component:
     return rx.cond(
         State.has_detection,
         card(
             section_heading("Detected Solution"),
-            info_row("Bot display name", State.detected_bot_name),
             info_row("Bot schema name", State.detected_bot_schema),
-            info_row("Solution unique name", State.detected_solution_name),
             info_row("Solution display name", State.detected_solution_display),
             info_row(
                 "Botcomponent folders",
@@ -103,17 +111,76 @@ def detected_info_panel() -> rx.Component:
     )
 
 
-# ── Name inputs ────────────────────────────────────────────────────────────────
+# ── Editable current-names panel ────────────────────────────────────────────
+
+def current_names_panel() -> rx.Component:
+    """Editable fields for the current agent / solution names.
+
+    Pre-filled from auto-detection; user can correct them before renaming.
+    """
+    return rx.cond(
+        State.has_detection,
+        card(
+            section_heading("Current Names"),
+            rx.text(
+                "Auto-detected from the uploaded ZIP. Correct if needed before renaming.",
+                font_size="13px",
+                color="#605e5c",
+                margin_bottom="12px",
+            ),
+            rx.vstack(
+                # Current agent display name
+                rx.box(
+                    label("Current agent display name"),
+                    rx.input(
+                        placeholder="Detected agent name",
+                        value=State.current_agent_name,
+                        on_change=State.set_current_agent_name,
+                        size="3",
+                        width="100%",
+                    ),
+                    width="100%",
+                ),
+                # Current solution unique name
+                rx.box(
+                    label("Current solution unique name"),
+                    rx.input(
+                        placeholder="Detected solution name",
+                        value=State.current_solution_name,
+                        on_change=State.set_current_solution_name,
+                        size="3",
+                        width="100%",
+                    ),
+                    width="100%",
+                ),
+                spacing="4",
+                width="100%",
+            ),
+            margin_top="16px",
+        ),
+        rx.box(),
+    )
+
+
+# ── Name inputs ──────────────────────────────────────────────────────────────────
 
 def name_inputs() -> rx.Component:
     return rx.cond(
         State.has_detection,
         card(
             section_heading("New Names"),
+            rx.text(
+                "Enter the new names for the renamed copy. "
+                "Technical identifiers are derived automatically.",
+                font_size="13px",
+                color="#605e5c",
+                margin_bottom="16px",
+            ),
             rx.vstack(
-                # Agent display name
+                # ── Agent sub-section ─────────────────────────────
+                sub_heading("AGENT (COPILOT STUDIO)"),
                 rx.box(
-                    label("New agent display name"),
+                    label("Display name"),
                     rx.input(
                         placeholder="e.g. ACME Legal Bot",
                         value=State.new_agent_name,
@@ -124,7 +191,7 @@ def name_inputs() -> rx.Component:
                     rx.cond(
                         State.derived_schema != "",
                         rx.text(
-                            "→ Schema: " + State.derived_schema,
+                            "→ Schema name: " + State.derived_schema,
                             font_size="11px",
                             color="#605e5c",
                             margin_top="4px",
@@ -133,34 +200,31 @@ def name_inputs() -> rx.Component:
                     ),
                     width="100%",
                 ),
-                # Solution unique name
+                rx.divider(margin_y="4px"),
+                # ── Solution sub-section ──────────────────────────
+                sub_heading("SOLUTION"),
                 rx.box(
-                    label("New solution unique name"),
+                    label("Display name"),
                     rx.input(
-                        placeholder="e.g. ACMELegalBot",
-                        value=State.new_solution_name,
-                        on_change=State.set_new_solution_name,
+                        placeholder="e.g. ACME Legal Bot",
+                        value=State.new_solution_display_name,
+                        on_change=State.set_new_solution_display_name,
                         size="3",
                         width="100%",
                     ),
                     rx.cond(
-                        State.solution_name_error != "",
+                        State.derived_solution_unique != "",
                         rx.text(
-                            State.solution_name_error,
-                            font_size="11px",
-                            color=ERROR_COLOR,
-                            margin_top="4px",
-                        ),
-                        rx.text(
-                            "Letters, digits and underscores only. Must start with a letter.",
+                            "→ Unique name: " + State.derived_solution_unique,
                             font_size="11px",
                             color="#605e5c",
                             margin_top="4px",
                         ),
+                        rx.box(),
                     ),
                     width="100%",
                 ),
-                spacing="4",
+                spacing="3",
                 width="100%",
             ),
             margin_top="16px",
@@ -186,7 +250,7 @@ def action_bar() -> rx.Component:
                     rx.hstack(rx.icon("refresh-cw", size=16), rx.text("Rename Solution"), spacing="2"),
                 ),
                 on_click=State.process,
-                is_disabled=~State.can_process | State.is_processing | ~State.solution_name_valid,
+                is_disabled=~State.can_process | State.is_processing,
                 background_color=PRIMARY,
                 color="white",
                 size="3",
@@ -196,7 +260,7 @@ def action_bar() -> rx.Component:
             ),
             rx.button(
                 "Reset",
-                on_click=State.reset,
+                on_click=State.clear_all,
                 variant="outline",
                 size="3",
                 border_radius="4px",
@@ -251,10 +315,14 @@ def result_panel() -> rx.Component:
             ),
             info_row("Files modified", rx.badge(State.result_files_modified, color_scheme="green")),
             info_row("Folders renamed", rx.badge(State.result_folders_renamed, color_scheme="green")),
-            info_row("Old bot schema", State.result_old_schema),
-            info_row("New bot schema", State.result_new_schema),
-            info_row("Old solution name", State.result_old_solution),
-            info_row("New solution name", State.result_new_solution),
+            rx.divider(margin_y="10px"),
+            sub_heading("AGENT (COPILOT STUDIO)"),
+            info_row("Old schema name", State.result_old_schema),
+            info_row("New schema name", State.result_new_schema),
+            rx.divider(margin_y="10px"),
+            sub_heading("SOLUTION"),
+            info_row("Old unique name", State.result_old_solution),
+            info_row("New unique name", State.result_new_solution),
             # Warnings
             rx.cond(
                 State.result_warnings.length() > 0,
