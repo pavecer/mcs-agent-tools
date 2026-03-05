@@ -10,6 +10,7 @@ from web.components import (
     inspect_error_banner,
     name_inputs,
     navbar,
+    no_agent_warning_banner,
     process_error_banner,
     result_panel,
     upload_area,
@@ -149,6 +150,7 @@ def index() -> rx.Component:
                 # ── Tab content area ──────────────────────────────────────
                 rx.box(
                     _file_bar(),
+                    no_agent_warning_banner(),
                     rx.cond(
                         State.active_tab == "rename",
                         _rename_tab(),

@@ -25,7 +25,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from models import RenameConfig
-from renamer import inspect_solution, inspect_zip, rename_solution
+from renamer import derive_schema_name, inspect_solution, inspect_zip, rename_solution
 
 app = typer.Typer(help="Rename a Power Platform Copilot Studio agent solution export.")
 console = Console()
@@ -86,8 +86,6 @@ def main(
         raise typer.Exit()
 
     # ── Preview derived names ────────────────────────────────────────────────
-    from renamer import derive_schema_name
-
     derived_schema = schema or derive_schema_name(info.bot_schema_name, agent_name)
 
     table = Table(title="Rename Preview", show_header=True, header_style="bold magenta")

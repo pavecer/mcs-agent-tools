@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import base64
+import os
+import tempfile
 import traceback
+import zipfile
 from pathlib import Path
 
 import reflex as rx
 
 from renamer import derive_schema_name, derive_solution_unique_name, inspect_zip, rename_solution_from_bytes
+from validator import validate_zip_bytes
 from visualizer import visualize_zip_bytes
 
 
@@ -20,6 +24,7 @@ class State(rx.State):
     zip_bytes_b64: str = ""          # base64-encoded uploaded ZIP bytes
     is_inspecting: bool = False
     inspect_error: str = ""
+    no_agent_warning: str = ""       # set when the uploaded ZIP has no Copilot Studio agent
 
     detected_bot_schema: str = ""
     detected_bot_name: str = ""
@@ -67,7 +72,9 @@ class State(rx.State):
     result_folders_renamed: int = 0
     result_warnings: list[str] = []
     result_filename: str = ""
-    result_zip_b64: str = ""  # base64-encoded output ZIP
+    # base64-encoded output ZIP bytes – used by the download event
+    _output_zip_b64: str = ""
+
 
     # ── Computed / derived ────────────────────────────────────────────────
 
@@ -125,17 +132,39 @@ class State(rx.State):
 
         self.is_inspecting = True
         self.inspect_error = ""
+        self.no_agent_warning = ""
         self.process_success = False
         self.process_error = ""
-        self.result_zip_b64 = ""
+        self.result_filename = ""
+        self._output_zip_b64 = ""
         yield  # flush state to UI
 
         # Write to temp so inspect_zip can use it
-        import tempfile
-        import os
         with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tf:
             tf.write(file_bytes)
             tmp_path = Path(tf.name)
+
+        # Pre-check: ensure the ZIP is valid and contains a Copilot Studio agent
+        try:
+            with zipfile.ZipFile(tmp_path) as _zf:
+                _has_agent = any(
+                    n == "bots" or n.startswith("bots/")
+                    for n in _zf.namelist()
+                )
+        except zipfile.BadZipFile:
+            self.inspect_error = "The uploaded file is not a valid ZIP archive."
+            os.unlink(tmp_path)
+            self.is_inspecting = False
+            return
+
+        if not _has_agent:
+            self.no_agent_warning = (
+                "This solution does not contain a Copilot Studio agent (bot) definition. "
+                "Rename, Visualise and Validate operations require an agent to be included in the solution export."
+            )
+            os.unlink(tmp_path)
+            self.is_inspecting = False
+            return
 
         try:
             info = inspect_zip(tmp_path)
@@ -179,7 +208,6 @@ class State(rx.State):
             self.is_validating = True
             yield
             try:
-                from validator import validate_zip_bytes
                 report = validate_zip_bytes(file_bytes)
                 self.validation_model_key = report["model_key"]
                 self.validation_model_display = report["model_display"]
@@ -232,7 +260,7 @@ class State(rx.State):
             self.result_folders_renamed = result.folders_renamed
             self.result_warnings = result.warnings
             self.result_filename = f"{self.derived_solution_unique}.zip"
-            self.result_zip_b64 = base64.b64encode(output_bytes).decode()
+            self._output_zip_b64 = base64.b64encode(output_bytes).decode("ascii")
             self.process_success = True
         except Exception as exc:
             self.process_error = f"Rename failed: {exc}\n{traceback.format_exc()}"
@@ -241,17 +269,22 @@ class State(rx.State):
 
     @rx.event
     def download_result(self):
-        """Trigger download of the renamed ZIP."""
-        if not self.result_zip_b64:
+        """Trigger a browser download of the renamed ZIP using a data URL.
+
+        This bypasses cross-origin and browser-specific issues that can arise
+        when linking directly to the backend upload URL from the Vite frontend.
+        """
+        if not self._output_zip_b64 or not self.result_filename:
             return
+        zip_bytes = base64.b64decode(self._output_zip_b64)
         return rx.download(
-            data=base64.b64decode(self.result_zip_b64),
+            data=zip_bytes,
             filename=self.result_filename,
+            mime_type="application/zip",
         )
 
     @rx.event
     def clear_all(self):
-        """Clear all state to start over."""
         self.upload_filename = ""
         self.zip_bytes_b64 = ""
         self.is_inspecting = False
@@ -268,8 +301,19 @@ class State(rx.State):
         self.is_processing = False
         self.process_error = ""
         self.process_success = False
-        self.result_zip_b64 = ""
-        self.viz_segments = []
+        # Delete output ZIP if it was written to the upload directory
+        if self.result_filename:
+            output_file = Path(rx.get_upload_dir()) / self.result_filename
+            output_file.unlink(missing_ok=True)
+        self.result_old_schema = ""
+        self.result_new_schema = ""
+        self.result_old_solution = ""
+        self.result_new_solution = ""
+        self.result_files_modified = 0
+        self.result_folders_renamed = 0
+        self.result_warnings = []
+        self.result_filename = ""
+        self._output_zip_b64 = ""
         self.viz_error = ""
         self.is_visualizing = False
         self.is_validating = False
@@ -281,6 +325,7 @@ class State(rx.State):
         self.validation_best_practices = ""
         self.validation_instructions_length = 0
         self.show_best_practices = False
+        self.no_agent_warning = ""
         self.active_tab = "rename"
 
     @rx.event

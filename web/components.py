@@ -224,6 +224,17 @@ def action_bar() -> rx.Component:
 
 
 # ── Error / success banners ───────────────────────────────────────────────────
+def no_agent_warning_banner() -> rx.Component:
+    return rx.cond(
+        State.no_agent_warning != "",
+        rx.callout(
+            State.no_agent_warning,
+            icon="info",
+            color_scheme="amber",
+            margin_top="16px",
+        ),
+        rx.box(),
+    )
 
 def inspect_error_banner() -> rx.Component:
     return rx.cond(
@@ -288,7 +299,9 @@ def result_panel() -> rx.Component:
                 ),
                 rx.box(),
             ),
-            # Download button
+            # Download button – triggers a data-URL download via Reflex event
+            # to avoid cross-origin issues between the Vite frontend (port 3000)
+            # and the FastAPI backend (port 8000).
             rx.button(
                 rx.hstack(
                     rx.icon("download", size=16),
@@ -300,8 +313,8 @@ def result_panel() -> rx.Component:
                 color="white",
                 size="3",
                 border_radius="4px",
-                margin_top="16px",
                 _hover={"background_color": "#0b6a0b"},
+                margin_top="16px",
             ),
             border=f"1px solid {SUCCESS}",
             margin_top="16px",

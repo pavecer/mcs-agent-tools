@@ -75,6 +75,18 @@ def derive_schema_name(old_schema: str, new_agent_name: str) -> str:
     return prefix + sanitize_schema_name(new_agent_name)
 
 
+# ── ZIP utilities ───────────────────────────────────────────────────────────
+
+def _safe_extractall(zf: zipfile.ZipFile, dest: Path) -> None:
+    """Extract a ZIP, rejecting any entries that would escape *dest* via path traversal."""
+    dest_resolved = dest.resolve()
+    for info in zf.infolist():
+        target = (dest_resolved / info.filename).resolve()
+        if not target.is_relative_to(dest_resolved):
+            raise ValueError(f"Rejected unsafe ZIP entry: {info.filename!r}")
+    zf.extractall(dest)
+
+
 # ── Solution inspection ───────────────────────────────────────────────────────
 
 def inspect_solution(solution_dir: Path) -> SolutionInfo:
@@ -150,7 +162,7 @@ def inspect_zip(zip_path: Path) -> SolutionInfo:
         tmp = Path(tmpdir) / "src"
         tmp.mkdir()
         with zipfile.ZipFile(zip_path) as zf:
-            zf.extractall(tmp)
+            _safe_extractall(zf, tmp)
         return inspect_solution(tmp)
 
 
@@ -241,27 +253,6 @@ def _update_bot_xml_name(bot_xml_path: Path, new_display_name: str) -> None:
         logger.warning(f"Could not update bot.xml display name: {exc}")
 
 
-def _update_gpt_botcomponent_name(
-    work_dir: Path,
-    new_bot_schema: str,
-    new_agent_name: str,
-) -> None:
-    """Update the <name> in the gpt.default botcomponent.xml."""
-    gpt_dir = work_dir / "botcomponents" / f"{new_bot_schema}.gpt.default"
-    gpt_xml = gpt_dir / "botcomponent.xml"
-    if not gpt_xml.exists():
-        return
-    try:
-        tree = ET.parse(str(gpt_xml))
-        el = tree.getroot().find(".//name")
-        if el is not None:
-            el.text = new_agent_name
-        ET.indent(tree, space="  ")
-        tree.write(str(gpt_xml), encoding="unicode", xml_declaration=False)
-    except ET.ParseError as exc:
-        logger.warning(f"Could not update gpt botcomponent name: {exc}")
-
-
 # ── Folder renaming ───────────────────────────────────────────────────────────
 
 def _rename_folders(
@@ -329,7 +320,7 @@ def rename_solution(config: RenameConfig) -> RenameResult:
             src_dir = tmp / "src"
             src_dir.mkdir()
             with zipfile.ZipFile(config.source_path) as zf:
-                zf.extractall(src_dir)
+                _safe_extractall(zf, src_dir)
             logger.info(f"Extracted ZIP: {config.source_path.name}")
         else:
             src_dir = config.source_path
@@ -426,10 +417,14 @@ def rename_solution(config: RenameConfig) -> RenameResult:
         # ── 8. Package to output ZIP ─────────────────────────────────────────
         config.output_path.parent.mkdir(parents=True, exist_ok=True)
         with zipfile.ZipFile(config.output_path, "w", zipfile.ZIP_DEFLATED) as zf:
-            for f in sorted(work_dir.rglob("*")):
-                if f.is_file():
-                    arc_name = f.relative_to(work_dir)
-                    zf.write(f, arc_name)
+            all_files = sorted(f for f in work_dir.rglob("*") if f.is_file())
+            # Write [Content_Types].xml last: macOS Archive Utility treats a ZIP
+            # as a broken OOXML package and rejects it when [Content_Types].xml
+            # with the OPC namespace is the first entry.
+            ct_files = [f for f in all_files if f.name == "[Content_Types].xml"]
+            other_files = [f for f in all_files if f.name != "[Content_Types].xml"]
+            for f in other_files + ct_files:
+                zf.write(f, f.relative_to(work_dir))
         logger.info(f"Output ZIP: {config.output_path}")
 
         return RenameResult(

@@ -24,6 +24,8 @@ try:
 except ImportError:  # pragma: no cover
     _YAML_AVAILABLE = False
 
+from renamer import _safe_extractall
+
 
 # ── Pydantic models ────────────────────────────────────────────────────────────
 
@@ -42,9 +44,7 @@ class ComponentSummary(BaseModel):
 class GptInfo(BaseModel):
     display_name: str = ""
     model_hint: str | None = None
-    knowledge_sources_kind: str | None = None
     web_browsing: bool = False
-    code_interpreter: bool = False
     instructions: str | None = None
 
 
@@ -59,7 +59,6 @@ class BotProfile(BaseModel):
     display_name: str = ""
     channels: list[str] = Field(default_factory=list)
     recognizer_kind: str = "Unknown"
-    is_orchestrator: bool = False
     use_model_knowledge: bool = False
     components: list[ComponentSummary] = Field(default_factory=list)
     gpt_info: GptInfo | None = None
@@ -224,7 +223,6 @@ def parse_solution_zip(work_dir: Path) -> BotProfile:
         display_name=display_name,
         channels=channels,
         recognizer_kind=recognizer_kind,
-        is_orchestrator=False,
         use_model_knowledge=use_model_knowledge,
         components=components,
         gpt_info=gpt_info,
@@ -411,10 +409,7 @@ def _render_ai_config(profile: BotProfile) -> str:
     lines = ["## AI Configuration\n", "| Property | Value |", "| --- | --- |"]
     if g.model_hint:
         lines.append(f"| Model | {g.model_hint} |")
-    if g.knowledge_sources_kind:
-        lines.append(f"| Knowledge Sources | {g.knowledge_sources_kind} |")
     lines.append(f"| Web Browsing | {'Yes' if g.web_browsing else 'No'} |")
-    lines.append(f"| Code Interpreter | {'Yes' if g.code_interpreter else 'No'} |")
     lines.append(f"| Use Model Knowledge | {'Yes' if profile.use_model_knowledge else 'No'} |")
     lines.append("")
     if g.instructions:
@@ -433,7 +428,6 @@ def _render_profile(profile: BotProfile) -> str:
         f"| Schema Name | `{profile.schema_name}` |",
         f"| Channels | {', '.join(c for c in profile.channels if c) or 'None configured'} |",
         f"| Recognizer | {profile.recognizer_kind} |",
-        f"| Orchestrator | {'Yes' if profile.is_orchestrator else 'No'} |",
         "",
     ]
     return "\n".join(lines)
@@ -587,7 +581,7 @@ def visualize_zip_bytes(zip_bytes: bytes) -> list[dict]:
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp = Path(tmpdir)
         with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
-            zf.extractall(tmp)
+            _safe_extractall(zf, tmp)
         profile = parse_solution_zip(tmp)
 
     md = generate_markdown_report(profile)
