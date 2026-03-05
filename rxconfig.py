@@ -1,0 +1,23 @@
+"""Reflex app configuration."""
+
+import os
+import reflex as rx
+
+# Determine run mode from environment (matches mcs-agent-analyser pattern)
+is_prod = os.getenv("REFLEX_ENV", "dev") == "prod"
+
+if is_prod:
+    port = int(os.getenv("PORT", "2009"))
+    config = rx.Config(
+        app_name="web.web",
+        app_module="web.web:app",
+        frontend_port=port,
+        backend_port=port,
+    )
+else:
+    config = rx.Config(
+        app_name="web.web",
+        app_module="web.web:app",
+        frontend_port=int(os.getenv("FRONTEND_PORT", "3000")),
+        backend_port=int(os.getenv("BACKEND_PORT", "8000")),
+    )

@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.venv/
+.reflex/
+node_modules/
+dist/
+build/
+.env
+*.zip
+*.log

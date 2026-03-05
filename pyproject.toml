@@ -1,0 +1,26 @@
+[project]
+name = "pp-agent-renamer"
+version = "0.1.0"
+description = "Rename Power Platform Copilot Studio agent solution exports for re-import as a copy"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "loguru>=0.7.3",
+    "pydantic>=2.12.0",
+    "python-dotenv>=1.2.1",
+    "reflex>=0.6.0",
+    "rich>=13.9.0",
+    "typer>=0.12.0",
+]
+
+[tool.ruff]
+line-length = 120
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "ruff>=0.8.0",
+]
