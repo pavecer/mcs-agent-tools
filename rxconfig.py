@@ -1,6 +1,11 @@
 """Reflex app configuration."""
 
 import os
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
 import reflex as rx
 
 # Determine run mode from environment (matches mcs-agent-analyser pattern)

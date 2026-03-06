@@ -73,5 +73,6 @@ def render_segment(segment: dict) -> rx.Component:
                 },
             ),
             width="100%",
+            overflow_x="auto",
         ),
     )

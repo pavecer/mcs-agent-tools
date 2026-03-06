@@ -8,12 +8,14 @@ from web.components import (
     action_bar,
     detected_info_panel,
     inspect_error_banner,
+    login_form,
+    mcs_analyse_panel,
     name_inputs,
     navbar,
     no_agent_warning_banner,
     process_error_banner,
     result_panel,
-    upload_area,
+    unified_upload_area,
     validation_panel,
     visualization_panel,
 )
@@ -92,11 +94,6 @@ def _tab_trigger(label: str, icon: str, tab_id: str) -> rx.Component:
 
 def _rename_tab() -> rx.Component:
     return rx.vstack(
-        rx.cond(
-            ~State.has_upload,
-            upload_area(),
-            rx.box(),
-        ),
         inspect_error_banner(),
         detected_info_panel(),
         name_inputs(),
@@ -125,53 +122,104 @@ def _validate_tab() -> rx.Component:
         width="100%",
     )
 
+
+# ── Analyse tab content ───────────────────────────────────────────────────────
+
+def _analyse_tab() -> rx.Component:
+    return rx.box(
+        mcs_analyse_panel(),
+        width="100%",
+    )
+
+
 def index() -> rx.Component:
-    """Main page with a Rename / Visualize tab layout."""
+    """Main page with a unified upload zone and context-sensitive tab layout."""
     return rx.vstack(
         mermaid_script(),
         navbar(),
         rx.box(
-            rx.vstack(
-                # ── Tab bar ──────────────────────────────────────────────
+            rx.cond(
+                ~State.has_upload,
+                # ── No file yet: unified drop zone ────────────────────────
                 rx.box(
-                    rx.hstack(
-                        _tab_trigger("Rename", "refresh-cw", "rename"),
-                        _tab_trigger("Visualize", "git-branch", "visualize"),
-                        _tab_trigger("Validate", "shield-check", "validate"),
-                        spacing="0",
-                        border_bottom="1px solid #edebe9",
+                    rx.vstack(
+                        rx.heading(
+                            "Get Started",
+                            size="4",
+                            margin_bottom="4px",
+                            color="#201f1e",
+                        ),
+                        rx.text(
+                            "Upload a Power Platform solution ZIP to rename, visualise and validate, "
+                            "or drop a Copilot Studio snapshot ZIP for deep agent analysis.",
+                            font_size="13px",
+                            color="#605e5c",
+                            margin_bottom="8px",
+                        ),
+                        unified_upload_area(),
+                        inspect_error_banner(),
+                        spacing="4",
+                        width="100%",
+                        align="start",
+                    ),
+                    background="#ffffff",
+                    border_radius="8px",
+                    box_shadow="0 2px 8px rgba(0,0,0,.08)",
+                    padding="24px",
+                    width="100%",
+                ),
+                # ── File uploaded: conditional tabs + content ─────────────
+                rx.vstack(
+                    # Tab bar – first tab adapted to ZIP type
+                    rx.box(
+                        rx.hstack(
+                            rx.cond(
+                                State.is_solution_zip,
+                                _tab_trigger("Rename", "refresh-cw", "rename"),
+                                _tab_trigger("Analyse", "search", "analyse"),
+                            ),
+                            _tab_trigger("Visualize", "git-branch", "visualize"),
+                            _tab_trigger("Validate", "shield-check", "validate"),
+                            spacing="0",
+                            border_bottom="1px solid #edebe9",
+                            width="100%",
+                        ),
+                        width="100%",
+                        background="#ffffff",
+                        border_radius="8px 8px 0 0",
+                        box_shadow="0 2px 8px rgba(0,0,0,.08)",
+                    ),
+                    # Content area
+                    rx.box(
+                        _file_bar(),
+                        inspect_error_banner(),
+                        no_agent_warning_banner(),
+                        rx.cond(
+                            State.active_tab == "rename",
+                            _rename_tab(),
+                            rx.cond(
+                                State.active_tab == "visualize",
+                                _visualize_tab(),
+                                rx.cond(
+                                    State.active_tab == "validate",
+                                    _validate_tab(),
+                                    _analyse_tab(),
+                                ),
+                            ),
+                        ),
+                        padding="20px 24px 28px",
+                        background="#ffffff",
+                        border_radius="0 0 8px 8px",
+                        box_shadow="0 2px 8px rgba(0,0,0,.08)",
                         width="100%",
                     ),
+                    spacing="0",
                     width="100%",
-                    background="#ffffff",
-                    border_radius="8px 8px 0 0",
-                    box_shadow="0 2px 8px rgba(0,0,0,.08)",
+                    align="start",
                 ),
-                # ── Tab content area ──────────────────────────────────────
-                rx.box(
-                    _file_bar(),
-                    no_agent_warning_banner(),
-                    rx.cond(
-                        State.active_tab == "rename",
-                        _rename_tab(),
-                        rx.cond(
-                            State.active_tab == "visualize",
-                            _visualize_tab(),
-                            _validate_tab(),
-                        ),
-                    ),
-                    padding="20px 24px 28px",
-                    background="#ffffff",
-                    border_radius="0 0 8px 8px",
-                    box_shadow="0 2px 8px rgba(0,0,0,.08)",
-                    width="100%",
-                ),
-                spacing="0",
-                width="100%",
-                align="start",
             ),
             max_width=rx.cond(
-                State.active_tab == "rename",
+                ~State.has_upload | (State.active_tab == "rename"),
                 MAX_WIDTH,
                 VIZ_MAX_WIDTH,
             ),
@@ -185,10 +233,17 @@ def index() -> rx.Component:
         width="100%",
         spacing="0",
         align="start",
+        on_mount=State.check_auth,
     )
+
+
+def login_page() -> rx.Component:
+    """Login page at /login."""
+    return login_form()
 
 
 app = rx.App(
     theme=rx.theme(appearance="light", accent_color="blue"),
 )
 app.add_page(index, route="/", title="PP Agent Toolkit")
+app.add_page(login_page, route="/login", title="Sign in — PP Agent Toolkit", on_load=State.check_already_authed)

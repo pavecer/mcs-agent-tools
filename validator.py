@@ -521,36 +521,16 @@ def _run_checks(instructions: str, meta: dict) -> list[dict]:
 # ── Public API ─────────────────────────────────────────────────────────────────
 
 
-def validate_zip_bytes(zip_bytes: bytes) -> dict:
-    """Parse a solution ZIP and validate agent instructions against model best practices.
+def validate_instructions(instructions: str, model_hint: str | None) -> dict:
+    """Validate instructions string directly (without reading from a ZIP file).
 
-    Returns a dict suitable for storing in Reflex state::
-
-        {
-            "model_key": str,           # internal key or "" if not assessed
-            "model_display": str,       # human-readable model name
-            "best_practices_md": str,   # full best-practices Markdown
-            "results": list[dict],      # [{rule_id, title, severity, detail}, ...]
-            "instructions_length": int,
-        }
-
-    Raises ``ValueError`` or ``RuntimeError`` on ZIP parse failure.
+    Accepts the raw instructions text and an optional model hint string.
+    Returns the same dict structure as :func:`validate_zip_bytes`.
     """
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmp = Path(tmpdir)
-        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
-            _safe_extractall(zf, tmp)
-        profile = parse_solution_zip(tmp)
-
-    gpt_info = profile.gpt_info
-    hint = gpt_info.model_hint if gpt_info else None
-    instructions = (gpt_info.instructions or "") if gpt_info else ""
-
-    model_key = _resolve_model_key(hint)
+    model_key = _resolve_model_key(model_hint)
 
     if model_key is None:
-        # Model is below GPT-4.1 threshold or unrecognised
-        display = hint or "Unknown"
+        display = model_hint or "Unknown"
         return {
             "model_key": "",
             "model_display": display,
@@ -581,3 +561,31 @@ def validate_zip_bytes(zip_bytes: bytes) -> dict:
         "results": results,
         "instructions_length": len(instructions),
     }
+
+
+def validate_zip_bytes(zip_bytes: bytes) -> dict:
+    """Parse a solution ZIP and validate agent instructions against model best practices.
+
+    Returns a dict suitable for storing in Reflex state::
+
+        {
+            "model_key": str,           # internal key or "" if not assessed
+            "model_display": str,       # human-readable model name
+            "best_practices_md": str,   # full best-practices Markdown
+            "results": list[dict],      # [{rule_id, title, severity, detail}, ...]
+            "instructions_length": int,
+        }
+
+    Raises ``ValueError`` or ``RuntimeError`` on ZIP parse failure.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp = Path(tmpdir)
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+            _safe_extractall(zf, tmp)
+        profile = parse_solution_zip(tmp)
+
+    gpt_info = profile.gpt_info
+    hint = gpt_info.model_hint if gpt_info else None
+    instructions = (gpt_info.instructions or "") if gpt_info else ""
+
+    return validate_instructions(instructions, hint)
