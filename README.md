@@ -1,151 +1,123 @@
 # PP Agent Toolkit
 
-A **Microsoft Power Platform / Copilot Studio** developer tool with three capabilities, all available through a single web UI or CLI:
+Toolkit for **Power Platform / Copilot Studio** exports with a single Reflex web UI plus a rename-focused CLI.
 
-| Tab | What it does |
-|---|---|
-| **Rename** | Rename all references inside a solution export so it can be imported as a new, standalone agent |
-| **Visualise** | Parse the solution ZIP and render a structured Markdown + Mermaid diagram report of the agent's AI configuration, components, and topic connection graph |
-| **Validate** | Analyse the agent's system instructions against model-specific best practices (GPT-4.1 and higher) and surface actionable rule-by-rule findings |
+## What The Solution Offers
 
----
+### 1. Rename (solution ZIP)
 
-## Rename
+Create a safe copy of an exported solution by rewriting bot and solution identifiers so import does not overwrite the original.
 
-When you export a Copilot Studio agent from Power Platform and want to import it again under a different name (e.g. to create a copy or sandbox version), the ZIP contains hundreds of files that all reference the original bot's schema name and solution name. Importing the ZIP as-is simply overwrites the existing agent.
+What is updated:
 
-This tool updates every reference so the solution is treated as a brand-new agent on import:
+- Bot schema name references (for example `copilots_new_my_bot` -> derived or overridden new schema)
+- Agent display name (`bot.xml`, `gpt.default/botcomponent.xml`)
+- Solution unique name (`solution.xml` + text references)
+- Solution display name (`solution.xml` localized name)
+- Folder names: `bots/{schema}` and `botcomponents/{schema}.*`
 
-| What changes | Where |
-|---|---|
-| Bot schema name (`copilots_new_prefix_botname` → new) | All `botcomponent.xml` files, `bot.xml`, `configuration.json`, `data` YAML files |
-| Bot display name | `bot.xml`, `solution.xml`, `gpt.default/botcomponent.xml` |
-| Solution unique name | `solution.xml` |
-| Folder names | `bots/{schema}/`, `botcomponents/{schema}.*/` |
+### 2. Visualize (solution ZIP or snapshot ZIP)
 
----
+Generate markdown sections and Mermaid diagrams for agent structure.
 
-## Visualise
+- Bot profile and AI settings
+- Components/topics table
+- Topic redirect graph (`BeginDialog` relationships)
 
-After uploading a solution ZIP the **Visualise** tab automatically parses the solution and generates a report containing:
+### 3. Validate Instructions
 
-- **AI Configuration** — model hint, web browsing, code interpreter, use model knowledge, and a preview of the system instructions
-- **Agent Profile** — schema name, channels, recognizer kind, orchestrator flag
-- **Components** — summary by category (User Topics, System Topics, Automation Topics, Knowledge, Skills, Custom Entities, Variables, Settings) with active/inactive counts
-- **Topic Connection Graph** — interactive Mermaid flowchart of all `BeginDialog` calls between topics, including conditional edges
+Run static, rule-based instruction validation against model-specific best-practice files in `best_practices/`.
 
----
+Supported model families include:
 
-## Validate
+- `gpt41`, `gpt41mini`, `gpt41nano`
+- `gpt5`, `gpt5chat`
+- `o1`, `o3`, `o4mini`
 
-The **Validate** tab analyses the agent's system instructions against a curated set of best-practice rules for the model the agent is configured to use.
+Output is rule-by-rule with `PASS`, `WARN`, or `FAIL`, plus optional rendered best-practice guidance.
 
-Supported models (GPT-4.1 and higher):
+### 4. Analyse Copilot Studio Snapshot + Transcript
 
-| Model | Key focus areas |
-|---|---|
-| GPT-4.1 | Persona, purpose, explicit scope constraints, deterministic language |
-| GPT-4.1 Mini | Conciseness, single domain, flat rule structure |
-| GPT-4.1 Nano | Ultra-concise (≤ 5 directives), no complex logic |
-| GPT-5 | Grounding rules, output schemas, tight scope constraints |
-| GPT-5 Chat | Mandatory grounding, instruction-override guard, escalation path |
-| o1 | Goal-oriented only — no redundant reasoning-process directives |
-| o3 | Self-validation criteria, precise output schemas, strong grounding |
-| o4-mini | Concise + goal-oriented, no chain-of-thought instructions |
+For snapshot ZIPs (containing `botContent.yml`), the app provides deeper analysis sections:
 
-Each run returns a rule-by-rule report with **PASS / WARN / FAIL** verdicts and actionable detail for every check. A collapsible "Show Best Practices" section surfaces the full guidance document for the detected model.
+- Profile
+- Topics/components
+- Topic graph
+- Conversation analysis
 
----
+You can also upload transcript JSON and render a detailed conversation report with:
+
+- Sequence diagram
+- Execution timeline/gantt-style sections
+- Event log and error highlights
+
+## Supported Inputs
+
+- **Power Platform solution ZIP** (contains `bots/`)
+- **Copilot Studio snapshot ZIP** (contains `botContent.yml`)
+- **Transcript JSON** (for conversation analysis in Analyse flow)
 
 ## Quick Start
 
 ### Web UI
 
 ```bash
-cp .env.example .env   # edit ports if needed
 uv sync
 uv run reflex run
 ```
 
-Open http://localhost:3000:
+Open `http://localhost:3000`.
 
-**Rename tab**
-1. Drag & drop your `.zip` solution export
-2. Enter the **new agent display name** (e.g. `My New Bot`)
-3. Enter the **new solution display name** (e.g. `My New Bot Solution`)
-4. Click **Rename Solution**
-5. Download the renamed ZIP and import it into Power Platform
+Typical flow:
 
-**Visualise tab** — upload a ZIP and the report renders automatically.
+1. Upload a `.zip` export.
+2. If it is a solution ZIP, use `Rename`, `Visualize`, and `Validate` tabs.
+3. If it is a snapshot ZIP, use `Analyse`, `Visualize`, and `Validate` tabs.
+4. Optionally upload transcript `.json` in Analyse to enrich conversation reporting.
 
-**Validate tab** — upload a ZIP and validation runs automatically alongside visualisation.
-
-### CLI (rename only)
+### CLI (rename)
 
 ```bash
 uv sync
 
-# Basic usage
-uv run python main.py MySolution_1_0_0_0.zip \
+# Rename from ZIP
+uv run python main.py solution.zip \
     --agent-name "My New Bot" \
     --solution-name "MyNewBot"
 
-# Use extracted folder instead of ZIP
-uv run python main.py ./MySolution_1_0_0_0 \
+# Rename from extracted folder
+uv run python main.py ./MySolutionFolder \
     --agent-name "My Bot Copy" \
     --solution-name "MyBotCopy"
 
-# Override the auto-derived schema name
+# Override derived schema name
 uv run python main.py solution.zip \
-    -a "My New Bot" -s "MyNewBot" \
-    --schema copilots_new_my_new_bot
+    -a "My Bot Copy" -s "MyBotCopy" \
+    --schema copilots_new_my_bot_copy
 
-# Inspect only — no changes
+# Custom output ZIP path
+uv run python main.py solution.zip \
+    -a "My Bot Copy" -s "MyBotCopy" \
+    -o ./output/MyBotCopy.zip
+```
+
+Inspect-only mode example:
+
+```bash
 uv run python main.py solution.zip --inspect
-
-# Specify custom output path
-uv run python main.py solution.zip -a "Copy" -s "MyCopy" -o ./output/my_copy.zip
 ```
-
----
-
-## Project Structure
-
-```
-main.py              CLI entry point (Typer + Rich) — rename only
-models.py            Pydantic models (RenameConfig, RenameResult, SolutionInfo)
-renamer.py           Core renaming logic (detection, content replace, folder rename, ZIP)
-visualizer.py        Solution ZIP parser → Markdown + Mermaid report segments
-validator.py         Instruction validator — rule engine + model best-practice loader
-rxconfig.py          Reflex app config
-best_practices/      Per-model best-practice Markdown files (gpt41.md, gpt5chat.md, o3.md …)
-web/
-  state.py           Reflex state (upload, rename, visualise, validate, download)
-  components.py      UI components (upload area, info panels, visualisation, validation)
-  web.py             Page definitions, tab layout, and Reflex app setup
-```
-
----
 
 ## Configuration
 
-| Variable | Default | Description |
-|---|---|---|
-| `REFLEX_ENV` | `dev` | `dev` = two ports, `prod` = single-port mode |
-| `FRONTEND_PORT` | `3000` | Frontend port (dev only) |
-| `BACKEND_PORT` | `8000` | Backend port (dev only) |
-| `PORT` | `2009` | Port for prod single-port mode |
+Environment variables:
 
----
+- `REFLEX_ENV`: `dev` (default) or `prod`
+- `FRONTEND_PORT`: frontend port in dev mode (default `3000`)
+- `BACKEND_PORT`: backend port in dev mode (default `8000`)
+- `PORT`: single port in prod mode (default `2009`)
+- `USERS`: optional basic auth credentials list (`user1:pass1,user2:pass2`)
 
-## Deployment (Docker / Coolify)
-
-```bash
-docker build -t pp-agent-toolkit .
-docker run -p 2009:2009 -e REFLEX_ENV=prod -e PORT=2009 pp-agent-toolkit
-```
-
----
+When `USERS` is set, the app requires login at `/login`.
 
 ## Development
 
@@ -153,31 +125,33 @@ docker run -p 2009:2009 -e REFLEX_ENV=prod -e PORT=2009 pp-agent-toolkit
 uv sync
 uv run ruff check .
 uv run ruff format .
+uv run pytest
 uv run reflex run
 ```
 
----
+## Project Structure
 
-## How schema names are derived
-
-Power Platform bot schema names follow the pattern `{namespace}_{publisher_prefix}_{logical_name}`,  
-e.g. `copilots_new_prefix_botname`.
-
-The tool extracts the prefix (first two underscore-separated segments, e.g. `copilots_new_`) and appends a sanitized version of your new agent display name:
-
+```text
+main.py              CLI entry point (Typer + Rich)
+renamer.py           Rename engine + safe ZIP handling
+models.py            Pydantic models for rename config/results
+visualizer.py        Solution ZIP parser to markdown/mermaid segments
+validator.py         Model-aware instruction validation
+mcs_parser.py        Snapshot YAML + dialog parser
+mcs_timeline.py      Conversation timeline builder
+mcs_renderer.py      Markdown + Mermaid report rendering
+mcs_transcript.py    Transcript JSON normalization/parsing
+web/state.py         Reflex app state and workflows
+web/components.py    UI components
+web/web.py           App pages and tab routing
+best_practices/      Validation rule reference docs per model family
+tests/               Unit tests (currently focused on renamer/utils)
 ```
-"My New Bot"  →  copilots_new_my_new_bot
-"My Copy"     →  copilots_new_my_copy
-```
-
-You can override this with `--schema` (CLI) or by editing the derived schema preview field.
-
----
 
 ## Caveats
 
-- The rename tool performs **text replacement** on all XML, JSON, and YAML (`data`) files; binary files (e.g. `.xlsx` knowledge files) are skipped automatically.
-- Always test-import into a **development environment** before using in production.
-- This tool does not update any **GUIDs** inside the solution — Power Platform generates new GUIDs on import, so this is not required.
-- Instruction validation uses **static rule checks** (length, pattern matching, keyword detection). It does not call any external AI API.
-- Validation is supported for **GPT-4.1 and higher** models only; agents using GPT-4o or earlier receive a "below assessment threshold" notice.
+- Rename is string-based across selected text files (`.xml`, `.json`, `.yaml`, `.yml`, known extensionless `data` files).
+- Binary files are not rewritten.
+- GUIDs are not regenerated by this tool.
+- Validation is static/rule-based and does not call an LLM API.
+- Test coverage currently focuses on renamer utilities and validation of naming rules.

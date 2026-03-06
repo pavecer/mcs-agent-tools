@@ -38,19 +38,17 @@ def main(
         help="Path to the solution ZIP file or extracted solution folder.",
         exists=True,
     ),
-    agent_name: str = typer.Option(
-        ...,
+    agent_name: str | None = typer.Option(
+        None,
         "--agent-name",
         "-a",
         help="New display name for the agent (e.g. 'My New Bot').",
-        prompt="New agent display name",
     ),
-    solution_name: str = typer.Option(
-        ...,
+    solution_name: str | None = typer.Option(
+        None,
         "--solution-name",
         "-s",
         help="New unique name for the solution (letters/digits/underscores only, e.g. 'MyNewBot').",
-        prompt="New solution unique name",
     ),
     schema: str | None = typer.Option(
         None,
@@ -84,6 +82,11 @@ def main(
 
     if inspect:
         raise typer.Exit()
+
+    if not agent_name:
+        agent_name = typer.prompt("New agent display name").strip()
+    if not solution_name:
+        solution_name = typer.prompt("New solution unique name").strip()
 
     # ── Preview derived names ────────────────────────────────────────────────
     derived_schema = schema or derive_schema_name(info.bot_schema_name, agent_name)
