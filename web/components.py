@@ -9,16 +9,17 @@ from web.state import State
 
 
 # ── Colour palette ────────────────────────────────────────────────────────────
-PRIMARY = "#0078d4"       # Microsoft blue
-SUCCESS = "#107c10"       # Microsoft green
-WARNING = "#797673"       # muted amber label
-WARNING_AMBER = "#c7921e" # amber for validation badges
-ERROR_COLOR = "#a4262c"   # Microsoft red
-BG = "#f3f2f1"            # Fabric neutral light
+PRIMARY = "#0078d4"  # Microsoft blue
+SUCCESS = "#107c10"  # Microsoft green
+WARNING = "#797673"  # muted amber label
+WARNING_AMBER = "#c7921e"  # amber for validation badges
+ERROR_COLOR = "#a4262c"  # Microsoft red
+BG = "#f3f2f1"  # Fabric neutral light
 CARD_BG = "#ffffff"
 
 
 # ── Building blocks ───────────────────────────────────────────────────────────
+
 
 def card(*children, **props) -> rx.Component:
     """White card with shadow."""
@@ -50,6 +51,7 @@ def info_row(field: str, value: rx.Component | str) -> rx.Component:
         padding_y="4px",
     )
 
+
 def sub_heading(text: str) -> rx.Component:
     """Small uppercase section label used inside cards."""
     return rx.text(
@@ -61,7 +63,9 @@ def sub_heading(text: str) -> rx.Component:
         margin_bottom="6px",
     )
 
+
 # ── Upload area ───────────────────────────────────────────────────────────────
+
 
 def upload_area() -> rx.Component:
     return rx.upload(
@@ -129,6 +133,7 @@ def unified_upload_area() -> rx.Component:
 
 # ── Detected info panel (read-only summary) ────────────────────────────────────
 
+
 def detected_info_panel() -> rx.Component:
     return rx.cond(
         State.has_detection,
@@ -148,14 +153,14 @@ def detected_info_panel() -> rx.Component:
 
 # ── Name inputs ──────────────────────────────────────────────────────────────────
 
+
 def name_inputs() -> rx.Component:
     return rx.cond(
         State.has_detection,
         card(
             section_heading("New Names"),
             rx.text(
-                "Enter the new names for the renamed copy. "
-                "Technical identifiers are derived automatically.",
+                "Enter the new names for the renamed copy. Technical identifiers are derived automatically.",
                 font_size="13px",
                 color="#605e5c",
                 margin_bottom="16px",
@@ -219,6 +224,7 @@ def name_inputs() -> rx.Component:
 
 # ── Action bar ────────────────────────────────────────────────────────────────
 
+
 def action_bar() -> rx.Component:
     return rx.cond(
         State.has_detection,
@@ -269,6 +275,7 @@ def no_agent_warning_banner() -> rx.Component:
         rx.box(),
     )
 
+
 def inspect_error_banner() -> rx.Component:
     return rx.cond(
         State.inspect_error != "",
@@ -296,6 +303,7 @@ def process_error_banner() -> rx.Component:
 
 
 # ── Result panel ──────────────────────────────────────────────────────────────
+
 
 def result_panel() -> rx.Component:
     return rx.cond(
@@ -358,6 +366,7 @@ def result_panel() -> rx.Component:
 
 # ── Navbar ────────────────────────────────────────────────────────────────────
 
+
 def navbar() -> rx.Component:
     return rx.box(
         rx.hstack(
@@ -411,6 +420,7 @@ def navbar() -> rx.Component:
 
 # ── Visualization panel ───────────────────────────────────────────────────────
 
+
 def visualization_panel() -> rx.Component:
     """Full-width visualization content rendered inside the Visualize tab."""
     return rx.cond(
@@ -460,6 +470,7 @@ def visualization_panel() -> rx.Component:
 
 
 # ── Validation panel ──────────────────────────────────────────────────────────
+
 
 def _validation_result_item(result: dict) -> rx.Component:
     """Render a single validation result row with severity-coloured left border."""
@@ -588,8 +599,7 @@ def validation_panel() -> rx.Component:
                                         color="#c8c6c4",
                                     ),
                                     rx.text(
-                                        State.validation_instructions_length_str
-                                        + " chars",
+                                        State.validation_instructions_length_str + " chars",
                                         font_size="13px",
                                         color="#605e5c",
                                     ),
@@ -603,17 +613,11 @@ def validation_panel() -> rx.Component:
                             rx.spacer(),
                             # ── Summary counts ────────────────────────────
                             rx.hstack(
-                                _validation_summary_badge(
-                                    State.validation_pass_count, "passed", "#107c10"
-                                ),
+                                _validation_summary_badge(State.validation_pass_count, "passed", "#107c10"),
                                 rx.divider(orientation="vertical", height="32px"),
-                                _validation_summary_badge(
-                                    State.validation_warn_count, "warnings", "#c7921e"
-                                ),
+                                _validation_summary_badge(State.validation_warn_count, "warnings", "#c7921e"),
                                 rx.divider(orientation="vertical", height="32px"),
-                                _validation_summary_badge(
-                                    State.validation_fail_count, "failed", "#a4262c"
-                                ),
+                                _validation_summary_badge(State.validation_fail_count, "failed", "#a4262c"),
                                 spacing="4",
                                 align="center",
                             ),
@@ -651,10 +655,8 @@ def validation_panel() -> rx.Component:
                                     rx.text(
                                         rx.cond(
                                             State.show_best_practices,
-                                            "Hide Best Practices for "
-                                            + State.validation_model_display,
-                                            "Show Best Practices for "
-                                            + State.validation_model_display,
+                                            "Hide Best Practices for " + State.validation_model_display,
+                                            "Show Best Practices for " + State.validation_model_display,
                                         ),
                                         font_size="13px",
                                         font_weight="600",
@@ -701,9 +703,7 @@ def validation_panel() -> rx.Component:
                                                 color="#323130",
                                                 line_height="1.6",
                                             ),
-                                            "code": lambda text: rx.code(
-                                                text, font_size="12px"
-                                            ),
+                                            "code": lambda text: rx.code(text, font_size="12px"),
                                         },
                                     ),
                                     width="100%",
@@ -742,6 +742,7 @@ def validation_panel() -> rx.Component:
 
 
 # ── Login form ────────────────────────────────────────────────────────────────
+
 
 def login_form() -> rx.Component:
     """Centred login card shown on the /login page."""
@@ -826,8 +827,10 @@ def login_form() -> rx.Component:
 
 # ── MCS Analyse panel ─────────────────────────────────────────────────────────
 
+
 def _mcs_section_tab_bar() -> rx.Component:
     """Inner tab bar for MCS analyse sub-sections."""
+
     def _btn(tab_id: str, icon_name: str, lbl: str) -> rx.Component:
         active = State.mcs_analyse_tab == tab_id
         return rx.box(

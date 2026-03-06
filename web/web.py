@@ -29,6 +29,7 @@ VIZ_MAX_WIDTH = "1200px"
 
 # ── Shared: file status bar shown at top of both tabs ────────────────────────
 
+
 def _file_bar() -> rx.Component:
     return rx.cond(
         State.has_upload,
@@ -69,6 +70,7 @@ def _file_bar() -> rx.Component:
 
 # ── Tab trigger helper ────────────────────────────────────────────────────────
 
+
 def _tab_trigger(label: str, icon: str, tab_id: str) -> rx.Component:
     """Custom styled tab button."""
     active = State.active_tab == tab_id
@@ -92,6 +94,7 @@ def _tab_trigger(label: str, icon: str, tab_id: str) -> rx.Component:
 
 # ── Rename tab content ────────────────────────────────────────────────────────
 
+
 def _rename_tab() -> rx.Component:
     return rx.vstack(
         inspect_error_banner(),
@@ -108,13 +111,16 @@ def _rename_tab() -> rx.Component:
 
 # ── Visualize tab content ─────────────────────────────────────────────────────
 
+
 def _visualize_tab() -> rx.Component:
     return rx.box(
         visualization_panel(),
         width="100%",
     )
 
+
 # ── Validate tab content ──────────────────────────────────────────────────
+
 
 def _validate_tab() -> rx.Component:
     return rx.box(
@@ -124,6 +130,7 @@ def _validate_tab() -> rx.Component:
 
 
 # ── Analyse tab content ───────────────────────────────────────────────────────
+
 
 def _analyse_tab() -> rx.Component:
     return rx.box(

@@ -26,6 +26,7 @@ EXTENSIONLESS_NAMES = {"data"}  # only rename known extensionless text files
 
 # ── Name helpers ─────────────────────────────────────────────────────────────
 
+
 def sanitize_schema_name(display_name: str) -> str:
     """Convert a display name to a valid Power Platform schema name component.
 
@@ -77,6 +78,7 @@ def derive_schema_name(old_schema: str, new_agent_name: str) -> str:
 
 # ── ZIP utilities ───────────────────────────────────────────────────────────
 
+
 def safe_extractall(zf: zipfile.ZipFile, dest: Path) -> None:
     """Extract a ZIP, rejecting any entries that would escape *dest* via path traversal."""
     dest_resolved = dest.resolve()
@@ -88,6 +90,7 @@ def safe_extractall(zf: zipfile.ZipFile, dest: Path) -> None:
 
 
 # ── Solution inspection ───────────────────────────────────────────────────────
+
 
 def inspect_solution(solution_dir: Path) -> SolutionInfo:
     """Auto-detect all relevant names from an extracted solution folder."""
@@ -101,8 +104,7 @@ def inspect_solution(solution_dir: Path) -> SolutionInfo:
         raise ValueError("No bot folder found inside 'bots/'.")
     if len(bot_folders) > 1:
         logger.warning(
-            f"Multiple bot folders found; using '{bot_folders[0].name}'. "
-            f"Others: {[d.name for d in bot_folders[1:]]}"
+            f"Multiple bot folders found; using '{bot_folders[0].name}'. Others: {[d.name for d in bot_folders[1:]]}"
         )
     old_bot_schema = bot_folders[0].name
 
@@ -131,14 +133,11 @@ def inspect_solution(solution_dir: Path) -> SolutionInfo:
             raise ValueError("Could not find <UniqueName> in solution.xml.")
         solution_unique_name = unique_el.text.strip()
 
-        disp_el = (
-            root.find(".//{*}LocalizedName[@languagecode='1033']")
-            or root.find(".//LocalizedName[@languagecode='1033']")
+        disp_el = root.find(".//{*}LocalizedName[@languagecode='1033']") or root.find(
+            ".//LocalizedName[@languagecode='1033']"
         )
         solution_display_name = (
-            disp_el.get("description", solution_unique_name)
-            if disp_el is not None
-            else solution_unique_name
+            disp_el.get("description", solution_unique_name) if disp_el is not None else solution_unique_name
         )
     except ET.ParseError as exc:
         raise ValueError(f"Could not parse solution.xml: {exc}") from exc
@@ -147,10 +146,7 @@ def inspect_solution(solution_dir: Path) -> SolutionInfo:
     bc_dir = solution_dir / "botcomponents"
     bc_folders = []
     if bc_dir.exists():
-        bc_folders = [
-            d.name for d in bc_dir.iterdir()
-            if d.is_dir() and d.name.startswith(old_bot_schema)
-        ]
+        bc_folders = [d.name for d in bc_dir.iterdir() if d.is_dir() and d.name.startswith(old_bot_schema)]
 
     return SolutionInfo(
         bot_schema_name=old_bot_schema,
@@ -172,6 +168,7 @@ def inspect_zip(zip_path: Path) -> SolutionInfo:
 
 
 # ── Content replacement ───────────────────────────────────────────────────────
+
 
 def _is_text_file(path: Path) -> bool:
     """Return True if the file should be treated as text."""
@@ -217,6 +214,7 @@ def _replace_content(
 
 # ── XML-level attribute updates ───────────────────────────────────────────────
 
+
 def _update_solution_xml(
     solution_xml_path: Path,
     old_unique_name: str,
@@ -260,6 +258,7 @@ def _update_bot_xml_name(bot_xml_path: Path, new_display_name: str) -> None:
 
 # ── Folder renaming ───────────────────────────────────────────────────────────
 
+
 def _rename_folders(
     work_dir: Path,
     old_bot_schema: str,
@@ -283,12 +282,9 @@ def _rename_folders(
     bc_dir = work_dir / "botcomponents"
     if bc_dir.exists():
         # Collect first so we're not iterating while renaming
-        to_rename = [
-            d for d in bc_dir.iterdir()
-            if d.is_dir() and d.name.startswith(old_bot_schema)
-        ]
+        to_rename = [d for d in bc_dir.iterdir() if d.is_dir() and d.name.startswith(old_bot_schema)]
         for old_dir in sorted(to_rename):
-            suffix = old_dir.name[len(old_bot_schema):]
+            suffix = old_dir.name[len(old_bot_schema) :]
             new_name = new_bot_schema + suffix
             new_dir = bc_dir / new_name
             old_dir.rename(new_dir)
@@ -299,6 +295,7 @@ def _rename_folders(
 
 
 # ── Main entry point ──────────────────────────────────────────────────────────
+
 
 def rename_solution(config: RenameConfig) -> RenameResult:
     """Process a Power Platform solution ZIP/folder and produce a renamed copy.
@@ -349,10 +346,7 @@ def rename_solution(config: RenameConfig) -> RenameResult:
         )
 
         # ── 3. Derive new bot schema name ────────────────────────────────────
-        new_bot_schema = (
-            config.new_bot_schema_name
-            or derive_schema_name(info.bot_schema_name, config.new_agent_name)
-        )
+        new_bot_schema = config.new_bot_schema_name or derive_schema_name(info.bot_schema_name, config.new_agent_name)
         logger.info(f"New bot schema: '{new_bot_schema}'")
 
         if new_bot_schema == info.bot_schema_name:
@@ -398,12 +392,7 @@ def rename_solution(config: RenameConfig) -> RenameResult:
 
         # gpt.default botcomponent – update agent display name there too
         # (folder will be renamed in step 7, so use old schema path here)
-        gpt_xml = (
-            work_dir
-            / "botcomponents"
-            / f"{info.bot_schema_name}.gpt.default"
-            / "botcomponent.xml"
-        )
+        gpt_xml = work_dir / "botcomponents" / f"{info.bot_schema_name}.gpt.default" / "botcomponent.xml"
         if gpt_xml.exists():
             try:
                 tree = ET.parse(str(gpt_xml))

@@ -14,6 +14,7 @@ from models import RenameConfig, SolutionInfo
 
 # ── sanitize_schema_name ──────────────────────────────────────────────────────
 
+
 def test_sanitize_schema_name_basic():
     assert sanitize_schema_name("My New Bot") == "my_new_bot"
 
@@ -35,6 +36,7 @@ def test_sanitize_schema_name_max_length():
 
 # ── derive_schema_name ────────────────────────────────────────────────────────
 
+
 def test_derive_schema_name_preserves_prefix():
     result = derive_schema_name("copilots_new_myoldbot", "My New Bot")
     assert result.startswith("copilots_new_")
@@ -47,6 +49,7 @@ def test_derive_schema_name_single_part_schema():
 
 
 # ── derive_solution_unique_name ───────────────────────────────────────────────
+
 
 def test_derive_solution_unique_name_pascal_case():
     assert derive_solution_unique_name("My New Bot") == "MyNewBot"
@@ -66,6 +69,7 @@ def test_derive_solution_unique_name_empty():
 
 
 # ── safe_extractall ───────────────────────────────────────────────────────────
+
 
 def test_safe_extractall_rejects_path_traversal(tmp_path: Path):
     """safe_extractall must raise ValueError for entries that escape the dest dir."""
@@ -96,8 +100,10 @@ def test_safe_extractall_allows_normal_entries(tmp_path: Path):
 
 # ── RenameConfig validation ───────────────────────────────────────────────────
 
+
 def test_rename_config_rejects_blank_agent_name(tmp_path: Path):
     from pydantic import ValidationError
+
     with pytest.raises(ValidationError):
         RenameConfig(
             source_path=tmp_path,
@@ -109,6 +115,7 @@ def test_rename_config_rejects_blank_agent_name(tmp_path: Path):
 
 def test_rename_config_rejects_invalid_solution_name(tmp_path: Path):
     from pydantic import ValidationError
+
     with pytest.raises(ValidationError, match="must start with a letter"):
         RenameConfig(
             source_path=tmp_path,
@@ -120,6 +127,7 @@ def test_rename_config_rejects_invalid_solution_name(tmp_path: Path):
 
 def test_rename_config_rejects_solution_name_with_spaces(tmp_path: Path):
     from pydantic import ValidationError
+
     with pytest.raises(ValidationError):
         RenameConfig(
             source_path=tmp_path,
@@ -131,6 +139,7 @@ def test_rename_config_rejects_solution_name_with_spaces(tmp_path: Path):
 
 def test_rename_config_rejects_invalid_schema_name(tmp_path: Path):
     from pydantic import ValidationError
+
     with pytest.raises(ValidationError, match="lowercase"):
         RenameConfig(
             source_path=tmp_path,
@@ -142,6 +151,7 @@ def test_rename_config_rejects_invalid_schema_name(tmp_path: Path):
 
 
 # ── SolutionInfo ──────────────────────────────────────────────────────────────
+
 
 def test_solution_info_defaults():
     info = SolutionInfo(

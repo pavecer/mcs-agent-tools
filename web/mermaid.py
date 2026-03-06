@@ -66,8 +66,12 @@ def render_segment(segment: dict) -> rx.Component:
                 segment["content"],
                 component_map={
                     "h1": lambda text: rx.heading(text, size="6", margin_bottom="10px", color="#201f1e"),
-                    "h2": lambda text: rx.heading(text, size="4", margin_top="18px", margin_bottom="8px", color="#201f1e"),
-                    "h3": lambda text: rx.heading(text, size="3", margin_top="14px", margin_bottom="6px", color="#323130"),
+                    "h2": lambda text: rx.heading(
+                        text, size="4", margin_top="18px", margin_bottom="8px", color="#201f1e"
+                    ),
+                    "h3": lambda text: rx.heading(
+                        text, size="3", margin_top="14px", margin_bottom="6px", color="#323130"
+                    ),
                     "p": lambda text: rx.text(text, font_size="13px", color="#323130", line_height="1.6"),
                     "code": lambda text: rx.code(text, font_size="12px"),
                 },

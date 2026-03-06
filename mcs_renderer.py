@@ -93,10 +93,7 @@ def render_components(profile: MCSBotProfile) -> str:
     ]
     for i, c in enumerate(profile.components, 1):
         trigger = c.trigger_kind or "—"
-        lines.append(
-            f"| {i} | {c.display_name or '—'} | `{c.schema_name or '—'}` "
-            f"| {c.kind} | {c.state} | {trigger} |"
-        )
+        lines.append(f"| {i} | {c.display_name or '—'} | `{c.schema_name or '—'}` | {c.kind} | {c.state} | {trigger} |")
     lines.append("")
     return "\n".join(lines)
 
@@ -228,10 +225,7 @@ def render_phase_breakdown(timeline: MCSConversationTimeline) -> str:
     ]
     for phase in timeline.phases:
         lbl = phase.label or phase.phase_type or "—"
-        lines.append(
-            f"| {lbl} | {phase.phase_type} "
-            f"| {phase.duration_ms or '—'} | {phase.state} |"
-        )
+        lines.append(f"| {lbl} | {phase.phase_type} | {phase.duration_ms or '—'} | {phase.state} |")
     lines.append("")
     return "\n".join(lines)
 
@@ -304,9 +298,7 @@ def render_report(profile: MCSBotProfile, timeline: MCSConversationTimeline) -> 
     return "\n".join(sections)
 
 
-def render_report_sections(
-    profile: MCSBotProfile, timeline: MCSConversationTimeline
-) -> dict[str, str]:
+def render_report_sections(profile: MCSBotProfile, timeline: MCSConversationTimeline) -> dict[str, str]:
     """Return the report split into named sections for tabbed display.
 
     Keys: ``"profile"``, ``"topics"``, ``"graph"``, ``"conversation"``.
@@ -406,7 +398,7 @@ def to_viz_segments(profile: MCSBotProfile) -> list[dict]:
         fence_start = graph_md.find("```mermaid")
         if fence_start != -1:
             heading = graph_md[:fence_start].strip()
-            rest = graph_md[fence_start + len("```mermaid"):]
+            rest = graph_md[fence_start + len("```mermaid") :]
             fence_end = rest.rfind("```")
             if fence_end != -1:
                 mermaid_code = rest[:fence_end].strip()

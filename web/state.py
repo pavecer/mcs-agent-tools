@@ -22,7 +22,13 @@ from mcs_renderer import render_transcript_report as mcs_render_transcript_repor
 from mcs_renderer import to_viz_segments as mcs_to_viz_segments
 from mcs_timeline import build_timeline as mcs_build_timeline
 from mcs_transcript import parse_transcript_json as mcs_parse_transcript
-from renamer import derive_schema_name, derive_solution_unique_name, inspect_zip, rename_solution_from_bytes, safe_extractall
+from renamer import (
+    derive_schema_name,
+    derive_solution_unique_name,
+    inspect_zip,
+    rename_solution_from_bytes,
+    safe_extractall,
+)
 from validator import validate_instructions, validate_zip_bytes
 from visualizer import visualize_zip_bytes
 
@@ -50,9 +56,7 @@ def _load_users() -> dict[str, str]:
         password = password.strip()
         if username and password:
             # Hash with PBKDF2-HMAC-SHA256 using the username as a deterministic salt
-            users[username] = hashlib.pbkdf2_hmac(
-                "sha256", password.encode(), username.encode(), 100_000
-            ).hex()
+            users[username] = hashlib.pbkdf2_hmac("sha256", password.encode(), username.encode(), 100_000).hex()
     return users
 
 
@@ -71,14 +75,14 @@ def _md_to_segments(md: str) -> list[dict]:
             break
         if start > 0:
             segments.append({"type": "text", "content": remaining[:start]})
-        rest = remaining[start + len(fence_open):]
+        rest = remaining[start + len(fence_open) :]
         end = rest.find(fence_close)
         if end == -1:
             segments.append({"type": "text", "content": fence_open + rest})
             break
         mermaid_src = rest[:end].strip()
         segments.append({"type": "mermaid", "content": mermaid_src})
-        remaining = rest[end + len(fence_close):]
+        remaining = rest[end + len(fence_close) :]
     return segments
 
 
@@ -87,10 +91,10 @@ class State(rx.State):
 
     # ── Upload & detection ────────────────────────────────────────────────
     upload_filename: str = ""
-    zip_bytes_b64: str = ""          # base64-encoded uploaded ZIP bytes
+    zip_bytes_b64: str = ""  # base64-encoded uploaded ZIP bytes
     is_inspecting: bool = False
     inspect_error: str = ""
-    no_agent_warning: str = ""       # set when the uploaded ZIP has no Copilot Studio agent
+    no_agent_warning: str = ""  # set when the uploaded ZIP has no Copilot Studio agent
 
     detected_bot_schema: str = ""
     detected_bot_name: str = ""
@@ -148,21 +152,20 @@ class State(rx.State):
     auth_error: str = ""
 
     # ── ZIP type detection ────────────────────────────────────────────────────
-    zip_type: str = ""    # "solution" | "snapshot"
+    zip_type: str = ""  # "solution" | "snapshot"
 
     # ── MCS Analyse ───────────────────────────────────────────────────────────
-    mcs_upload_type: str = "mcs_zip"   # kept for backward compat
+    mcs_upload_type: str = "mcs_zip"  # kept for backward compat
     mcs_is_processing: bool = False
     mcs_upload_error: str = ""
     mcs_report_markdown: str = ""
     mcs_report_title: str = ""
-    mcs_source: str = ""              # "snapshot" | "transcript" | ""
+    mcs_source: str = ""  # "snapshot" | "transcript" | ""
     mcs_analyse_tab: str = "profile"  # active section sub-tab
     mcs_section_profile: str = ""
     mcs_section_topics: str = ""
     mcs_section_graph: str = ""
     mcs_section_conversation: str = ""
-
 
     # ── Computed / derived ────────────────────────────────────────────────
 
@@ -381,9 +384,7 @@ class State(rx.State):
                 with zipfile.ZipFile(zip_path) as zf:
                     safe_extractall(zf, extracted)
 
-                bot_content = next(
-                    (p for p in extracted.rglob("botContent.yml") if p.is_file()), None
-                )
+                bot_content = next((p for p in extracted.rglob("botContent.yml") if p.is_file()), None)
                 if bot_content is None:
                     self.inspect_error = "Could not find botContent.yml inside the snapshot ZIP."
                     return
@@ -438,9 +439,7 @@ class State(rx.State):
                 self.mcs_is_processing = True
                 yield
                 try:
-                    dialog_json = next(
-                        (p for p in extracted.rglob("dialog.json") if p.is_file()), None
-                    )
+                    dialog_json = next((p for p in extracted.rglob("dialog.json") if p.is_file()), None)
                     if dialog_json:
                         activities = mcs_parse_dialog_json(dialog_json)
                         timeline = mcs_build_timeline(activities, schema_lookup)
@@ -453,9 +452,7 @@ class State(rx.State):
                     self.mcs_section_graph = sections["graph"]
                     self.mcs_section_conversation = sections["conversation"]
                     self.mcs_source = "snapshot"
-                    self.mcs_report_markdown = "\n\n".join(
-                        v for v in sections.values() if v.strip()
-                    )
+                    self.mcs_report_markdown = "\n\n".join(v for v in sections.values() if v.strip())
                     self.mcs_upload_error = ""
                 except Exception as e:
                     self.mcs_upload_error = f"Snapshot analysis failed: {e}"
@@ -598,9 +595,7 @@ class State(rx.State):
         if not users:
             self.auth_error = "No users configured. Set the USERS environment variable."
             return
-        pw_hash = hashlib.pbkdf2_hmac(
-            "sha256", self.password.encode(), self.username.encode(), 100_000
-        ).hex()
+        pw_hash = hashlib.pbkdf2_hmac("sha256", self.password.encode(), self.username.encode(), 100_000).hex()
         if users.get(self.username) == pw_hash:
             self.is_authenticated = True
             self.auth_error = ""
@@ -734,16 +729,12 @@ class State(rx.State):
 
     def _update_derived_schema(self):
         if self.detected_bot_schema and self.new_agent_name.strip():
-            self.derived_schema = derive_schema_name(
-                self.detected_bot_schema, self.new_agent_name.strip()
-            )
+            self.derived_schema = derive_schema_name(self.detected_bot_schema, self.new_agent_name.strip())
         else:
             self.derived_schema = ""
 
     def _update_derived_solution_unique(self):
         if self.new_solution_display_name.strip():
-            self.derived_solution_unique = derive_solution_unique_name(
-                self.new_solution_display_name.strip()
-            )
+            self.derived_solution_unique = derive_solution_unique_name(self.new_solution_display_name.strip())
         else:
             self.derived_solution_unique = ""

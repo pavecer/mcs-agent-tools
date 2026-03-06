@@ -29,7 +29,7 @@ class RenameConfig(BaseModel):
     @classmethod
     def solution_name_valid(cls, v: str) -> str:
         """Solution unique names must be alphanumeric (no spaces, hyphens only)."""
-        if not re.match(r'^[A-Za-z][A-Za-z0-9_]{0,99}$', v):
+        if not re.match(r"^[A-Za-z][A-Za-z0-9_]{0,99}$", v):
             raise ValueError(
                 "Solution unique name must start with a letter and contain only "
                 "letters, digits, and underscores (max 100 characters)."
@@ -41,7 +41,7 @@ class RenameConfig(BaseModel):
     def schema_name_valid(cls, v: str | None) -> str | None:
         if v is None:
             return v
-        if not re.match(r'^[a-z][a-z0-9_]{0,99}$', v):
+        if not re.match(r"^[a-z][a-z0-9_]{0,99}$", v):
             raise ValueError(
                 "Bot schema name must be lowercase, start with a letter, and contain "
                 "only lowercase letters, digits, and underscores (max 100 characters)."

@@ -125,8 +125,7 @@ def parse_solution_zip(work_dir: Path) -> BotProfile:
         raise ValueError("No bot folder found inside 'bots/'.")
     if len(bot_folders) > 1:
         logger.warning(
-            f"Multiple bot folders found; using '{bot_folders[0].name}'. "
-            f"Others: {[d.name for d in bot_folders[1:]]}"
+            f"Multiple bot folders found; using '{bot_folders[0].name}'. Others: {[d.name for d in bot_folders[1:]]}"
         )
     schema = bot_folders[0].name
 
@@ -298,9 +297,7 @@ def _walk_actions(
             for key in ("actions", "elseActions"):
                 nested = action.get(key)
                 if isinstance(nested, list):
-                    connections.extend(
-                        _walk_actions(nested, source_display, schema_to_display, condition)
-                    )
+                    connections.extend(_walk_actions(nested, source_display, schema_to_display, condition))
     return connections
 
 

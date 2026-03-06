@@ -174,73 +174,84 @@ def _run_checks(instructions: str, meta: dict) -> list[dict]:
 
     # ── Rule 1: Not empty ──────────────────────────────────────────────────────
     if not instructions.strip():
-        results.append({
-            "rule_id": "empty-check",
-            "title": "Instructions must not be empty",
-            "severity": "fail",
-            "detail": (
-                "No system instructions are defined. The agent will rely solely on default "
-                "model behaviour, which is unpredictable for production use."
-            ),
-        })
+        results.append(
+            {
+                "rule_id": "empty-check",
+                "title": "Instructions must not be empty",
+                "severity": "fail",
+                "detail": (
+                    "No system instructions are defined. The agent will rely solely on default "
+                    "model behaviour, which is unpredictable for production use."
+                ),
+            }
+        )
         return results  # no further checks make sense
 
     # ── Rule 2: Minimum length ─────────────────────────────────────────────────
     min_fail = meta["min_length_fail"]
     min_warn = meta["min_length_warn"]
     if char_count < min_fail:
-        results.append({
-            "rule_id": "min-length",
-            "title": f"Instructions are critically short ({char_count} chars)",
-            "severity": "fail",
-            "detail": (
-                f"At only {char_count} characters, the instructions are too brief to meaningfully "
-                f"guide the model. Aim for at least {min_warn} characters to cover persona, "
-                f"purpose, and scope."
-            ),
-        })
+        results.append(
+            {
+                "rule_id": "min-length",
+                "title": f"Instructions are critically short ({char_count} chars)",
+                "severity": "fail",
+                "detail": (
+                    f"At only {char_count} characters, the instructions are too brief to meaningfully "
+                    f"guide the model. Aim for at least {min_warn} characters to cover persona, "
+                    f"purpose, and scope."
+                ),
+            }
+        )
     elif char_count < min_warn:
-        results.append({
-            "rule_id": "min-length",
-            "title": f"Instructions may be too short ({char_count} chars)",
-            "severity": "warning",
-            "detail": (
-                f"The instructions are {char_count} characters, below the recommended minimum of "
-                f"{min_warn} for {meta['display']}. Consider adding persona, purpose, scope, "
-                f"and constraint sections."
-            ),
-        })
+        results.append(
+            {
+                "rule_id": "min-length",
+                "title": f"Instructions may be too short ({char_count} chars)",
+                "severity": "warning",
+                "detail": (
+                    f"The instructions are {char_count} characters, below the recommended minimum of "
+                    f"{min_warn} for {meta['display']}. Consider adding persona, purpose, scope, "
+                    f"and constraint sections."
+                ),
+            }
+        )
     else:
-        results.append({
-            "rule_id": "min-length",
-            "title": f"Instruction length is adequate ({char_count:,} chars)",
-            "severity": "pass",
-            "detail": f"The instructions meet the recommended minimum length for {meta['display']}.",
-        })
+        results.append(
+            {
+                "rule_id": "min-length",
+                "title": f"Instruction length is adequate ({char_count:,} chars)",
+                "severity": "pass",
+                "detail": f"The instructions meet the recommended minimum length for {meta['display']}.",
+            }
+        )
 
     # ── Rule 3: Maximum length ─────────────────────────────────────────────────
     max_warn = meta["max_length_warn"]
     if char_count > max_warn:
-        results.append({
-            "rule_id": "max-length",
-            "title": f"Instructions may be too long ({char_count:,} chars)",
-            "severity": "warning",
-            "detail": (
-                f"At {char_count:,} characters, the instructions exceed the recommended maximum of "
-                f"{max_warn:,} for {meta['display']}. Excessively long prompts can dilute attention "
-                f"and increase latency. Consider condensing or splitting across topics."
-            ),
-        })
+        results.append(
+            {
+                "rule_id": "max-length",
+                "title": f"Instructions may be too long ({char_count:,} chars)",
+                "severity": "warning",
+                "detail": (
+                    f"At {char_count:,} characters, the instructions exceed the recommended maximum of "
+                    f"{max_warn:,} for {meta['display']}. Excessively long prompts can dilute attention "
+                    f"and increase latency. Consider condensing or splitting across topics."
+                ),
+            }
+        )
     else:
-        results.append({
-            "rule_id": "max-length",
-            "title": "Instruction length is within the recommended upper bound",
-            "severity": "pass",
-            "detail": (
-                f"Instructions are within the {meta['display']} recommended limit of "
-                f"{max_warn:,} characters."
-            ),
-        })
+        results.append(
+            {
+                "rule_id": "max-length",
+                "title": "Instruction length is within the recommended upper bound",
+                "severity": "pass",
+                "detail": (
+                    f"Instructions are within the {meta['display']} recommended limit of {max_warn:,} characters."
+                ),
+            }
+        )
 
     # ── Rule 4: Persona definition ─────────────────────────────────────────────
     persona_patterns = [
@@ -254,26 +265,30 @@ def _run_checks(instructions: str, meta: dict) -> list[dict]:
     ]
     has_persona = any(re.search(p, lower) for p in persona_patterns)
     if has_persona:
-        results.append({
-            "rule_id": "has-persona",
-            "title": "Persona / role definition detected",
-            "severity": "pass",
-            "detail": (
-                "The instructions contain a persona or role definition, which helps the model "
-                "maintain a consistent identity and tone across conversations."
-            ),
-        })
+        results.append(
+            {
+                "rule_id": "has-persona",
+                "title": "Persona / role definition detected",
+                "severity": "pass",
+                "detail": (
+                    "The instructions contain a persona or role definition, which helps the model "
+                    "maintain a consistent identity and tone across conversations."
+                ),
+            }
+        )
     else:
-        results.append({
-            "rule_id": "has-persona",
-            "title": "No persona or role definition found",
-            "severity": "warning",
-            "detail": (
-                "Instructions should open with a clear role definition (e.g., 'You are a legal "
-                "assistant for…'). Without this, the model may adopt an inconsistent tone and "
-                "identity across conversations."
-            ),
-        })
+        results.append(
+            {
+                "rule_id": "has-persona",
+                "title": "No persona or role definition found",
+                "severity": "warning",
+                "detail": (
+                    "Instructions should open with a clear role definition (e.g., 'You are a legal "
+                    "assistant for…'). Without this, the model may adopt an inconsistent tone and "
+                    "identity across conversations."
+                ),
+            }
+        )
 
     # ── Rule 5: Purpose statement ──────────────────────────────────────────────
     purpose_patterns = [
@@ -291,25 +306,29 @@ def _run_checks(instructions: str, meta: dict) -> list[dict]:
     ]
     has_purpose = any(re.search(p, lower) for p in purpose_patterns)
     if has_purpose:
-        results.append({
-            "rule_id": "has-purpose",
-            "title": "Purpose statement detected",
-            "severity": "pass",
-            "detail": (
-                "The instructions describe the agent's purpose, helping users understand what "
-                "to expect and giving the model a clear operational goal."
-            ),
-        })
+        results.append(
+            {
+                "rule_id": "has-purpose",
+                "title": "Purpose statement detected",
+                "severity": "pass",
+                "detail": (
+                    "The instructions describe the agent's purpose, helping users understand what "
+                    "to expect and giving the model a clear operational goal."
+                ),
+            }
+        )
     else:
-        results.append({
-            "rule_id": "has-purpose",
-            "title": "No clear purpose statement found",
-            "severity": "warning",
-            "detail": (
-                "Consider adding a sentence that explicitly states what the agent is designed "
-                "to do (e.g., 'Your primary purpose is to help employees with IT requests.')."
-            ),
-        })
+        results.append(
+            {
+                "rule_id": "has-purpose",
+                "title": "No clear purpose statement found",
+                "severity": "warning",
+                "detail": (
+                    "Consider adding a sentence that explicitly states what the agent is designed "
+                    "to do (e.g., 'Your primary purpose is to help employees with IT requests.')."
+                ),
+            }
+        )
 
     # ── Rule 6: Scope constraints ──────────────────────────────────────────────
     constraint_patterns = [
@@ -329,66 +348,85 @@ def _run_checks(instructions: str, meta: dict) -> list[dict]:
     ]
     constraint_hits = sum(1 for p in constraint_patterns if re.search(p, lower))
     if constraint_hits >= 2:
-        results.append({
-            "rule_id": "has-constraints",
-            "title": "Scope constraints detected",
-            "severity": "pass",
-            "detail": (
-                f"The instructions include {constraint_hits} constraint patterns, clearly "
-                "defining what the agent will and will not do."
-            ),
-        })
+        results.append(
+            {
+                "rule_id": "has-constraints",
+                "title": "Scope constraints detected",
+                "severity": "pass",
+                "detail": (
+                    f"The instructions include {constraint_hits} constraint patterns, clearly "
+                    "defining what the agent will and will not do."
+                ),
+            }
+        )
     elif constraint_hits == 1:
-        results.append({
-            "rule_id": "has-constraints",
-            "title": "Few scope constraints found (1 detected)",
-            "severity": "warning",
-            "detail": (
-                "Only one constraint pattern was detected. Adding explicit 'Do not' or 'Only' "
-                "directives clarifies the agent's boundaries and reduces off-topic responses."
-            ),
-        })
+        results.append(
+            {
+                "rule_id": "has-constraints",
+                "title": "Few scope constraints found (1 detected)",
+                "severity": "warning",
+                "detail": (
+                    "Only one constraint pattern was detected. Adding explicit 'Do not' or 'Only' "
+                    "directives clarifies the agent's boundaries and reduces off-topic responses."
+                ),
+            }
+        )
     else:
-        results.append({
-            "rule_id": "has-constraints",
-            "title": "No scope constraints found",
-            "severity": "warning",
-            "detail": (
-                "Instructions should explicitly state out-of-scope topics or actions. Without "
-                "constraints, the agent may attempt to help with any question regardless of "
-                "relevance or safety."
-            ),
-        })
+        results.append(
+            {
+                "rule_id": "has-constraints",
+                "title": "No scope constraints found",
+                "severity": "warning",
+                "detail": (
+                    "Instructions should explicitly state out-of-scope topics or actions. Without "
+                    "constraints, the agent may attempt to help with any question regardless of "
+                    "relevance or safety."
+                ),
+            }
+        )
 
     # ── Rule 7: Vague language ─────────────────────────────────────────────────
     vague_words = [
-        "sometimes", "usually", "might", "possibly", "maybe", "perhaps",
-        "generally", "typically", "often", "occasionally", "in some cases",
+        "sometimes",
+        "usually",
+        "might",
+        "possibly",
+        "maybe",
+        "perhaps",
+        "generally",
+        "typically",
+        "often",
+        "occasionally",
+        "in some cases",
     ]
     found_vague = [w for w in vague_words if re.search(r"\b" + re.escape(w) + r"\b", lower)]
     if found_vague:
         preview = ", ".join(found_vague[:4])
         suffix = "…" if len(found_vague) > 4 else ""
-        results.append({
-            "rule_id": "avoid-vague-language",
-            "title": f"Vague language detected: {preview}{suffix}",
-            "severity": "warning",
-            "detail": (
-                f"The words '{', '.join(found_vague)}' introduce ambiguity into the instructions. "
-                "Prefer deterministic directives: 'always', 'never', 'only', 'must'. Vague "
-                "language leads to inconsistent agent behaviour across conversations."
-            ),
-        })
+        results.append(
+            {
+                "rule_id": "avoid-vague-language",
+                "title": f"Vague language detected: {preview}{suffix}",
+                "severity": "warning",
+                "detail": (
+                    f"The words '{', '.join(found_vague)}' introduce ambiguity into the instructions. "
+                    "Prefer deterministic directives: 'always', 'never', 'only', 'must'. Vague "
+                    "language leads to inconsistent agent behaviour across conversations."
+                ),
+            }
+        )
     else:
-        results.append({
-            "rule_id": "avoid-vague-language",
-            "title": "No problematic vague language detected",
-            "severity": "pass",
-            "detail": (
-                "Instructions use deterministic language, which promotes consistent and "
-                "predictable model behaviour."
-            ),
-        })
+        results.append(
+            {
+                "rule_id": "avoid-vague-language",
+                "title": "No problematic vague language detected",
+                "severity": "pass",
+                "detail": (
+                    "Instructions use deterministic language, which promotes consistent and "
+                    "predictable model behaviour."
+                ),
+            }
+        )
 
     # ── Rule 8: Grounding rules (for models where it matters) ────────────────
     if meta["check_grounding"]:
@@ -405,27 +443,31 @@ def _run_checks(instructions: str, meta: dict) -> list[dict]:
         ]
         has_grounding = any(re.search(p, lower) for p in grounding_patterns)
         if has_grounding:
-            results.append({
-                "rule_id": "grounding-rules",
-                "title": "Grounding / source attribution rules detected",
-                "severity": "pass",
-                "detail": (
-                    "Instructions include grounding directives that restrict the model to defined "
-                    "data sources, reducing hallucination risk for this knowledge-capable model."
-                ),
-            })
+            results.append(
+                {
+                    "rule_id": "grounding-rules",
+                    "title": "Grounding / source attribution rules detected",
+                    "severity": "pass",
+                    "detail": (
+                        "Instructions include grounding directives that restrict the model to defined "
+                        "data sources, reducing hallucination risk for this knowledge-capable model."
+                    ),
+                }
+            )
         else:
-            results.append({
-                "rule_id": "grounding-rules",
-                "title": f"{meta['display']} benefits from explicit grounding rules",
-                "severity": "warning",
-                "detail": (
-                    f"{meta['display']} has extensive world knowledge. For enterprise agents, "
-                    "add grounding rules that restrict responses to authoritative sources "
-                    "(e.g., 'Answer exclusively from provided search results. Do not use general "
-                    "training knowledge.')."
-                ),
-            })
+            results.append(
+                {
+                    "rule_id": "grounding-rules",
+                    "title": f"{meta['display']} benefits from explicit grounding rules",
+                    "severity": "warning",
+                    "detail": (
+                        f"{meta['display']} has extensive world knowledge. For enterprise agents, "
+                        "add grounding rules that restrict responses to authoritative sources "
+                        "(e.g., 'Answer exclusively from provided search results. Do not use general "
+                        "training knowledge.')."
+                    ),
+                }
+            )
 
     # ── Rule 9: Reasoning model — no redundant process instructions ───────────
     if meta["is_reasoning"]:
@@ -438,51 +480,57 @@ def _run_checks(instructions: str, meta: dict) -> list[dict]:
         ]
         over_specified = any(re.search(p, lower) for p in proc_patterns)
         if over_specified:
-            results.append({
-                "rule_id": "reasoning-model-process",
-                "title": "Redundant reasoning process instructions detected",
-                "severity": "warning",
-                "detail": (
-                    f"{meta['display']} is a reasoning model that performs internal "
-                    "chain-of-thought automatically. Instructions like 'think step by step' are "
-                    "redundant and consume token budget without benefit. Focus on desired output "
-                    "format and constraints instead."
-                ),
-            })
+            results.append(
+                {
+                    "rule_id": "reasoning-model-process",
+                    "title": "Redundant reasoning process instructions detected",
+                    "severity": "warning",
+                    "detail": (
+                        f"{meta['display']} is a reasoning model that performs internal "
+                        "chain-of-thought automatically. Instructions like 'think step by step' are "
+                        "redundant and consume token budget without benefit. Focus on desired output "
+                        "format and constraints instead."
+                    ),
+                }
+            )
         else:
-            results.append({
-                "rule_id": "reasoning-model-process",
-                "title": "No redundant reasoning-process directives found",
-                "severity": "pass",
-                "detail": (
-                    f"Instructions are appropriately goal-oriented for {meta['display']}, "
-                    "without specifying internal reasoning steps."
-                ),
-            })
+            results.append(
+                {
+                    "rule_id": "reasoning-model-process",
+                    "title": "No redundant reasoning-process directives found",
+                    "severity": "pass",
+                    "detail": (
+                        f"Instructions are appropriately goal-oriented for {meta['display']}, "
+                        "without specifying internal reasoning steps."
+                    ),
+                }
+            )
 
     # ── Rule 10: Compact model verbosity check ────────────────────────────────
     if meta["is_compact"]:
         compact_threshold = int(meta["max_length_warn"] * 0.65)
         if char_count > compact_threshold:
-            results.append({
-                "rule_id": "compact-model-length",
-                "title": f"Instructions may be verbose for {meta['display']}",
-                "severity": "warning",
-                "detail": (
-                    f"{meta['display']} is designed for efficiency. Instructions approaching "
-                    f"{meta['max_length_warn']:,} characters risk degraded response quality. "
-                    f"Aim for fewer than {compact_threshold:,} characters for best results."
-                ),
-            })
+            results.append(
+                {
+                    "rule_id": "compact-model-length",
+                    "title": f"Instructions may be verbose for {meta['display']}",
+                    "severity": "warning",
+                    "detail": (
+                        f"{meta['display']} is designed for efficiency. Instructions approaching "
+                        f"{meta['max_length_warn']:,} characters risk degraded response quality. "
+                        f"Aim for fewer than {compact_threshold:,} characters for best results."
+                    ),
+                }
+            )
         else:
-            results.append({
-                "rule_id": "compact-model-length",
-                "title": f"Instruction size is appropriate for {meta['display']}",
-                "severity": "pass",
-                "detail": (
-                    f"Instructions are concise enough for optimal performance with {meta['display']}."
-                ),
-            })
+            results.append(
+                {
+                    "rule_id": "compact-model-length",
+                    "title": f"Instruction size is appropriate for {meta['display']}",
+                    "severity": "pass",
+                    "detail": (f"Instructions are concise enough for optimal performance with {meta['display']}."),
+                }
+            )
 
     # ── Rule 11: Prompt injection / override patterns ─────────────────────────
     injection_patterns = [
@@ -494,26 +542,27 @@ def _run_checks(instructions: str, meta: dict) -> list[dict]:
     ]
     suspicious = [p for p in injection_patterns if re.search(p, lower)]
     if suspicious:
-        results.append({
-            "rule_id": "prompt-injection-risk",
-            "title": "Potential prompt injection pattern detected",
-            "severity": "fail",
-            "detail": (
-                "The instructions contain patterns that could indicate injected user content "
-                "or override language. System instructions must be static and authoritative — "
-                "review carefully and remove any user-controllable content from the system prompt."
-            ),
-        })
+        results.append(
+            {
+                "rule_id": "prompt-injection-risk",
+                "title": "Potential prompt injection pattern detected",
+                "severity": "fail",
+                "detail": (
+                    "The instructions contain patterns that could indicate injected user content "
+                    "or override language. System instructions must be static and authoritative — "
+                    "review carefully and remove any user-controllable content from the system prompt."
+                ),
+            }
+        )
     else:
-        results.append({
-            "rule_id": "prompt-injection-risk",
-            "title": "No prompt injection patterns detected",
-            "severity": "pass",
-            "detail": (
-                "Instructions do not contain common prompt injection or instruction-override "
-                "patterns."
-            ),
-        })
+        results.append(
+            {
+                "rule_id": "prompt-injection-risk",
+                "title": "No prompt injection patterns detected",
+                "severity": "pass",
+                "detail": ("Instructions do not contain common prompt injection or instruction-override patterns."),
+            }
+        )
 
     return results
 
