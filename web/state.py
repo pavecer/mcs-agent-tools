@@ -21,7 +21,6 @@ _MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB — maximum accepted upload size
 from mcs_models import MCSConversationTimeline as _MCSTl
 from mcs_parser import parse_dialog_json as mcs_parse_dialog_json
 from mcs_parser import parse_yaml as mcs_parse_yaml
-from mcs_renderer import render_report as mcs_render_report
 from mcs_renderer import render_report_sections as mcs_render_report_sections
 from mcs_renderer import render_transcript_report as mcs_render_transcript_report
 from mcs_renderer import to_viz_segments as mcs_to_viz_segments

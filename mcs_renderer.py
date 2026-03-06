@@ -43,8 +43,8 @@ def render_bot_profile(profile: MCSBotProfile) -> str:
     lines: list[str] = [
         "## Bot Profile",
         "",
-        f"| Field | Value |",
-        f"| --- | --- |",
+        "| Field | Value |",
+        "| --- | --- |",
         f"| **Name** | {profile.display_name or '—'} |",
         f"| **Schema Name** | `{profile.schema_name or '—'}` |",
         f"| **Bot ID** | {profile.bot_id or '—'} |",
@@ -60,8 +60,8 @@ def render_bot_metadata(profile: MCSBotProfile) -> str:
     lines: list[str] = [
         "## AI Settings",
         "",
-        f"| Setting | Value |",
-        f"| --- | --- |",
+        "| Setting | Value |",
+        "| --- | --- |",
         f"| **Use Model Knowledge** | {ai.use_model_knowledge} |",
         f"| **File Analysis** | {ai.file_analysis} |",
         f"| **Semantic Search** | {ai.semantic_search} |",
@@ -74,9 +74,9 @@ def render_bot_metadata(profile: MCSBotProfile) -> str:
         lines += [
             f"### GPT Instructions ({gpt.display_name})",
             "",
-            f"```",
+            "```",
             gpt.instructions.strip() if gpt.instructions else "(none)",
-            f"```",
+            "```",
             "",
         ]
     return "\n".join(lines)
@@ -169,7 +169,7 @@ def render_mermaid_sequence(timeline: MCSConversationTimeline) -> str:
             lines.append(f"    C->>C: Redirect → {label}")
 
         elif ev_type == MCSEventType.PLAN_RECEIVED:
-            lines.append(f"    E-->>C: DynamicPlan received")
+            lines.append("    E-->>C: DynamicPlan received")
 
         elif ev_type == MCSEventType.STEP_TRIGGERED:
             lines.append(f'    C->>E: Step "{label}"')
