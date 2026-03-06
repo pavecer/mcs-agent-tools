@@ -11,7 +11,7 @@ import io
 import json
 import re
 import tempfile
-import xml.etree.ElementTree as ET
+import defusedxml.ElementTree as ET
 import zipfile
 from pathlib import Path
 
@@ -150,7 +150,7 @@ def parse_solution_zip(work_dir: Path) -> BotProfile:
                 if isinstance(sv, dict) and (sv.get("capabilities") or {}).get("webBrowsing"):
                     web_browsing = True
                     break
-        except Exception:
+        except Exception:  # nosec B110 – intentionally skip malformed bot config
             pass
 
     # 3. Parse GPT component (botcomponents/{schema}.gpt.default/)

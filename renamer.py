@@ -11,7 +11,7 @@ import re
 import shutil
 import tempfile
 import zipfile
-import xml.etree.ElementTree as ET
+import defusedxml.ElementTree as ET
 from pathlib import Path
 
 from loguru import logger

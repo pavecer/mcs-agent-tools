@@ -5,6 +5,7 @@ description = "Power Platform Copilot Studio agent toolkit: rename solution expo
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "defusedxml>=0.7.1",
     "loguru>=0.7.3",
     "pydantic>=2.12.0",
     "python-dotenv>=1.0.0",
@@ -22,6 +23,15 @@ testpaths = ["tests"]
 
 [dependency-groups]
 dev = [
+    "bandit>=1.9.4",
+    "pip-audit>=2.10.0",
     "pytest>=8.0.0",
     "ruff>=0.8.0",
 ]
+
+[tool.bandit]
+# Scan all Python source files; exclude virtual env and generated Reflex assets
+exclude_dirs = [".venv", "__pycache__", ".web", "uploaded_files"]
+# B101 = assert statements (fine in test files)
+# B105 = false positives on self.password = "" (clearing field, not hardcoding)
+skips = ["B101", "B105"]
