@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-import reflex as rx
+import reflex as rx  # noqa: E402
 
 # Determine run mode from environment (matches mcs-agent-analyser pattern)
 is_prod = os.getenv("REFLEX_ENV", "dev") == "prod"

@@ -14,10 +14,6 @@ from pathlib import Path
 import reflex as rx
 from dotenv import load_dotenv
 
-load_dotenv()
-
-_MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB — maximum accepted upload size
-
 from mcs_models import MCSConversationTimeline as _MCSTl
 from mcs_parser import parse_dialog_json as mcs_parse_dialog_json
 from mcs_parser import parse_yaml as mcs_parse_yaml
@@ -29,6 +25,10 @@ from mcs_transcript import parse_transcript_json as mcs_parse_transcript
 from renamer import derive_schema_name, derive_solution_unique_name, inspect_zip, rename_solution_from_bytes, safe_extractall
 from validator import validate_instructions, validate_zip_bytes
 from visualizer import visualize_zip_bytes
+
+load_dotenv()
+
+_MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB — maximum accepted upload size
 
 
 def _load_users() -> dict[str, str]:
