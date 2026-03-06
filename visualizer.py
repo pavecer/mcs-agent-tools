@@ -24,7 +24,8 @@ try:
 except ImportError:  # pragma: no cover
     _YAML_AVAILABLE = False
 
-from renamer import _safe_extractall
+from loguru import logger
+from renamer import safe_extractall
 
 
 # ── Pydantic models ────────────────────────────────────────────────────────────
@@ -122,6 +123,11 @@ def parse_solution_zip(work_dir: Path) -> BotProfile:
     bot_folders = [d for d in bots_dir.iterdir() if d.is_dir()]
     if not bot_folders:
         raise ValueError("No bot folder found inside 'bots/'.")
+    if len(bot_folders) > 1:
+        logger.warning(
+            f"Multiple bot folders found; using '{bot_folders[0].name}'. "
+            f"Others: {[d.name for d in bot_folders[1:]]}"
+        )
     schema = bot_folders[0].name
 
     # 2. Read bots/{schema}/configuration.json
@@ -581,7 +587,7 @@ def visualize_zip_bytes(zip_bytes: bytes) -> list[dict]:
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp = Path(tmpdir)
         with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
-            _safe_extractall(zf, tmp)
+            safe_extractall(zf, tmp)
         profile = parse_solution_zip(tmp)
 
     md = generate_markdown_report(profile)

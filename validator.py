@@ -13,7 +13,7 @@ import zipfile
 from pathlib import Path
 
 from visualizer import parse_solution_zip
-from renamer import _safe_extractall
+from renamer import safe_extractall
 
 BEST_PRACTICES_DIR = Path(__file__).parent / "best_practices"
 
@@ -581,7 +581,7 @@ def validate_zip_bytes(zip_bytes: bytes) -> dict:
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp = Path(tmpdir)
         with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
-            _safe_extractall(zf, tmp)
+            safe_extractall(zf, tmp)
         profile = parse_solution_zip(tmp)
 
     gpt_info = profile.gpt_info

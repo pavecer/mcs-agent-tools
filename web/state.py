@@ -16,6 +16,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+_MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB — maximum accepted upload size
+
 from mcs_models import MCSConversationTimeline as _MCSTl
 from mcs_parser import parse_dialog_json as mcs_parse_dialog_json
 from mcs_parser import parse_yaml as mcs_parse_yaml
@@ -25,7 +27,7 @@ from mcs_renderer import render_transcript_report as mcs_render_transcript_repor
 from mcs_renderer import to_viz_segments as mcs_to_viz_segments
 from mcs_timeline import build_timeline as mcs_build_timeline
 from mcs_transcript import parse_transcript_json as mcs_parse_transcript
-from renamer import derive_schema_name, derive_solution_unique_name, inspect_zip, rename_solution_from_bytes
+from renamer import derive_schema_name, derive_solution_unique_name, inspect_zip, rename_solution_from_bytes, safe_extractall
 from validator import validate_instructions, validate_zip_bytes
 from visualizer import visualize_zip_bytes
 
@@ -48,8 +50,10 @@ def _load_users() -> dict[str, str]:
         username = username.strip()
         password = password.strip()
         if username and password:
-            # Store SHA-256 hash so the plain-text password isn't kept in memory
-            users[username] = hashlib.sha256(password.encode()).hexdigest()
+            # Hash with PBKDF2-HMAC-SHA256 using the username as a deterministic salt
+            users[username] = hashlib.pbkdf2_hmac(
+                "sha256", password.encode(), username.encode(), 100_000
+            ).hex()
     return users
 
 
@@ -248,6 +252,10 @@ class State(rx.State):
         file = files[0]
         file_bytes = await file.read()
 
+        if len(file_bytes) > _MAX_UPLOAD_BYTES:
+            self.inspect_error = f"File too large (max {_MAX_UPLOAD_BYTES // 1024 // 1024} MB)."
+            return
+
         if not file.filename.lower().endswith(".zip"):
             self.inspect_error = "Please upload a .zip file exported from Power Platform."
             return
@@ -372,7 +380,7 @@ class State(rx.State):
                 zip_path.write_bytes(file_bytes)
                 extracted = snap_dir / "extracted"
                 with zipfile.ZipFile(zip_path) as zf:
-                    zf.extractall(extracted)
+                    safe_extractall(zf, extracted)
 
                 bot_content = next(
                     (p for p in extracted.rglob("botContent.yml") if p.is_file()), None
@@ -533,10 +541,6 @@ class State(rx.State):
         self.is_processing = False
         self.process_error = ""
         self.process_success = False
-        # Delete output ZIP if it was written to the upload directory
-        if self.result_filename:
-            output_file = Path(rx.get_upload_dir()) / self.result_filename
-            output_file.unlink(missing_ok=True)
         self.result_old_schema = ""
         self.result_new_schema = ""
         self.result_old_solution = ""
@@ -595,7 +599,9 @@ class State(rx.State):
         if not users:
             self.auth_error = "No users configured. Set the USERS environment variable."
             return
-        pw_hash = hashlib.sha256(self.password.encode()).hexdigest()
+        pw_hash = hashlib.pbkdf2_hmac(
+            "sha256", self.password.encode(), self.username.encode(), 100_000
+        ).hex()
         if users.get(self.username) == pw_hash:
             self.is_authenticated = True
             self.auth_error = ""
@@ -640,6 +646,10 @@ class State(rx.State):
         file = files[0]
         file_bytes = await file.read()
         filename = file.filename or ""
+
+        if len(file_bytes) > _MAX_UPLOAD_BYTES:
+            self.mcs_upload_error = f"File too large (max {_MAX_UPLOAD_BYTES // 1024 // 1024} MB)."
+            return
 
         if not filename.lower().endswith(".json"):
             self.mcs_upload_error = "Please upload a .json transcript file."

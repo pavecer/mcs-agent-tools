@@ -77,7 +77,7 @@ def derive_schema_name(old_schema: str, new_agent_name: str) -> str:
 
 # ── ZIP utilities ───────────────────────────────────────────────────────────
 
-def _safe_extractall(zf: zipfile.ZipFile, dest: Path) -> None:
+def safe_extractall(zf: zipfile.ZipFile, dest: Path) -> None:
     """Extract a ZIP, rejecting any entries that would escape *dest* via path traversal."""
     dest_resolved = dest.resolve()
     for info in zf.infolist():
@@ -99,6 +99,11 @@ def inspect_solution(solution_dir: Path) -> SolutionInfo:
     bot_folders = [d for d in bots_dir.iterdir() if d.is_dir()]
     if not bot_folders:
         raise ValueError("No bot folder found inside 'bots/'.")
+    if len(bot_folders) > 1:
+        logger.warning(
+            f"Multiple bot folders found; using '{bot_folders[0].name}'. "
+            f"Others: {[d.name for d in bot_folders[1:]]}"
+        )
     old_bot_schema = bot_folders[0].name
 
     # --- Bot display name from bot.xml ---
@@ -162,7 +167,7 @@ def inspect_zip(zip_path: Path) -> SolutionInfo:
         tmp = Path(tmpdir) / "src"
         tmp.mkdir()
         with zipfile.ZipFile(zip_path) as zf:
-            _safe_extractall(zf, tmp)
+            safe_extractall(zf, tmp)
         return inspect_solution(tmp)
 
 
@@ -228,10 +233,10 @@ def _update_solution_xml(
         if el is not None and el.text and el.text.strip() == old_unique_name:
             el.text = new_unique_name
 
-    for tag in ("LocalizedName", "{*}LocalizedName"):
-        for el in root.iter(tag.replace("{*}", "")):
-            if el.get("description") == old_display_name:
-                el.set("description", new_display_name)
+    for el in root.iter():
+        tag_local = el.tag.split("}")[-1] if "}" in el.tag else el.tag
+        if tag_local == "LocalizedName" and el.get("description") == old_display_name:
+            el.set("description", new_display_name)
 
     # Preserve XML declaration and write back
     ET.indent(tree, space="  ")
@@ -320,7 +325,7 @@ def rename_solution(config: RenameConfig) -> RenameResult:
             src_dir = tmp / "src"
             src_dir.mkdir()
             with zipfile.ZipFile(config.source_path) as zf:
-                _safe_extractall(zf, src_dir)
+                safe_extractall(zf, src_dir)
             logger.info(f"Extracted ZIP: {config.source_path.name}")
         else:
             src_dir = config.source_path
