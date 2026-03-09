@@ -29,6 +29,7 @@ from renamer import (
     rename_solution_from_bytes,
     safe_extractall,
 )
+from solution_checker import check_solution_zip
 from validator import validate_instructions, validate_zip_bytes
 from visualizer import visualize_zip_bytes
 
@@ -125,7 +126,20 @@ class State(rx.State):
     validation_instructions_length: int = 0
     show_best_practices: bool = False
 
-    # ── Active tab ("rename" | "visualize" | "validate") ─────────────────────
+    # ── Solution Check ────────────────────────────────────────────────────
+    is_checking: bool = False
+    check_error: str = ""
+    check_ran: bool = False
+    check_agent_name: str = ""
+    check_solution_name: str = ""
+    check_results: list[dict] = []
+    check_pass_count: int = 0
+    check_warn_count: int = 0
+    check_fail_count: int = 0
+    check_info_count: int = 0
+    check_active_category: str = ""  # empty = show all
+
+    # ── Active tab ("rename" | "visualize" | "validate" | "check") ─────────
     active_tab: str = "rename"
 
     # ── Processing ────────────────────────────────────────────────────────
@@ -200,6 +214,16 @@ class State(rx.State):
     @rx.var
     def has_result_warnings(self) -> bool:
         return len(self.result_warnings) > 0
+
+    @rx.var
+    def has_check(self) -> bool:
+        return self.check_ran
+
+    @rx.var
+    def check_filtered_results(self) -> list[dict]:
+        if not self.check_active_category:
+            return self.check_results
+        return [r for r in self.check_results if r.get("category") == self.check_active_category]
 
     @rx.var
     def validation_instructions_length_str(self) -> str:
@@ -303,6 +327,16 @@ class State(rx.State):
         self.validation_best_practices = ""
         self.validation_instructions_length = 0
         self.show_best_practices = False
+        self.check_ran = False
+        self.check_error = ""
+        self.check_results = []
+        self.check_pass_count = 0
+        self.check_warn_count = 0
+        self.check_fail_count = 0
+        self.check_info_count = 0
+        self.check_agent_name = ""
+        self.check_solution_name = ""
+        self.check_active_category = ""
         self.mcs_section_profile = ""
         self.mcs_section_topics = ""
         self.mcs_section_graph = ""
@@ -372,6 +406,30 @@ class State(rx.State):
                     self.validation_ran = False
                 finally:
                     self.is_validating = False
+
+            if not self.inspect_error:
+                self.is_checking = True
+                yield
+                try:
+                    check_report = check_solution_zip(file_bytes)
+                    if check_report["error"]:
+                        self.check_error = check_report["error"]
+                        self.check_ran = False
+                    else:
+                        self.check_results = check_report["results"]
+                        self.check_pass_count = check_report["pass_count"]
+                        self.check_warn_count = check_report["warn_count"]
+                        self.check_fail_count = check_report["fail_count"]
+                        self.check_info_count = check_report["info_count"]
+                        self.check_agent_name = check_report["agent_name"]
+                        self.check_solution_name = check_report["solution_name"]
+                        self.check_ran = True
+                        self.check_error = ""
+                except Exception as chk_exc:
+                    self.check_error = str(chk_exc)
+                    self.check_ran = False
+                finally:
+                    self.is_checking = False
 
         else:
             # ── Snapshot ZIP: parse → visualize (topic graph) → validate (instructions) → analyse ──
@@ -557,6 +615,17 @@ class State(rx.State):
         self.validation_best_practices = ""
         self.validation_instructions_length = 0
         self.show_best_practices = False
+        self.is_checking = False
+        self.check_error = ""
+        self.check_ran = False
+        self.check_results = []
+        self.check_pass_count = 0
+        self.check_warn_count = 0
+        self.check_fail_count = 0
+        self.check_info_count = 0
+        self.check_agent_name = ""
+        self.check_solution_name = ""
+        self.check_active_category = ""
         self.no_agent_warning = ""
         self.active_tab = "rename"
         self.zip_type = ""
@@ -577,6 +646,10 @@ class State(rx.State):
     @rx.event
     def toggle_best_practices(self):
         self.show_best_practices = not self.show_best_practices
+
+    @rx.event
+    def set_check_active_category(self, category: str):
+        self.check_active_category = category
 
     # ── Authentication handlers ───────────────────────────────────────────
 

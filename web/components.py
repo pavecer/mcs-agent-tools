@@ -382,7 +382,7 @@ def navbar() -> rx.Component:
                 align="center",
             ),
             rx.text(
-                "Rename · Visualise · Validate · Analyse — Copilot Studio solution exports",
+                "Rename · Visualise · Validate · Check · Analyse — Copilot Studio solution exports",
                 color="rgba(255,255,255,0.7)",
                 font_size="13px",
                 display=["none", "none", "block"],
@@ -902,6 +902,313 @@ def _mcs_upload_form() -> rx.Component:
         spacing="3",
         width="100%",
         align="start",
+    )
+
+
+# ── Solution Check panel ──────────────────────────────────────────────────────
+
+_CHECK_CATEGORIES: list[str] = ["Solution", "Agent", "Topics", "Knowledge", "Security"]
+
+_CAT_ICONS: dict[str, str] = {
+    "Solution": "file-text",
+    "Agent": "bot",
+    "Topics": "list",
+    "Knowledge": "database",
+    "Security": "shield-alert",
+}
+
+_CAT_COLORS: dict[str, str] = {
+    "Solution": "#0078d4",
+    "Agent": "#7719aa",
+    "Topics": "#107c10",
+    "Knowledge": "#c7921e",
+    "Security": "#a4262c",
+}
+
+
+def _check_category_pill(category: str) -> rx.Component:
+    color = _CAT_COLORS.get(category, "#605e5c")
+    icon_name = _CAT_ICONS.get(category, "circle")
+    active = State.check_active_category == category
+    return rx.box(
+        rx.hstack(
+            rx.icon(icon_name, size=13),
+            rx.text(category, font_size="12px", font_weight="600"),
+            spacing="1",
+            align="center",
+        ),
+        on_click=rx.cond(
+            active,
+            State.set_check_active_category(""),
+            State.set_check_active_category(category),
+        ),
+        padding="5px 12px",
+        border_radius="16px",
+        cursor="pointer",
+        border=rx.cond(active, f"1.5px solid {color}", "1.5px solid #edebe9"),
+        background=rx.cond(active, f"{color}18", "#ffffff"),
+        color=rx.cond(active, color, "#605e5c"),
+        _hover={"border_color": color, "color": color},
+        transition="all 0.15s ease",
+        user_select="none",
+    )
+
+
+def _check_result_item(result: dict) -> rx.Component:
+    border_color = rx.match(
+        result["severity"],
+        ("pass", "#107c10"),
+        ("warning", "#c7921e"),
+        ("fail", "#a4262c"),
+        ("info", "#0078d4"),
+        "#797673",
+    )
+    bg_color = rx.match(
+        result["severity"],
+        ("pass", "#f6fff6"),
+        ("warning", "#fffbe6"),
+        ("fail", "#fff6f6"),
+        ("info", "#f0f6ff"),
+        "#fafafa",
+    )
+    badge = rx.match(
+        result["severity"],
+        ("pass", rx.badge("✓ PASS", color_scheme="green", variant="soft", size="1")),
+        ("warning", rx.badge("⚠ WARN", color_scheme="amber", variant="soft", size="1")),
+        ("fail", rx.badge("✗ FAIL", color_scheme="red", variant="soft", size="1")),
+        ("info", rx.badge("ℹ INFO", color_scheme="blue", variant="soft", size="1")),
+        rx.badge(result["severity"], color_scheme="gray", variant="soft", size="1"),
+    )
+    cat_color = rx.match(
+        result["category"],
+        ("Solution", "#0078d4"),
+        ("Agent", "#7719aa"),
+        ("Topics", "#107c10"),
+        ("Knowledge", "#c7921e"),
+        ("Security", "#a4262c"),
+        "#605e5c",
+    )
+    return rx.box(
+        rx.hstack(
+            badge,
+            rx.text(
+                result["title"],
+                font_size="13px",
+                font_weight="600",
+                color="#201f1e",
+            ),
+            rx.spacer(),
+            rx.badge(
+                result["category"],
+                variant="soft",
+                color_scheme="gray",
+                size="1",
+                font_size="10px",
+                color=cat_color,
+            ),
+            spacing="2",
+            align="center",
+            flex_wrap="wrap",
+            width="100%",
+        ),
+        rx.text(
+            result["detail"],
+            font_size="12px",
+            color="#605e5c",
+            margin_top="5px",
+            line_height="1.55",
+        ),
+        padding="10px 14px",
+        border_left_width="3px",
+        border_left_style="solid",
+        border_left_color=border_color,
+        background=bg_color,
+        border_radius="0 4px 4px 0",
+        margin_bottom="8px",
+        width="100%",
+    )
+
+
+def _check_summary_badge(count: rx.Var, label: str, color: str) -> rx.Component:
+    return rx.hstack(
+        rx.text(count, font_size="20px", font_weight="700", color=color),
+        rx.text(label, font_size="12px", color="#605e5c", font_weight="500"),
+        spacing="1",
+        align="baseline",
+    )
+
+
+def solution_check_panel() -> rx.Component:
+    """Full-width solution check report rendered inside the Check tab."""
+    return rx.cond(
+        State.is_checking,
+        rx.center(
+            rx.vstack(
+                rx.spinner(size="3", color=PRIMARY),
+                rx.text("Running solution checks…", font_size="13px", color="#605e5c"),
+                spacing="3",
+                align="center",
+            ),
+            padding_y="48px",
+            width="100%",
+        ),
+        rx.cond(
+            State.check_error != "",
+            rx.callout(
+                State.check_error,
+                icon="triangle-alert",
+                color_scheme="red",
+                margin_top="8px",
+            ),
+            rx.cond(
+                State.has_check,
+                rx.vstack(
+                    # ── Header card ───────────────────────────────────────
+                    card(
+                        rx.hstack(
+                            rx.vstack(
+                                rx.hstack(
+                                    rx.icon("scan-search", color=PRIMARY, size=20),
+                                    rx.heading(
+                                        "Solution Check Report",
+                                        size="4",
+                                        color="#201f1e",
+                                    ),
+                                    spacing="2",
+                                    align="center",
+                                ),
+                                rx.hstack(
+                                    rx.cond(
+                                        State.check_agent_name != "",
+                                        rx.hstack(
+                                            rx.text(
+                                                "Agent:",
+                                                font_size="13px",
+                                                color="#605e5c",
+                                            ),
+                                            rx.badge(
+                                                State.check_agent_name,
+                                                color_scheme="purple",
+                                                variant="soft",
+                                            ),
+                                            spacing="2",
+                                            align="center",
+                                        ),
+                                        rx.box(),
+                                    ),
+                                    rx.cond(
+                                        State.check_solution_name != "",
+                                        rx.hstack(
+                                            rx.text(
+                                                "Solution:",
+                                                font_size="13px",
+                                                color="#605e5c",
+                                            ),
+                                            rx.badge(
+                                                State.check_solution_name,
+                                                color_scheme="blue",
+                                                variant="soft",
+                                            ),
+                                            spacing="2",
+                                            align="center",
+                                        ),
+                                        rx.box(),
+                                    ),
+                                    spacing="4",
+                                    align="center",
+                                    flex_wrap="wrap",
+                                ),
+                                spacing="2",
+                                align="start",
+                            ),
+                            rx.spacer(),
+                            # ── Summary counts ────────────────────────────
+                            rx.hstack(
+                                _check_summary_badge(State.check_pass_count, "passed", "#107c10"),
+                                rx.divider(orientation="vertical", height="32px"),
+                                _check_summary_badge(State.check_warn_count, "warnings", "#c7921e"),
+                                rx.divider(orientation="vertical", height="32px"),
+                                _check_summary_badge(State.check_fail_count, "failed", "#a4262c"),
+                                rx.divider(orientation="vertical", height="32px"),
+                                _check_summary_badge(State.check_info_count, "info", "#0078d4"),
+                                spacing="4",
+                                align="center",
+                            ),
+                            align="center",
+                            width="100%",
+                            flex_wrap="wrap",
+                            gap="16px",
+                        ),
+                        width="100%",
+                    ),
+                    # ── Category filter pills ─────────────────────────────
+                    card(
+                        sub_heading("FILTER BY CATEGORY"),
+                        rx.hstack(
+                            _check_category_pill("Solution"),
+                            _check_category_pill("Agent"),
+                            _check_category_pill("Topics"),
+                            _check_category_pill("Knowledge"),
+                            _check_category_pill("Security"),
+                            spacing="2",
+                            flex_wrap="wrap",
+                        ),
+                        width="100%",
+                    ),
+                    # ── Results list ──────────────────────────────────────
+                    card(
+                        rx.hstack(
+                            sub_heading("CHECK RESULTS"),
+                            rx.spacer(),
+                            rx.cond(
+                                State.check_active_category != "",
+                                rx.badge(
+                                    State.check_active_category,
+                                    color_scheme="blue",
+                                    variant="soft",
+                                    size="1",
+                                ),
+                                rx.text(
+                                    "All categories",
+                                    font_size="11px",
+                                    color="#a19f9d",
+                                ),
+                            ),
+                            align="center",
+                            width="100%",
+                            margin_bottom="12px",
+                        ),
+                        rx.vstack(
+                            rx.foreach(
+                                State.check_filtered_results,
+                                _check_result_item,
+                            ),
+                            width="100%",
+                            spacing="0",
+                        ),
+                        width="100%",
+                    ),
+                    width="100%",
+                    spacing="4",
+                    align="start",
+                ),
+                # ── Empty state ───────────────────────────────────────────
+                rx.center(
+                    rx.vstack(
+                        rx.icon("scan-search", size=36, color="#c8c6c4"),
+                        rx.text(
+                            "Upload a solution ZIP to run the solution checker",
+                            font_size="14px",
+                            color="#a19f9d",
+                        ),
+                        spacing="3",
+                        align="center",
+                    ),
+                    padding_y="48px",
+                    width="100%",
+                ),
+            ),
+        ),
     )
 
 

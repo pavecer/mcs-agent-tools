@@ -15,6 +15,7 @@ from web.components import (
     no_agent_warning_banner,
     process_error_banner,
     result_panel,
+    solution_check_panel,
     unified_upload_area,
     validation_panel,
     visualization_panel,
@@ -129,6 +130,16 @@ def _validate_tab() -> rx.Component:
     )
 
 
+# ── Check tab content ─────────────────────────────────────────────────────────
+
+
+def _check_tab() -> rx.Component:
+    return rx.box(
+        solution_check_panel(),
+        width="100%",
+    )
+
+
 # ── Analyse tab content ───────────────────────────────────────────────────────
 
 
@@ -187,6 +198,11 @@ def index() -> rx.Component:
                             ),
                             _tab_trigger("Visualize", "git-branch", "visualize"),
                             _tab_trigger("Validate", "shield-check", "validate"),
+                            rx.cond(
+                                State.is_solution_zip,
+                                _tab_trigger("Check", "scan-search", "check"),
+                                rx.box(),
+                            ),
                             spacing="0",
                             border_bottom="1px solid #edebe9",
                             width="100%",
@@ -210,7 +226,11 @@ def index() -> rx.Component:
                                 rx.cond(
                                     State.active_tab == "validate",
                                     _validate_tab(),
-                                    _analyse_tab(),
+                                    rx.cond(
+                                        State.active_tab == "check",
+                                        _check_tab(),
+                                        _analyse_tab(),
+                                    ),
                                 ),
                             ),
                         ),
