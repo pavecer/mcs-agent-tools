@@ -304,6 +304,20 @@ class State(rx.State):
         md = section_map.get(self.mcs_analyse_tab, "")
         return _md_to_segments(md)
 
+    # ── Setters for evals filter state (required — auto-setters deprecated) ──
+
+    @rx.event
+    def set_evals_sub_tab(self, value: str):
+        self.evals_sub_tab = value
+
+    @rx.event
+    def set_evals_active_test_set(self, value: str):
+        self.evals_active_test_set = value
+
+    @rx.event
+    def set_evals_active_eval_set(self, value: str):
+        self.evals_active_eval_set = value
+
     # ── Event handlers ────────────────────────────────────────────────────
 
     @rx.event
