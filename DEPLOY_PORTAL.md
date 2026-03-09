@@ -162,6 +162,12 @@ it uses OIDC federated credentials.
 
 This tells Azure "trust tokens issued by GitHub for this repo/branch".
 
+> **Important:** Do **not** add a GitHub `environment:` field to the deploy job,
+> because that changes the OIDC subject claim from
+> `repo:<org>/<repo>:ref:refs/heads/main` to
+> `repo:<org>/<repo>:environment:production`, which would not match this
+> credential and cause login to fail.
+
 1. Still on the App Registration page from Part 5.
 2. In the left menu choose **Certificates & secrets**.
 3. Click the **Federated credentials** tab.

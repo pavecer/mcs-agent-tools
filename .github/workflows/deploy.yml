@@ -15,7 +15,6 @@ jobs:
   deploy:
     name: Build & Deploy
     runs-on: ubuntu-latest
-    environment: production          # maps to the "production" GitHub environment
 
     steps:
       # ── 1. Checkout ─────────────────────────────────────────────────────────
