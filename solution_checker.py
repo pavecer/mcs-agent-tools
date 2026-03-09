@@ -245,7 +245,7 @@ def _check_solution_xml(work_dir: Path) -> list[dict]:
                     "SOL004",
                     "Solution",
                     "Solution description is present",
-                    f"Solution description: \"{desc}\"",
+                    f'Solution description: "{desc}"',
                 )
             )
 
@@ -285,8 +285,7 @@ def _check_agent_config(work_dir: Path, schema: str) -> list[dict]:  # noqa: C90
                 "AGT001",
                 "Agent",
                 "Bot configuration.json not found",
-                f"No configuration.json found at bots/{schema}/configuration.json. "
-                "Agent settings checks are skipped.",
+                f"No configuration.json found at bots/{schema}/configuration.json. Agent settings checks are skipped.",
             )
         )
         return results
@@ -317,7 +316,7 @@ def _check_agent_config(work_dir: Path, schema: str) -> list[dict]:  # noqa: C90
                     "AGT001",
                     "Agent",
                     "Agent description is present",
-                    f"Description: \"{desc}\"",
+                    f'Description: "{desc}"',
                 )
             )
         else:
@@ -871,8 +870,7 @@ def _check_security(work_dir: Path, schema: str) -> list[dict]:  # noqa: C901
                 "SEC001",
                 "Security",
                 "No prompt injection patterns detected in topic content",
-                "None of the topic data files contain common prompt injection or "
-                "instruction-override patterns.",
+                "None of the topic data files contain common prompt injection or instruction-override patterns.",
             )
         )
 
