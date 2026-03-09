@@ -9,7 +9,7 @@ FROM python:3.12-slim
 
 # ── System packages: Node.js 20 LTS (needed by Reflex for the frontend) ──────
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates curl \
+        ca-certificates curl unzip \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && apt-get purge -y --auto-remove curl \
