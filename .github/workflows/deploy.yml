@@ -43,10 +43,14 @@ jobs:
       # ── 4. Update the Container App to the new image ──────────────────────
       - name: Deploy to Azure Container App
         run: |
+          IMAGE="${{ secrets.ACR_NAME }}.azurecr.io/pp-agent-toolkit:${{ github.sha }}"
+          echo "Deploying image: $IMAGE"
           az containerapp update \
             --name "${{ secrets.AZURE_CONTAINER_APP_NAME }}" \
             --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
-            --image "${{ secrets.ACR_NAME }}.azurecr.io/pp-agent-toolkit:${{ github.sha }}"
+            --image "$IMAGE" \
+            --registry-server "${{ secrets.ACR_NAME }}.azurecr.io" \
+            --registry-identity system
 
       # ── 5. Verify the revision is active ─────────────────────────────────
       - name: Show active revision
