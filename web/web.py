@@ -7,6 +7,7 @@ import reflex as rx
 from web.components import (
     action_bar,
     detected_info_panel,
+    evals_panel,
     inspect_error_banner,
     login_form,
     mcs_analyse_panel,
@@ -150,6 +151,16 @@ def _analyse_tab() -> rx.Component:
     )
 
 
+# ── Evals tab content ─────────────────────────────────────────────────────────
+
+
+def _evals_tab() -> rx.Component:
+    return rx.box(
+        evals_panel(),
+        width="100%",
+    )
+
+
 def index() -> rx.Component:
     """Main page with a unified upload zone and context-sensitive tab layout."""
     return rx.vstack(
@@ -205,6 +216,11 @@ def index() -> rx.Component:
                             ),
                             rx.cond(
                                 State.is_solution_zip,
+                                _tab_trigger("Evals", "flask-conical", "evals"),
+                                rx.box(),
+                            ),
+                            rx.cond(
+                                State.is_solution_zip,
                                 _tab_trigger("Rename", "refresh-cw", "rename"),
                                 rx.box(),
                             ),
@@ -234,7 +250,11 @@ def index() -> rx.Component:
                                     rx.cond(
                                         State.active_tab == "check",
                                         _check_tab(),
-                                        _analyse_tab(),
+                                        rx.cond(
+                                            State.active_tab == "evals",
+                                            _evals_tab(),
+                                            _analyse_tab(),
+                                        ),
                                     ),
                                 ),
                             ),

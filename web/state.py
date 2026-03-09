@@ -31,7 +31,7 @@ from renamer import (
 )
 from solution_checker import check_solution_zip
 from validator import validate_instructions, validate_zip_bytes
-from visualizer import visualize_zip_bytes
+from visualizer import visualize_zip_bytes, get_evals_data
 
 load_dotenv()
 
@@ -139,7 +139,18 @@ class State(rx.State):
     check_info_count: int = 0
     check_active_category: str = ""  # empty = show all
 
-    # ── Active tab ("rename" | "visualize" | "validate" | "check") ─────────
+    # ── Evaluations ───────────────────────────────────────────────────
+    # Summary items (no nested test_cases/rows to avoid large state)
+    evals_test_sets: list[dict] = []   # [{schema_name, display_name, test_count}]
+    evals_eval_sets: list[dict] = []   # [{schema_name, display_name, graders, row_count}]
+    # Flat lists for foreach rendering
+    evals_all_test_cases: list[dict] = []  # [{set_schema, set_name, input, expected_response, score_threshold, origin_type}]
+    evals_all_eval_rows: list[dict] = []   # [{set_schema, set_name, input, expected_output, keywords, source}]
+    evals_sub_tab: str = "tests"        # "tests" | "evals"
+    evals_active_test_set: str = ""     # schema_name filter, empty = all
+    evals_active_eval_set: str = ""     # schema_name filter, empty = all
+
+    # ── Active tab ("rename" | "visualize" | "validate" | "check" | "evals") ─────────
     active_tab: str = "visualize"
 
     # ── Processing ────────────────────────────────────────────────────────
@@ -224,6 +235,30 @@ class State(rx.State):
         if not self.check_active_category:
             return self.check_results
         return [r for r in self.check_results if r.get("category") == self.check_active_category]
+
+    @rx.var
+    def has_evals(self) -> bool:
+        return bool(self.evals_test_sets) or bool(self.evals_eval_sets)
+
+    @rx.var
+    def evals_test_total(self) -> int:
+        return len(self.evals_all_test_cases)
+
+    @rx.var
+    def evals_eval_total(self) -> int:
+        return len(self.evals_all_eval_rows)
+
+    @rx.var
+    def evals_filtered_test_cases(self) -> list[dict]:
+        if not self.evals_active_test_set:
+            return self.evals_all_test_cases
+        return [tc for tc in self.evals_all_test_cases if tc.get("set_schema") == self.evals_active_test_set]
+
+    @rx.var
+    def evals_filtered_eval_rows(self) -> list[dict]:
+        if not self.evals_active_eval_set:
+            return self.evals_all_eval_rows
+        return [row for row in self.evals_all_eval_rows if row.get("set_schema") == self.evals_active_eval_set]
 
     @rx.var
     def validation_instructions_length_str(self) -> str:
@@ -337,6 +372,13 @@ class State(rx.State):
         self.check_agent_name = ""
         self.check_solution_name = ""
         self.check_active_category = ""
+        self.evals_test_sets = []
+        self.evals_eval_sets = []
+        self.evals_all_test_cases = []
+        self.evals_all_eval_rows = []
+        self.evals_sub_tab = "tests"
+        self.evals_active_test_set = ""
+        self.evals_active_eval_set = ""
         self.mcs_section_profile = ""
         self.mcs_section_topics = ""
         self.mcs_section_graph = ""
@@ -430,6 +472,52 @@ class State(rx.State):
                     self.check_ran = False
                 finally:
                     self.is_checking = False
+
+            if not self.inspect_error:
+                yield
+                try:
+                    evals = get_evals_data(file_bytes)
+                    test_sets_summary = []
+                    all_test_cases = []
+                    for ts in evals.get("test_sets", []):
+                        test_sets_summary.append({
+                            "schema_name": ts["schema_name"],
+                            "display_name": ts["display_name"],
+                            "test_count": len(ts.get("test_cases", [])),
+                        })
+                        for tc in ts.get("test_cases", []):
+                            all_test_cases.append({
+                                "set_schema": ts["schema_name"],
+                                "set_name": ts["display_name"],
+                                "input": tc["input"],
+                                "expected_response": tc["expected_response"],
+                                "score_threshold": tc["score_threshold"],
+                                "origin_type": tc["origin_type"],
+                            })
+                    eval_sets_summary = []
+                    all_eval_rows = []
+                    for es in evals.get("eval_sets", []):
+                        eval_sets_summary.append({
+                            "schema_name": es["schema_name"],
+                            "display_name": es["display_name"],
+                            "graders": ", ".join(es.get("graders", [])) or "None",
+                            "row_count": len(es.get("rows", [])),
+                        })
+                        for row in es.get("rows", []):
+                            all_eval_rows.append({
+                                "set_schema": es["schema_name"],
+                                "set_name": es["display_name"],
+                                "input": row["input"],
+                                "expected_output": row["expected_output"],
+                                "keywords": " · ".join(row.get("keywords", [])),
+                                "source": row["source"],
+                            })
+                    self.evals_test_sets = test_sets_summary
+                    self.evals_all_test_cases = all_test_cases
+                    self.evals_eval_sets = eval_sets_summary
+                    self.evals_all_eval_rows = all_eval_rows
+                except Exception:
+                    pass  # evals are non-critical; silently skip on error
 
         else:
             # ── Snapshot ZIP: parse → visualize (topic graph) → validate (instructions) → analyse ──
@@ -626,6 +714,13 @@ class State(rx.State):
         self.check_agent_name = ""
         self.check_solution_name = ""
         self.check_active_category = ""
+        self.evals_test_sets = []
+        self.evals_eval_sets = []
+        self.evals_all_test_cases = []
+        self.evals_all_eval_rows = []
+        self.evals_sub_tab = "tests"
+        self.evals_active_test_set = ""
+        self.evals_active_eval_set = ""
         self.no_agent_warning = ""
         self.active_tab = "visualize"
         self.zip_type = ""

@@ -1322,3 +1322,389 @@ def mcs_analyse_panel() -> rx.Component:
             ),
         ),
     )
+
+
+# ── Evaluations panel ─────────────────────────────────────────────────────────
+
+
+def _evals_sub_tab_btn(tab_id: str, icon_name: str, label_text: str, count: rx.Var) -> rx.Component:
+    active = State.evals_sub_tab == tab_id
+    return rx.box(
+        rx.hstack(
+            rx.icon(icon_name, size=14),
+            rx.text(label_text, font_size="13px", font_weight="600"),
+            rx.badge(count, color_scheme="gray", variant="soft", size="1"),
+            spacing="2",
+            align="center",
+        ),
+        on_click=State.set_evals_sub_tab(tab_id),
+        padding="8px 16px",
+        cursor="pointer",
+        border_bottom=rx.cond(active, f"2px solid {PRIMARY}", "2px solid transparent"),
+        color=rx.cond(active, PRIMARY, "#605e5c"),
+        _hover={"color": PRIMARY},
+        transition="all 0.15s ease",
+        user_select="none",
+    )
+
+
+def _evals_test_set_pill(ts: dict) -> rx.Component:
+    active = State.evals_active_test_set == ts["schema_name"]
+    return rx.box(
+        rx.hstack(
+            rx.text(ts["display_name"], font_size="12px", font_weight="600"),
+            rx.badge(ts["test_count"], color_scheme="purple", variant="soft", size="1"),
+            spacing="1",
+            align="center",
+        ),
+        on_click=rx.cond(
+            active,
+            State.set_evals_active_test_set(""),
+            State.set_evals_active_test_set(ts["schema_name"]),
+        ),
+        padding="5px 12px",
+        border_radius="16px",
+        cursor="pointer",
+        border=rx.cond(active, f"1.5px solid {PRIMARY}", "1.5px solid #edebe9"),
+        background=rx.cond(active, f"{PRIMARY}18", "#ffffff"),
+        color=rx.cond(active, PRIMARY, "#605e5c"),
+        _hover={"border_color": PRIMARY, "color": PRIMARY},
+        transition="all 0.15s ease",
+        user_select="none",
+    )
+
+
+def _evals_eval_set_pill(es: dict) -> rx.Component:
+    active = State.evals_active_eval_set == es["schema_name"]
+    return rx.box(
+        rx.hstack(
+            rx.text(es["display_name"], font_size="12px", font_weight="600"),
+            rx.badge(es["row_count"], color_scheme="teal", variant="soft", size="1"),
+            spacing="1",
+            align="center",
+        ),
+        on_click=rx.cond(
+            active,
+            State.set_evals_active_eval_set(""),
+            State.set_evals_active_eval_set(es["schema_name"]),
+        ),
+        padding="5px 12px",
+        border_radius="16px",
+        cursor="pointer",
+        border=rx.cond(active, f"1.5px solid {PRIMARY}", "1.5px solid #edebe9"),
+        background=rx.cond(active, f"{PRIMARY}18", "#ffffff"),
+        color=rx.cond(active, PRIMARY, "#605e5c"),
+        _hover={"border_color": PRIMARY, "color": PRIMARY},
+        transition="all 0.15s ease",
+        user_select="none",
+    )
+
+
+def _test_case_row(tc: dict) -> rx.Component:
+    """Render a single test case row."""
+    return rx.box(
+        rx.hstack(
+            rx.box(
+                rx.text(tc["set_name"], font_size="11px", color="#a19f9d", font_weight="500"),
+                rx.text(tc["input"], font_size="13px", font_weight="600", color="#201f1e"),
+                width="38%",
+                flex_shrink="0",
+            ),
+            rx.box(
+                rx.text(
+                    tc["expected_response"],
+                    font_size="12px",
+                    color="#605e5c",
+                    line_height="1.5",
+                ),
+                width="47%",
+                flex_shrink="0",
+                overflow="hidden",
+            ),
+            rx.vstack(
+                rx.badge(
+                    tc["origin_type"],
+                    color_scheme="blue",
+                    variant="soft",
+                    size="1",
+                ),
+                rx.badge(
+                    rx.hstack(
+                        rx.text("≥", font_size="10px"),
+                        rx.text(tc["score_threshold"], font_size="10px"),
+                        rx.text("%", font_size="10px"),
+                        spacing="0",
+                    ),
+                    color_scheme="green",
+                    variant="soft",
+                    size="1",
+                ),
+                spacing="1",
+                align="center",
+                width="15%",
+            ),
+            spacing="4",
+            align="start",
+            width="100%",
+        ),
+        padding="10px 14px",
+        border_bottom="1px solid #f3f2f1",
+        _hover={"background": "#faf9f8"},
+        width="100%",
+    )
+
+
+def _eval_data_row(row: dict) -> rx.Component:
+    """Render a single evaluation data row."""
+    return rx.box(
+        rx.hstack(
+            rx.box(
+                rx.text(row["set_name"], font_size="11px", color="#a19f9d", font_weight="500"),
+                rx.text(row["input"], font_size="13px", font_weight="600", color="#201f1e"),
+                width="33%",
+                flex_shrink="0",
+            ),
+            rx.box(
+                rx.text(
+                    row["expected_output"],
+                    font_size="12px",
+                    color="#605e5c",
+                    line_height="1.5",
+                ),
+                width="47%",
+                flex_shrink="0",
+                overflow="hidden",
+            ),
+            rx.vstack(
+                rx.badge(
+                    row["source"],
+                    color_scheme=rx.cond(row["source"] == "Manual", "green", "blue"),
+                    variant="soft",
+                    size="1",
+                ),
+                rx.cond(
+                    row["keywords"] != "",
+                    rx.text(
+                        row["keywords"],
+                        font_size="10px",
+                        color="#a19f9d",
+                        max_width="140px",
+                        overflow="hidden",
+                        text_overflow="ellipsis",
+                        white_space="nowrap",
+                    ),
+                    rx.box(),
+                ),
+                spacing="1",
+                align="start",
+                width="20%",
+            ),
+            spacing="4",
+            align="start",
+            width="100%",
+        ),
+        padding="10px 14px",
+        border_bottom="1px solid #f3f2f1",
+        _hover={"background": "#faf9f8"},
+        width="100%",
+    )
+
+
+def evals_panel() -> rx.Component:
+    """Full-width evaluations panel for the Evals tab."""
+    return rx.cond(
+        State.has_evals,
+        rx.vstack(
+            # ── Header card ───────────────────────────────────────────────
+            card(
+                rx.hstack(
+                    rx.vstack(
+                        rx.hstack(
+                            rx.icon("flask-conical", color=PRIMARY, size=20),
+                            rx.heading("Built-in Evaluations", size="4", color="#201f1e"),
+                            spacing="2",
+                            align="center",
+                        ),
+                        rx.hstack(
+                            rx.cond(
+                                State.evals_test_total > 0,
+                                rx.hstack(
+                                    rx.text("Test cases:", font_size="13px", color="#605e5c"),
+                                    rx.badge(
+                                        State.evals_test_total,
+                                        color_scheme="purple",
+                                        variant="soft",
+                                    ),
+                                    spacing="2",
+                                    align="center",
+                                ),
+                                rx.box(),
+                            ),
+                            rx.cond(
+                                State.evals_eval_total > 0,
+                                rx.hstack(
+                                    rx.text("Eval rows:", font_size="13px", color="#605e5c"),
+                                    rx.badge(
+                                        State.evals_eval_total,
+                                        color_scheme="teal",
+                                        variant="soft",
+                                    ),
+                                    spacing="2",
+                                    align="center",
+                                ),
+                                rx.box(),
+                            ),
+                            spacing="4",
+                            align="center",
+                            flex_wrap="wrap",
+                        ),
+                        spacing="2",
+                        align="start",
+                    ),
+                    align="center",
+                    width="100%",
+                ),
+                width="100%",
+            ),
+            # ── Sub-tab bar ───────────────────────────────────────────────
+            rx.box(
+                rx.hstack(
+                    rx.cond(
+                        State.evals_test_total > 0,
+                        _evals_sub_tab_btn("tests", "list-checks", "Test Cases", State.evals_test_total),
+                        rx.box(),
+                    ),
+                    rx.cond(
+                        State.evals_eval_total > 0,
+                        _evals_sub_tab_btn("evals", "flask-conical", "Evaluations", State.evals_eval_total),
+                        rx.box(),
+                    ),
+                    spacing="0",
+                    border_bottom="1px solid #edebe9",
+                    width="100%",
+                ),
+                background="#ffffff",
+                border_radius="8px 8px 0 0",
+                width="100%",
+            ),
+            # ── Content ───────────────────────────────────────────────────
+            rx.cond(
+                State.evals_sub_tab == "tests",
+                # Test cases panel
+                card(
+                    rx.cond(
+                        State.evals_test_sets.length() > 1,
+                        rx.vstack(
+                            sub_heading("FILTER BY TEST SET"),
+                            rx.hstack(
+                                rx.foreach(State.evals_test_sets, _evals_test_set_pill),
+                                spacing="2",
+                                flex_wrap="wrap",
+                            ),
+                            margin_bottom="16px",
+                            width="100%",
+                            spacing="2",
+                            align="start",
+                        ),
+                        rx.box(),
+                    ),
+                    rx.hstack(
+                        rx.text("Input / Test Set", font_size="11px", font_weight="700", color="#605e5c", width="38%"),
+                        rx.text("Expected Response", font_size="11px", font_weight="700", color="#605e5c", width="47%"),
+                        rx.text("Info", font_size="11px", font_weight="700", color="#605e5c", width="15%"),
+                        spacing="4",
+                        padding_x="14px",
+                        padding_y="6px",
+                        background="#f3f2f1",
+                        border_radius="4px",
+                        margin_bottom="4px",
+                        width="100%",
+                    ),
+                    rx.box(
+                        rx.foreach(State.evals_filtered_test_cases, _test_case_row),
+                        width="100%",
+                        border="1px solid #edebe9",
+                        border_radius="4px",
+                        overflow="hidden",
+                    ),
+                    width="100%",
+                ),
+                # Evaluations panel
+                card(
+                    rx.cond(
+                        State.evals_eval_sets.length() > 1,
+                        rx.vstack(
+                            sub_heading("FILTER BY EVALUATION SET"),
+                            rx.hstack(
+                                rx.foreach(State.evals_eval_sets, _evals_eval_set_pill),
+                                spacing="2",
+                                flex_wrap="wrap",
+                            ),
+                            margin_bottom="16px",
+                            width="100%",
+                            spacing="2",
+                            align="start",
+                        ),
+                        rx.box(),
+                    ),
+                    # Graders info
+                    rx.cond(
+                        State.evals_active_eval_set != "",
+                        rx.foreach(
+                            State.evals_eval_sets,
+                            lambda es: rx.cond(
+                                es["schema_name"] == State.evals_active_eval_set,
+                                rx.hstack(
+                                    rx.text("Grader:", font_size="12px", color="#605e5c"),
+                                    rx.badge(es["graders"], color_scheme="orange", variant="soft", size="1"),
+                                    margin_bottom="12px",
+                                    spacing="2",
+                                    align="center",
+                                ),
+                                rx.box(),
+                            ),
+                        ),
+                        rx.box(),
+                    ),
+                    rx.hstack(
+                        rx.text("Input / Set", font_size="11px", font_weight="700", color="#605e5c", width="33%"),
+                        rx.text("Expected Output", font_size="11px", font_weight="700", color="#605e5c", width="47%"),
+                        rx.text("Info", font_size="11px", font_weight="700", color="#605e5c", width="20%"),
+                        spacing="4",
+                        padding_x="14px",
+                        padding_y="6px",
+                        background="#f3f2f1",
+                        border_radius="4px",
+                        margin_bottom="4px",
+                        width="100%",
+                    ),
+                    rx.box(
+                        rx.foreach(State.evals_filtered_eval_rows, _eval_data_row),
+                        width="100%",
+                        border="1px solid #edebe9",
+                        border_radius="4px",
+                        overflow="hidden",
+                    ),
+                    width="100%",
+                ),
+            ),
+            width="100%",
+            spacing="4",
+            align="start",
+        ),
+        # Empty state
+        rx.center(
+            rx.vstack(
+                rx.icon("flask-conical", size=36, color="#c8c6c4"),
+                rx.text(
+                    "No built-in evaluations found in the uploaded solution",
+                    font_size="14px",
+                    color="#a19f9d",
+                ),
+                spacing="3",
+                align="center",
+            ),
+            padding_y="48px",
+            width="100%",
+        ),
+    )

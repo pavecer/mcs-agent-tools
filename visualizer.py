@@ -66,6 +66,42 @@ class BotProfile(BaseModel):
     topic_connections: list[TopicConnection] = Field(default_factory=list)
 
 
+# ── Evaluation / test models ───────────────────────────────────────────────────
+
+
+class EvalDataRow(BaseModel):
+    input: str = ""
+    expected_output: str = ""
+    keywords: list[str] = Field(default_factory=list)
+    source: str = "Manual"
+
+
+class EvalSet(BaseModel):
+    schema_name: str = ""
+    display_name: str = ""
+    graders: list[str] = Field(default_factory=list)
+    rows: list[EvalDataRow] = Field(default_factory=list)
+
+
+class TestCase(BaseModel):
+    schema_name: str = ""
+    input: str = ""
+    expected_response: str = ""
+    score_threshold: int = 70
+    origin_type: str = "Imported"
+
+
+class TestSet(BaseModel):
+    schema_name: str = ""
+    display_name: str = ""
+    test_cases: list[TestCase] = Field(default_factory=list)
+
+
+class EvalsProfile(BaseModel):
+    test_sets: list[TestSet] = Field(default_factory=list)
+    eval_sets: list[EvalSet] = Field(default_factory=list)
+
+
 # ── YAML sanitisation ──────────────────────────────────────────────────────────
 
 
@@ -106,6 +142,153 @@ def _load_data_yaml(data_path: Path) -> dict:
         return result if isinstance(result, dict) else {}
     except Exception:
         return {}
+
+
+def _get_parent_schema(xml_path: Path) -> str:
+    """Return the parentbotcomponentid/schemaname value from a botcomponent.xml, or ''."""
+    try:
+        root = ET.parse(xml_path).getroot()
+        parent_el = root.find("parentbotcomponentid")
+        if parent_el is not None:
+            sn = parent_el.find("schemaname")
+            if sn is not None and sn.text:
+                return sn.text
+    except Exception:
+        pass
+    return ""
+
+
+# ── Evaluation / test parser ───────────────────────────────────────────────────
+
+
+def parse_evals_zip(work_dir: Path) -> EvalsProfile:
+    """Parse TestSetDefinition, TestCaseDefinition, EvaluationSet, and EvaluationData
+    components from an extracted Power Platform solution directory.
+    """
+    if not _YAML_AVAILABLE:  # pragma: no cover
+        raise RuntimeError("pyyaml is required for visualization. Run: uv add pyyaml")
+
+    botcomponents_dir = work_dir / "botcomponents"
+    if not botcomponents_dir.exists():
+        return EvalsProfile()
+
+    # Pass 1: collect metadata for all mspva_ components
+    comp_kinds: dict[str, str] = {}
+    comp_names: dict[str, str] = {}
+    comp_parents: dict[str, str] = {}
+    comp_data: dict[str, dict] = {}
+
+    for comp_dir in sorted(botcomponents_dir.iterdir()):
+        if not comp_dir.is_dir():
+            continue
+        folder = comp_dir.name
+        if not folder.startswith("mspva_"):
+            continue
+        xml_path = comp_dir / "botcomponent.xml"
+        data_path = comp_dir / "data"
+
+        if xml_path.exists():
+            fields = _parse_xml_fields(xml_path, "name")
+            comp_names[folder] = (fields.get("name") or "").strip()
+            comp_parents[folder] = _get_parent_schema(xml_path)
+
+        if data_path.exists():
+            d = _load_data_yaml(data_path)
+            if isinstance(d, dict):
+                comp_data[folder] = d
+                comp_kinds[folder] = d.get("kind") or ""
+
+    # Pass 2: build TestSets from TestSetDefinition components
+    test_sets: dict[str, TestSet] = {}
+    for schema, kind in comp_kinds.items():
+        if kind == "TestSetDefinition":
+            test_sets[schema] = TestSet(
+                schema_name=schema,
+                display_name=comp_names.get(schema) or schema,
+            )
+
+    # Pass 3: attach TestCaseDefinitions to their parent TestSet
+    for schema, kind in comp_kinds.items():
+        if kind != "TestCaseDefinition":
+            continue
+        parent = comp_parents.get(schema, "")
+        if parent not in test_sets:
+            parent = "__ungrouped__"
+            if parent not in test_sets:
+                test_sets[parent] = TestSet(schema_name=parent, display_name="Ungrouped")
+
+        d = comp_data.get(schema, {})
+        activities = ((d.get("transcriptDefinition") or {}).get("testActivities") or [])
+        input_text = expected_response = ""
+        score_threshold = 70
+        origin_type = "Imported"
+
+        for act in activities:
+            if not isinstance(act, dict) or act.get("kind") != "SendUserActivity":
+                continue
+            input_text = (act.get("activity") or "").strip()
+            origin_type = act.get("originType") or "Imported"
+            for assertion in (act.get("activityAssertions") or []):
+                if isinstance(assertion, dict) and assertion.get("kind") == "IntentMatchAssertion":
+                    expected_response = (assertion.get("expectedResponse") or "").strip()
+                    try:
+                        score_threshold = int(assertion.get("scoreThreshold") or 70)
+                    except (TypeError, ValueError):
+                        score_threshold = 70
+            break  # only process first SendUserActivity
+
+        if input_text:
+            test_sets[parent].test_cases.append(
+                TestCase(
+                    schema_name=schema,
+                    input=input_text,
+                    expected_response=expected_response,
+                    score_threshold=score_threshold,
+                    origin_type=origin_type,
+                )
+            )
+
+    # Pass 4: build EvaluationSets from EvaluationSet components
+    eval_sets: dict[str, EvalSet] = {}
+    for schema, kind in comp_kinds.items():
+        if kind == "EvaluationSet":
+            d = comp_data.get(schema, {})
+            graders_raw = d.get("graders") or []
+            graders = [g["kind"] for g in graders_raw if isinstance(g, dict) and g.get("kind")]
+            eval_sets[schema] = EvalSet(
+                schema_name=schema,
+                display_name=comp_names.get(schema) or schema,
+                graders=graders,
+            )
+
+    # Pass 5: attach EvaluationData rows to their parent EvaluationSet
+    for schema, kind in comp_kinds.items():
+        if kind != "EvaluationData":
+            continue
+        parent = comp_parents.get(schema, "")
+        if parent not in eval_sets:
+            parent = "__ungrouped_eval__"
+            if parent not in eval_sets:
+                eval_sets[parent] = EvalSet(schema_name=parent, display_name="Ungrouped")
+
+        d = comp_data.get(schema, {})
+        for row in (d.get("rows") or []):
+            if not isinstance(row, dict):
+                continue
+            keywords_raw = row.get("expectedKeywords") or []
+            eval_sets[parent].rows.append(
+                EvalDataRow(
+                    input=(row.get("input") or "").strip(),
+                    expected_output=(row.get("expectedOutput") or "").strip(),
+                    keywords=[str(k) for k in keywords_raw if k],
+                    source=row.get("source") or "Manual",
+                )
+            )
+
+    return EvalsProfile(
+        test_sets=[ts for ts in test_sets.values() if ts.test_cases],
+        eval_sets=[es for es in eval_sets.values() if es.rows],
+    )
 
 
 # ── Parser ─────────────────────────────────────────────────────────────────────
@@ -589,3 +772,18 @@ def visualize_zip_bytes(zip_bytes: bytes) -> list[dict]:
 
     md = generate_markdown_report(profile)
     return split_segments(md)
+
+
+def get_evals_data(zip_bytes: bytes) -> dict:
+    """Parse evaluation and test sets from a solution ZIP and return a serializable dict.
+
+    Returns a dict with keys:
+      - ``test_sets``: list of TestSet dicts (schema_name, display_name, test_cases)
+      - ``eval_sets``: list of EvalSet dicts (schema_name, display_name, graders, rows)
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp = Path(tmpdir)
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+            safe_extractall(zf, tmp)
+        profile = parse_evals_zip(tmp)
+    return profile.model_dump()
