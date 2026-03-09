@@ -48,8 +48,7 @@ jobs:
           az containerapp update \
             --name "${{ secrets.AZURE_CONTAINER_APP_NAME }}" \
             --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
-            --image "$IMAGE" \
-            --registry-server "${{ secrets.ACR_NAME }}.azurecr.io"
+            --image "$IMAGE"
 
       # ── 5. Verify the revision is active ─────────────────────────────────
       - name: Show active revision
