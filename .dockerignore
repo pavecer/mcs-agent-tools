@@ -1,0 +1,37 @@
+# Version control
+.git
+.github
+
+# Python
+.venv
+__pycache__
+*.py[cod]
+*.pyo
+.pytest_cache
+.ruff_cache
+
+# Reflex artefacts (generated fresh during docker build by `reflex init`)
+.web
+.states
+.reflex
+
+# Dev/test only
+tests/
+.vscode/
+
+# Runtime uploads (transient; never baked into the image)
+uploaded_files/
+
+# ZIP samples / test fixtures
+*.zip
+
+# Secrets — never bake .env files into the image
+.env
+.env.*
+
+# macOS
+.DS_Store
+*.DS_Store
+
+# Logs
+*.log

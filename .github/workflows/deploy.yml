@@ -1,0 +1,59 @@
+name: Build & Deploy to Azure
+
+# Triggers: every push to main (continuous deployment) and manual dispatch.
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+# OIDC token required for Azure Login — no long-lived service principal secrets.
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Build & Deploy
+    runs-on: ubuntu-latest
+    environment: production          # maps to the "production" GitHub environment
+
+    steps:
+      # ── 1. Checkout ─────────────────────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── 2. Authenticate to Azure via OIDC (no stored passwords) ─────────────
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # ── 3. Build image inside ACR (no Docker daemon needed on the runner) ───
+      #  `az acr build` uploads the build context to Azure Container Registry
+      #  and builds the Dockerfile there, then pushes the image.
+      - name: Build & push image to ACR
+        run: |
+          az acr build \
+            --registry "${{ secrets.ACR_NAME }}" \
+            --image "pp-agent-toolkit:${{ github.sha }}" \
+            --image "pp-agent-toolkit:latest" \
+            .
+
+      # ── 4. Update the Container App to the new image ──────────────────────
+      - name: Deploy to Azure Container App
+        run: |
+          az containerapp update \
+            --name "${{ secrets.AZURE_CONTAINER_APP_NAME }}" \
+            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
+            --image "${{ secrets.ACR_NAME }}.azurecr.io/pp-agent-toolkit:${{ github.sha }}"
+
+      # ── 5. Verify the revision is active ─────────────────────────────────
+      - name: Show active revision
+        run: |
+          az containerapp show \
+            --name "${{ secrets.AZURE_CONTAINER_APP_NAME }}" \
+            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
+            --query "properties.latestRevisionName" \
+            --output tsv
