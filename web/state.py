@@ -141,14 +141,16 @@ class State(rx.State):
 
     # ── Evaluations ───────────────────────────────────────────────────
     # Summary items (no nested test_cases/rows to avoid large state)
-    evals_test_sets: list[dict] = []   # [{schema_name, display_name, test_count}]
-    evals_eval_sets: list[dict] = []   # [{schema_name, display_name, graders, row_count}]
+    evals_test_sets: list[dict] = []  # [{schema_name, display_name, test_count}]
+    evals_eval_sets: list[dict] = []  # [{schema_name, display_name, graders, row_count}]
     # Flat lists for foreach rendering
-    evals_all_test_cases: list[dict] = []  # [{set_schema, set_name, input, expected_response, score_threshold, origin_type}]
-    evals_all_eval_rows: list[dict] = []   # [{set_schema, set_name, input, expected_output, keywords, source}]
-    evals_sub_tab: str = "tests"        # "tests" | "evals"
-    evals_active_test_set: str = ""     # schema_name filter, empty = all
-    evals_active_eval_set: str = ""     # schema_name filter, empty = all
+    evals_all_test_cases: list[
+        dict
+    ] = []  # [{set_schema, set_name, input, expected_response, score_threshold, origin_type}]
+    evals_all_eval_rows: list[dict] = []  # [{set_schema, set_name, input, expected_output, keywords, source}]
+    evals_sub_tab: str = "tests"  # "tests" | "evals"
+    evals_active_test_set: str = ""  # schema_name filter, empty = all
+    evals_active_eval_set: str = ""  # schema_name filter, empty = all
 
     # ── Active tab ("rename" | "visualize" | "validate" | "check" | "evals") ─────────
     active_tab: str = "visualize"
@@ -480,38 +482,46 @@ class State(rx.State):
                     test_sets_summary = []
                     all_test_cases = []
                     for ts in evals.get("test_sets", []):
-                        test_sets_summary.append({
-                            "schema_name": ts["schema_name"],
-                            "display_name": ts["display_name"],
-                            "test_count": len(ts.get("test_cases", [])),
-                        })
+                        test_sets_summary.append(
+                            {
+                                "schema_name": ts["schema_name"],
+                                "display_name": ts["display_name"],
+                                "test_count": len(ts.get("test_cases", [])),
+                            }
+                        )
                         for tc in ts.get("test_cases", []):
-                            all_test_cases.append({
-                                "set_schema": ts["schema_name"],
-                                "set_name": ts["display_name"],
-                                "input": tc["input"],
-                                "expected_response": tc["expected_response"],
-                                "score_threshold": tc["score_threshold"],
-                                "origin_type": tc["origin_type"],
-                            })
+                            all_test_cases.append(
+                                {
+                                    "set_schema": ts["schema_name"],
+                                    "set_name": ts["display_name"],
+                                    "input": tc["input"],
+                                    "expected_response": tc["expected_response"],
+                                    "score_threshold": tc["score_threshold"],
+                                    "origin_type": tc["origin_type"],
+                                }
+                            )
                     eval_sets_summary = []
                     all_eval_rows = []
                     for es in evals.get("eval_sets", []):
-                        eval_sets_summary.append({
-                            "schema_name": es["schema_name"],
-                            "display_name": es["display_name"],
-                            "graders": ", ".join(es.get("graders", [])) or "None",
-                            "row_count": len(es.get("rows", [])),
-                        })
+                        eval_sets_summary.append(
+                            {
+                                "schema_name": es["schema_name"],
+                                "display_name": es["display_name"],
+                                "graders": ", ".join(es.get("graders", [])) or "None",
+                                "row_count": len(es.get("rows", [])),
+                            }
+                        )
                         for row in es.get("rows", []):
-                            all_eval_rows.append({
-                                "set_schema": es["schema_name"],
-                                "set_name": es["display_name"],
-                                "input": row["input"],
-                                "expected_output": row["expected_output"],
-                                "keywords": " · ".join(row.get("keywords", [])),
-                                "source": row["source"],
-                            })
+                            all_eval_rows.append(
+                                {
+                                    "set_schema": es["schema_name"],
+                                    "set_name": es["display_name"],
+                                    "input": row["input"],
+                                    "expected_output": row["expected_output"],
+                                    "keywords": " · ".join(row.get("keywords", [])),
+                                    "source": row["source"],
+                                }
+                            )
                     self.evals_test_sets = test_sets_summary
                     self.evals_all_test_cases = all_test_cases
                     self.evals_eval_sets = eval_sets_summary

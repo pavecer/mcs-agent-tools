@@ -218,7 +218,7 @@ def parse_evals_zip(work_dir: Path) -> EvalsProfile:
                 test_sets[parent] = TestSet(schema_name=parent, display_name="Ungrouped")
 
         d = comp_data.get(schema, {})
-        activities = ((d.get("transcriptDefinition") or {}).get("testActivities") or [])
+        activities = (d.get("transcriptDefinition") or {}).get("testActivities") or []
         input_text = expected_response = ""
         score_threshold = 70
         origin_type = "Imported"
@@ -228,7 +228,7 @@ def parse_evals_zip(work_dir: Path) -> EvalsProfile:
                 continue
             input_text = (act.get("activity") or "").strip()
             origin_type = act.get("originType") or "Imported"
-            for assertion in (act.get("activityAssertions") or []):
+            for assertion in act.get("activityAssertions") or []:
                 if isinstance(assertion, dict) and assertion.get("kind") == "IntentMatchAssertion":
                     expected_response = (assertion.get("expectedResponse") or "").strip()
                     try:
@@ -272,7 +272,7 @@ def parse_evals_zip(work_dir: Path) -> EvalsProfile:
                 eval_sets[parent] = EvalSet(schema_name=parent, display_name="Ungrouped")
 
         d = comp_data.get(schema, {})
-        for row in (d.get("rows") or []):
+        for row in d.get("rows") or []:
             if not isinstance(row, dict):
                 continue
             keywords_raw = row.get("expectedKeywords") or []
