@@ -140,7 +140,7 @@ class State(rx.State):
     check_active_category: str = ""  # empty = show all
 
     # ── Active tab ("rename" | "visualize" | "validate" | "check") ─────────
-    active_tab: str = "rename"
+    active_tab: str = "visualize"
 
     # ── Processing ────────────────────────────────────────────────────────
     is_processing: bool = False
@@ -306,7 +306,7 @@ class State(rx.State):
 
         # ── Reset all upload-derived state ────────────────────────────────
         self.zip_type = "solution" if _has_solution else "snapshot"
-        self.active_tab = "rename" if _has_solution else "analyse"
+        self.active_tab = "visualize" if _has_solution else "analyse"
         self.mcs_analyse_tab = "profile"
         self.zip_bytes_b64 = base64.b64encode(file_bytes).decode()
         self.upload_filename = file.filename
@@ -627,7 +627,7 @@ class State(rx.State):
         self.check_solution_name = ""
         self.check_active_category = ""
         self.no_agent_warning = ""
-        self.active_tab = "rename"
+        self.active_tab = "visualize"
         self.zip_type = ""
         self.mcs_source = ""
         self.mcs_section_profile = ""

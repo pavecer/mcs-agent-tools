@@ -193,7 +193,7 @@ def index() -> rx.Component:
                         rx.hstack(
                             rx.cond(
                                 State.is_solution_zip,
-                                _tab_trigger("Rename", "refresh-cw", "rename"),
+                                rx.box(),
                                 _tab_trigger("Analyse", "search", "analyse"),
                             ),
                             _tab_trigger("Visualize", "git-branch", "visualize"),
@@ -201,6 +201,11 @@ def index() -> rx.Component:
                             rx.cond(
                                 State.is_solution_zip,
                                 _tab_trigger("Check", "scan-search", "check"),
+                                rx.box(),
+                            ),
+                            rx.cond(
+                                State.is_solution_zip,
+                                _tab_trigger("Rename", "refresh-cw", "rename"),
                                 rx.box(),
                             ),
                             spacing="0",

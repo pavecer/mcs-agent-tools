@@ -4,19 +4,7 @@ Toolkit for **Power Platform / Copilot Studio** exports with a single Reflex web
 
 ## What The Solution Offers
 
-### 1. Rename (solution ZIP)
-
-Create a safe copy of an exported solution by rewriting bot and solution identifiers so import does not overwrite the original.
-
-What is updated:
-
-- Bot schema name references (for example `copilots_new_my_bot` -> derived or overridden new schema)
-- Agent display name (`bot.xml`, `gpt.default/botcomponent.xml`)
-- Solution unique name (`solution.xml` + text references)
-- Solution display name (`solution.xml` localized name)
-- Folder names: `bots/{schema}` and `botcomponents/{schema}.*`
-
-### 2. Visualize (solution ZIP or snapshot ZIP)
+### 1. Visualize (solution ZIP or snapshot ZIP)
 
 Generate markdown sections and Mermaid diagrams for agent structure.
 
@@ -24,7 +12,7 @@ Generate markdown sections and Mermaid diagrams for agent structure.
 - Components/topics table
 - Topic redirect graph (`BeginDialog` relationships)
 
-### 3. Validate Instructions
+### 2. Validate Instructions
 
 Run static, rule-based instruction validation against model-specific best-practice files in `best_practices/`.
 
@@ -35,6 +23,20 @@ Supported model families include:
 - `o1`, `o3`, `o4mini`
 
 Output is rule-by-rule with `PASS`, `WARN`, or `FAIL`, plus optional rendered best-practice guidance.
+
+### 3. Check (solution ZIP only)
+
+Run a Copilot Studio-specific solution check — similar to Power Platform's built-in Solution Checker but focused on agent quality, configuration, and security.
+
+Checks are grouped into five categories:
+
+- **Solution** — `solution.xml` validity, publisher prefix, version, description
+- **Agent** — content moderation level, knowledge grounding, recognizer type, auto-publish setting
+- **Topics** — system topic completeness, inactive topics, empty dialogs, topic count
+- **Knowledge** — presence of knowledge sources, file sizes, semantic search, web browsing
+- **Security** — prompt injection patterns, hardcoded credentials, file upload analysis
+
+Results are shown with `PASS`, `WARN`, `FAIL`, and `INFO` severity and can be filtered by category.
 
 ### 4. Analyse Copilot Studio Snapshot + Transcript
 
@@ -50,6 +52,18 @@ You can also upload transcript JSON and render a detailed conversation report wi
 - Sequence diagram
 - Execution timeline/gantt-style sections
 - Event log and error highlights
+
+### 5. Rename (solution ZIP only)
+
+Create a safe copy of an exported solution by rewriting bot and solution identifiers so import does not overwrite the original.
+
+What is updated:
+
+- Bot schema name references (for example `copilots_new_my_bot` -> derived or overridden new schema)
+- Agent display name (`bot.xml`, `gpt.default/botcomponent.xml`)
+- Solution unique name (`solution.xml` + text references)
+- Solution display name (`solution.xml` localized name)
+- Folder names: `bots/{schema}` and `botcomponents/{schema}.*`
 
 ## Supported Inputs
 
@@ -71,9 +85,10 @@ Open `http://localhost:3000`.
 Typical flow:
 
 1. Upload a `.zip` export.
-2. If it is a solution ZIP, use `Rename`, `Visualize`, and `Validate` tabs.
-3. If it is a snapshot ZIP, use `Analyse`, `Visualize`, and `Validate` tabs.
+2. For solution ZIPs, start with **Visualize** to explore the agent structure, then use **Validate** and **Check** tabs for quality and security insights.
+3. For snapshot ZIPs, use **Analyse**, **Visualize**, and **Validate** tabs.
 4. Optionally upload transcript `.json` in Analyse to enrich conversation reporting.
+5. Use the **Rename** tab (solution ZIPs only) last to create a renamed copy for safe import.
 
 ### CLI (rename)
 
