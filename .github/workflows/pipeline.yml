@@ -148,10 +148,23 @@ jobs:
 
       - name: Ensure Container App system identity
         run: |
-          az containerapp identity assign \
-            --name "${{ secrets.AZURE_CONTAINER_APP_NAME }}" \
-            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
-            --system-assigned
+          APP="${{ secrets.AZURE_CONTAINER_APP_NAME }}"
+          RG="${{ secrets.AZURE_RESOURCE_GROUP }}"
+          PRINCIPAL_ID=$(az containerapp show \
+            --name "$APP" \
+            --resource-group "$RG" \
+            --query "identity.principalId" \
+            -o tsv)
+
+          if [[ -n "$PRINCIPAL_ID" && "$PRINCIPAL_ID" != "None" ]]; then
+            echo "System-assigned identity already present: $PRINCIPAL_ID"
+          else
+            echo "Assigning system-assigned identity..."
+            az containerapp identity assign \
+              --name "$APP" \
+              --resource-group "$RG" \
+              --system-assigned
+          fi
 
       # Build the Dockerfile inside ACR — no Docker daemon needed on the runner.
       # API_URL is the public HTTPS FQDN of the Container App; baked into the
