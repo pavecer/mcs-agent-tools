@@ -215,9 +215,6 @@ def _enrich_from_files(components: list[_Component], work_dir: Path) -> None:
     by_schema: dict[str, _Component] = {
         c.schema_name.lower(): c for c in components if c.schema_name
     }
-    by_id: dict[str, _Component] = {
-        c.stripped_id: c for c in components if c.stripped_id
-    }
 
     def _set(comp: _Component, name: str) -> None:
         if name and not comp.display_name:
