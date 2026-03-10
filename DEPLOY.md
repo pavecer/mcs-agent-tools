@@ -11,7 +11,7 @@ with automated deployments triggered by every push to `main`.
 GitHub push to main
        │
        ▼
-GitHub Actions (deploy.yml)
+GitHub Actions (pipeline.yml)
        │  OIDC — no stored passwords
        ▼
 Azure Container Registry (ACR)
@@ -165,6 +165,18 @@ az role assignment create \
   --scope $(az group show --name $RESOURCE_GROUP --query id -o tsv)
 ```
 
+Optional (only if you want CI to create AcrPull assignments automatically):
+
+```bash
+az role assignment create \
+  --assignee $SP_OBJECT_ID \
+  --role "User Access Administrator" \
+  --scope $(az acr show --name $ACR_NAME --resource-group $RESOURCE_GROUP --query id -o tsv)
+```
+
+If you do **not** grant `User Access Administrator`, pre-create `AcrPull` once
+for the Container App managed identity (see note in Step 5).
+
 ### 3c — Create a federated credential for your GitHub repo
 
 Replace `pavecer/mcs-agent-tools` with your actual `<owner>/<repo>`:
@@ -218,8 +230,24 @@ In your repository: **Settings → Secrets and variables → Actions → New rep
 Push to `main` (or click **Run workflow** in the Actions tab).
 The workflow will:
 1. Authenticate to Azure via OIDC
-2. Build the Docker image inside ACR (`az acr build`)
-3. Update the Container App to the new image
+2. Resolve the Container App public FQDN
+3. Build the Docker image inside ACR (`az acr build`) with `API_URL=https://<fqdn>`
+4. Ensure ACR pull permissions are available for the app managed identity
+5. Update the Container App to the new image
+
+If your CI identity cannot write RBAC role assignments, pre-create AcrPull once:
+
+```bash
+APP_NAME="pp-agent-toolkit"
+PRINCIPAL_ID=$(az containerapp show --name $APP_NAME --resource-group $RESOURCE_GROUP --query identity.principalId -o tsv)
+ACR_ID=$(az acr show --name $ACR_NAME --resource-group $RESOURCE_GROUP --query id -o tsv)
+
+az role assignment create \
+  --assignee-object-id "$PRINCIPAL_ID" \
+  --assignee-principal-type ServicePrincipal \
+  --role AcrPull \
+  --scope "$ACR_ID"
+```
 
 Monitor:
 ```bash

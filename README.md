@@ -130,6 +130,7 @@ Environment variables:
 - `FRONTEND_PORT`: frontend port in dev mode (default `3000`)
 - `BACKEND_PORT`: backend port in dev mode (default `8000`)
 - `PORT`: single port in prod mode (default `2009`)
+- `API_URL`: public app URL baked into the frontend during production image build (default `http://localhost:2009` for local Docker)
 - `USERS`: optional basic auth credentials list (`user1:pass1,user2:pass2`)
 
 When `USERS` is set, the app requires login at `/login`.

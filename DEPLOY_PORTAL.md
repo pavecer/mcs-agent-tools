@@ -253,7 +253,7 @@ The Container App needs permission to pull images from ACR.
 ## Part 10 — Trigger the First Deployment
 
 1. Go to your GitHub repository → **Actions** tab.
-2. Find **Build & Deploy to Azure** in the left workflow list.
+2. Find **Pipeline** in the left workflow list.
 3. Click **Run workflow** → **Run workflow** (green button).
 4. Watch the job — it should:
    - ✅ Azure Login (OIDC)
@@ -284,6 +284,7 @@ The Container App needs permission to pull images from ACR.
 |---------|-------|
 | GitHub Actions login fails | Verify all 3 Azure secrets are correct; check the federated credential repo/branch exactly matches |
 | ACR build fails | Confirm `AcrPush` role is assigned to the App Registration |
+| Deploy fails with "unable to pull image using Managed identity system" | Ensure Container App system identity is enabled and has `AcrPull` on the ACR scope |
 | Container App shows error | Open the app → **Log stream** (left menu) to see Python startup errors |
 | App loads but can't log in | Check the `USERS` secret value — format must be `username:password` |
-| Blank page on load | Wait 30–60 s after first deploy; Reflex compiles the frontend on first boot |
+| Blank page on load | Check the latest revision status and logs; the image already contains a prebuilt frontend |
