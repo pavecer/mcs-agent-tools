@@ -150,15 +150,6 @@ jobs:
             --image "pp-agent-toolkit:latest" \
             .
 
-      # Ensure the Container App pulls from ACR using its system-assigned identity.
-      - name: Configure ACR pull via managed identity
-        run: |
-          az containerapp registry set \
-            --name "${{ secrets.AZURE_CONTAINER_APP_NAME }}" \
-            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
-            --server "${{ secrets.ACR_NAME }}.azurecr.io" \
-            --identity system
-
       - name: Deploy to Azure Container App
         run: |
           IMAGE="${{ secrets.ACR_NAME }}.azurecr.io/pp-agent-toolkit:${{ github.sha }}"
