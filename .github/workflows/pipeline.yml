@@ -206,6 +206,20 @@ jobs:
             --scope "$ACR_ID" \
             2>/dev/null || echo "Role assignment already exists, skipping."
 
+          echo "Waiting for AcrPull assignment visibility in ARM..."
+          for i in $(seq 1 30); do
+            ASSIGN_COUNT=$(az role assignment list \
+              --assignee "$PRINCIPAL_ID" \
+              --scope "$ACR_ID" \
+              --query "[?roleDefinitionName=='AcrPull'] | length(@)" \
+              -o tsv)
+            echo "  [${i}/30] AcrPull assignment count: ${ASSIGN_COUNT}"
+            if [[ "$ASSIGN_COUNT" -ge 1 ]]; then
+              break
+            fi
+            sleep 10
+          done
+
       - name: Deploy to Azure Container App
         run: |
           APP="${{ secrets.AZURE_CONTAINER_APP_NAME }}"
@@ -286,6 +300,14 @@ jobs:
             if echo "$UPDATE_OUT" | grep -q "ContainerAppOperationInProgress"; then
               echo "Container App operation in progress. Waiting 20s before retry..."
               sleep 20
+              if [[ "$i" -lt 20 ]]; then
+                continue
+              fi
+            fi
+
+            if echo "$UPDATE_OUT" | grep -q "unable to pull image using Managed identity system"; then
+              echo "Managed identity pull permission may still be propagating. Waiting 30s before retry..."
+              sleep 30
               if [[ "$i" -lt 20 ]]; then
                 continue
               fi
