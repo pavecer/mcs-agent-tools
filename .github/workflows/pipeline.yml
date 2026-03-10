@@ -206,31 +206,73 @@ jobs:
             --scope "$ACR_ID" \
             2>/dev/null || echo "Role assignment already exists, skipping."
 
-      # Update image + registry config in a single command to avoid triggering
-      # two separate revision rollouts (one per az containerapp * call).
       - name: Deploy to Azure Container App
         run: |
-          IMAGE="${{ secrets.ACR_NAME }}.azurecr.io/pp-agent-toolkit:${{ github.sha }}"
+          APP="${{ secrets.AZURE_CONTAINER_APP_NAME }}"
+          RG="${{ secrets.AZURE_RESOURCE_GROUP }}"
+          ACR_SERVER="${{ secrets.ACR_NAME }}.azurecr.io"
+          IMAGE="$ACR_SERVER/pp-agent-toolkit:${{ github.sha }}"
           echo "Deploying image: $IMAGE"
-          if az containerapp update \
-            --name "${{ secrets.AZURE_CONTAINER_APP_NAME }}" \
-            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
-            --image "$IMAGE" \
-            --registry-server "${{ secrets.ACR_NAME }}.azurecr.io" \
-            --registry-identity system; then
-            echo "Deployed with registry flags on update."
-          else
-            echo "Update with registry flags failed; falling back to registry set + image update."
+
+          CURRENT_REGISTRY=$(az containerapp show \
+            --name "$APP" \
+            --resource-group "$RG" \
+            --query "properties.configuration.registries[0].server" \
+            -o tsv 2>/dev/null || true)
+
+          if [[ "$CURRENT_REGISTRY" != "$ACR_SERVER" ]]; then
+            echo "Configuring Container App registry to $ACR_SERVER"
             az containerapp registry set \
-              --name "${{ secrets.AZURE_CONTAINER_APP_NAME }}" \
-              --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
-              --server "${{ secrets.ACR_NAME }}.azurecr.io" \
+              --name "$APP" \
+              --resource-group "$RG" \
+              --server "$ACR_SERVER" \
               --identity system
-            az containerapp update \
-              --name "${{ secrets.AZURE_CONTAINER_APP_NAME }}" \
-              --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
-              --image "$IMAGE"
+
+            echo "Waiting for registry configuration provisioning to finish..."
+            for i in $(seq 1 20); do
+              STATE=$(az containerapp show \
+                --name "$APP" \
+                --resource-group "$RG" \
+                --query "properties.provisioningState" \
+                -o tsv)
+              echo "  [${i}/20] provisioningState=$STATE"
+              if [[ "$STATE" == "Succeeded" ]]; then
+                break
+              fi
+              sleep 10
+            done
+          else
+            echo "Container App already configured to use registry: $CURRENT_REGISTRY"
           fi
+
+          for i in $(seq 1 6); do
+            echo "Image update attempt ${i}/6"
+            set +e
+            UPDATE_OUT=$(az containerapp update \
+              --name "$APP" \
+              --resource-group "$RG" \
+              --image "$IMAGE" 2>&1)
+            UPDATE_CODE=$?
+            set -e
+
+            if [[ $UPDATE_CODE -eq 0 ]]; then
+              echo "$UPDATE_OUT"
+              echo "Image update succeeded."
+              break
+            fi
+
+            echo "$UPDATE_OUT"
+            if echo "$UPDATE_OUT" | grep -q "ContainerAppOperationInProgress"; then
+              echo "Container App operation in progress. Waiting 15s before retry..."
+              sleep 15
+              if [[ "$i" -lt 6 ]]; then
+                continue
+              fi
+            fi
+
+            echo "ERROR: Image update failed."
+            exit 1
+          done
 
       # Poll until the new revision is healthy or fail with logs for debugging.
       - name: Wait for revision to become healthy
