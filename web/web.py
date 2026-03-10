@@ -6,6 +6,7 @@ import reflex as rx
 
 from web.components import (
     action_bar,
+    deps_panel,
     detected_info_panel,
     evals_panel,
     inspect_error_banner,
@@ -159,9 +160,22 @@ def _analyse_tab() -> rx.Component:
 # ── Evals tab content ─────────────────────────────────────────────────────────
 
 
+# ── Evals tab content ──────────────────────────────────────────────────
+
+
 def _evals_tab() -> rx.Component:
     return rx.box(
         evals_panel(),
+        width="100%",
+    )
+
+
+# ── Dependencies tab content ────────────────────────────────────────────
+
+
+def _deps_tab() -> rx.Component:
+    return rx.box(
+        deps_panel(),
         width="100%",
     )
 
@@ -255,6 +269,11 @@ def index() -> rx.Component:
                             ),
                             rx.cond(
                                 State.is_solution_zip,
+                                _tab_trigger("Dependencies", "network", "deps"),
+                                rx.box(),
+                            ),
+                            rx.cond(
+                                State.is_solution_zip,
                                 _tab_trigger("Rename", "refresh-cw", "rename"),
                                 rx.box(),
                             ),
@@ -287,7 +306,11 @@ def index() -> rx.Component:
                                         rx.cond(
                                             State.active_tab == "evals",
                                             _evals_tab(),
-                                            _analyse_tab(),
+                                            rx.cond(
+                                                State.active_tab == "deps",
+                                                _deps_tab(),
+                                                _analyse_tab(),
+                                            ),
                                         ),
                                     ),
                                 ),

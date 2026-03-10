@@ -29,6 +29,7 @@ from renamer import (
     rename_solution_from_bytes,
     safe_extractall,
 )
+from deps_analyzer import analyze_deps_zip_bytes
 from solution_checker import check_solution_zip
 from validator import validate_instructions, validate_zip_bytes
 from visualizer import visualize_zip_bytes, get_evals_data
@@ -152,7 +153,13 @@ class State(rx.State):
     evals_active_test_set: str = ""  # schema_name filter, empty = all
     evals_active_eval_set: str = ""  # schema_name filter, empty = all
 
-    # ── Active tab ("rename" | "visualize" | "validate" | "check" | "evals") ─────────
+    # ── Dependencies ──────────────────────────────────────────────────────
+    deps_is_analyzing: bool = False
+    deps_error: str = ""
+    deps_ran: bool = False
+    deps_segments: list[dict] = []
+
+    # ── Active tab ("rename" | "visualize" | "validate" | "check" | "evals" | "deps") ─────────
     active_tab: str = "visualize"
 
     # ── Processing ────────────────────────────────────────────────────────
@@ -237,6 +244,10 @@ class State(rx.State):
         if not self.check_active_category:
             return self.check_results
         return [r for r in self.check_results if r.get("category") == self.check_active_category]
+
+    @rx.var
+    def has_deps(self) -> bool:
+        return bool(self.deps_segments)
 
     @rx.var
     def has_evals(self) -> bool:
@@ -395,6 +406,10 @@ class State(rx.State):
         self.evals_sub_tab = "tests"
         self.evals_active_test_set = ""
         self.evals_active_eval_set = ""
+        self.deps_is_analyzing = False
+        self.deps_error = ""
+        self.deps_ran = False
+        self.deps_segments = []
         self.mcs_section_profile = ""
         self.mcs_section_topics = ""
         self.mcs_section_graph = ""
@@ -542,6 +557,20 @@ class State(rx.State):
                     self.evals_all_eval_rows = all_eval_rows
                 except Exception:
                     pass  # evals are non-critical; silently skip on error
+
+            if not self.inspect_error:
+                self.deps_is_analyzing = True
+                yield
+                try:
+                    self.deps_segments = analyze_deps_zip_bytes(file_bytes)
+                    self.deps_ran = True
+                    self.deps_error = ""
+                except Exception as dep_exc:
+                    self.deps_error = str(dep_exc)
+                    self.deps_segments = []
+                    self.deps_ran = False
+                finally:
+                    self.deps_is_analyzing = False
 
         else:
             # ── Snapshot ZIP: parse → visualize (topic graph) → validate (instructions) → analyse ──
@@ -748,6 +777,10 @@ class State(rx.State):
         self.no_agent_warning = ""
         self.active_tab = "visualize"
         self.zip_type = ""
+        self.deps_is_analyzing = False
+        self.deps_error = ""
+        self.deps_ran = False
+        self.deps_segments = []
         self.mcs_source = ""
         self.mcs_section_profile = ""
         self.mcs_section_topics = ""

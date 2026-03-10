@@ -430,7 +430,7 @@ def navbar() -> rx.Component:
                 align="center",
             ),
             rx.text(
-                "Rename · Visualise · Validate · Check · Analyse — Copilot Studio solution exports",
+                "Rename · Visualise · Validate · Check · Analyse · Dependencies — Copilot Studio solution exports",
                 color="rgba(255,255,255,0.7)",
                 font_size="13px",
                 display=["none", "none", "block"],
@@ -1764,5 +1764,90 @@ def evals_panel() -> rx.Component:
             ),
             padding_y="48px",
             width="100%",
+        ),
+    )
+
+
+# ── Dependencies panel ────────────────────────────────────────────────────────
+
+
+def deps_panel() -> rx.Component:
+    """Full-width dependency analysis panel for the Dependencies tab."""
+    return rx.cond(
+        State.deps_is_analyzing,
+        rx.center(
+            rx.vstack(
+                rx.spinner(size="3", color=PRIMARY),
+                rx.text(
+                    "Analysing solution dependencies…",
+                    font_size="13px",
+                    color="#605e5c",
+                ),
+                spacing="3",
+                align="center",
+            ),
+            padding_y="48px",
+            width="100%",
+        ),
+        rx.cond(
+            State.deps_error != "",
+            rx.callout(
+                State.deps_error,
+                icon="triangle-alert",
+                color_scheme="orange",
+                margin_top="8px",
+            ),
+            rx.cond(
+                State.has_deps,
+                rx.vstack(
+                    # ── Header card ───────────────────────────────────────
+                    card(
+                        rx.hstack(
+                            rx.icon("network", color=PRIMARY, size=20),
+                            rx.heading(
+                                "Solution Dependency Map",
+                                size="4",
+                                color="#201f1e",
+                            ),
+                            spacing="2",
+                            align="center",
+                            margin_bottom="8px",
+                        ),
+                        rx.text(
+                            "Components declared in this solution export, their types, "
+                            "relationships, and any external dependencies that must be present "
+                            "in the target environment before import.",
+                            font_size="13px",
+                            color="#605e5c",
+                            line_height="1.55",
+                        ),
+                        width="100%",
+                    ),
+                    # ── Segments (markdown summary + Mermaid graph) ───────
+                    rx.vstack(
+                        rx.foreach(State.deps_segments, render_segment),
+                        width="100%",
+                        spacing="4",
+                    ),
+                    width="100%",
+                    spacing="4",
+                    align="start",
+                ),
+                # ── Empty state ───────────────────────────────────────────
+                rx.center(
+                    rx.vstack(
+                        rx.icon("network", size=36, color="#c8c6c4"),
+                        rx.text(
+                            "Upload a solution ZIP to analyse its component dependencies",
+                            font_size="14px",
+                            color="#a19f9d",
+                        ),
+                        spacing="3",
+                        align="center",
+                    ),
+                    padding_y="48px",
+                    width="100%",
+                ),
+            ),
         ),
     )
