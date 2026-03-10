@@ -159,9 +159,7 @@ def _parse_solution_xml(sol_path: Path) -> tuple[dict, list[_Component], list[_M
 
     metadata["solution_name"] = manifest.findtext("UniqueName") or ""
     desc_node = manifest.find("Descriptions/Description")
-    metadata["solution_display"] = (
-        (desc_node.get("description") or "") if desc_node is not None else ""
-    )
+    metadata["solution_display"] = (desc_node.get("description") or "") if desc_node is not None else ""
     if not metadata["solution_display"]:
         metadata["solution_display"] = metadata["solution_name"]
 
@@ -212,9 +210,7 @@ def _parse_solution_xml(sol_path: Path) -> tuple[dict, list[_Component], list[_M
 
 def _enrich_from_files(components: list[_Component], work_dir: Path) -> None:
     """Fill in missing display names from artefact files where possible."""
-    by_schema: dict[str, _Component] = {
-        c.schema_name.lower(): c for c in components if c.schema_name
-    }
+    by_schema: dict[str, _Component] = {c.schema_name.lower(): c for c in components if c.schema_name}
 
     def _set(comp: _Component, name: str) -> None:
         if name and not comp.display_name:
@@ -638,9 +634,7 @@ def analyze_deps_zip_bytes(zip_bytes: bytes) -> list[dict]:
 
         sol_path = work_dir / "solution.xml"
         if not sol_path.exists():
-            raise ValueError(
-                "No solution.xml found — this does not appear to be a Power Platform solution export."
-            )
+            raise ValueError("No solution.xml found — this does not appear to be a Power Platform solution export.")
 
         metadata, components, missing = _parse_solution_xml(sol_path)
         _enrich_from_files(components, work_dir)
