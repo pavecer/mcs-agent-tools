@@ -7,9 +7,9 @@
 # ─────────────────────────────────────────────────────────────────────────────
 FROM python:3.12-slim
 
-# ── System packages: Node.js 20 LTS (needed by Reflex for the frontend) ──────
+# ── System packages: Node.js 20 LTS + nginx ──────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates curl unzip \
+        ca-certificates curl unzip nginx \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
@@ -23,28 +23,45 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 RUN uv sync --no-dev --frozen
 
-# ── Production environment (set before reflex init/export so they pick it up) ─
+# ── Production environment ────────────────────────────────────────────────────
 ENV REFLEX_ENV=prod \
     PORT=2009
 
-# ── Frontend scaffold: only re-runs when pyproject.toml / uv.lock change ─────
-# reflex init downloads npm packages into .web/ — cache this expensive layer.
-RUN uv run reflex init
+# API_URL is the public URL the browser uses for WebSocket connections.
+# It is baked into the JS bundle by `reflex export`.
+# Override at build time: docker build --build-arg API_URL=https://<your-fqdn>
+# Defaults to localhost:2009 (works for local `docker run -p 2009:2009`).
+ARG API_URL=http://localhost:2009
+ENV API_URL=$API_URL
 
 # ── Application source ────────────────────────────────────────────────────────
-# Copied AFTER reflex init so that source edits don't bust the npm-install layer.
+# All source must be present before `reflex init` so that Reflex finds the
+# existing `web/` app module and does NOT prompt for a template (which aborts
+# in a non-interactive ACR build environment).
 COPY . .
 
 # Create the uploads directory (gitignored, not present in the COPY above).
-RUN mkdir -p uploaded_files
+# Also create nginx temp dirs (required when running as non-root).
+RUN mkdir -p uploaded_files \
+    && mkdir -p /tmp/nginx_client_temp /tmp/nginx_proxy_temp \
+        /tmp/nginx_fastcgi_temp /tmp/nginx_uwsgi_temp /tmp/nginx_scgi_temp \
+    && chmod +x /app/docker-entrypoint.sh
 
-# Pre-build the Next.js frontend for production during image build.
-# This avoids a heavy, time-constrained npm/next build at container startup
-# which causes health-probe timeouts and container crashes on Container Apps.
-RUN uv run reflex export --no-zip
+# ── Reflex frontend setup ─────────────────────────────────────────────────────
+# reflex init: installs npm packages into .web/ (requires web/ app to exist).
+# reflex export: compiles the Next.js production build into .web/_static/.
+RUN echo "--- node/npm versions ---" \
+    && node --version \
+    && npm --version \
+    && echo "--- reflex init ---" \
+    && uv run reflex init \
+    && echo "--- reflex export ---" \
+    && uv run reflex export --no-zip \
+    && echo "--- build complete ---"
 
 EXPOSE 2009
 
 # USERS env var is injected at runtime via Azure Container App secrets —
 # never bake credentials into the image.
-CMD ["uv", "run", "reflex", "run", "--env", "prod", "--backend-only", "--loglevel", "info"]
+# Topology: nginx:2009 (external) → Next.js:3000 (frontend) + granian:8000 (backend)
+CMD ["/app/docker-entrypoint.sh"]

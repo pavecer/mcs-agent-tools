@@ -12,11 +12,17 @@ import reflex as rx  # noqa: E402
 is_prod = os.getenv("REFLEX_ENV", "dev") == "prod"
 
 if is_prod:
-    port = int(os.getenv("PORT", "2009"))
+    # api_url is the public URL the BROWSER uses to connect WebSocket.
+    # It is baked into the JS bundle by `reflex export` at image build time,
+    # so it must be passed as the API_URL build arg to `docker build` /
+    # `az acr build`. Defaults to localhost:2009 for local Docker testing
+    # (nginx on 2009 proxies /_event/ → granian on 8000 internally).
+    # On ACA, pass the HTTPS FQDN: --build-arg API_URL=https://<fqdn>
     config = rx.Config(
         app_name="web",
-        frontend_port=port,
-        backend_port=port,
+        api_url=os.getenv("API_URL", "http://localhost:2009"),
+        frontend_port=3000,
+        backend_port=8000,
         disable_plugins=["reflex.plugins.sitemap.SitemapPlugin"],
     )
 else:

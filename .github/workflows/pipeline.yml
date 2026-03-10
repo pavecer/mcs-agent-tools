@@ -141,13 +141,37 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+      - name: Ensure Azure CLI containerapp extension
+        run: |
+          az config set extension.use_dynamic_install=yes_without_prompt
+          az extension add --name containerapp --upgrade
+
+      - name: Ensure Container App system identity
+        run: |
+          az containerapp identity assign \
+            --name "${{ secrets.AZURE_CONTAINER_APP_NAME }}" \
+            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
+            --system-assigned
+
       # Build the Dockerfile inside ACR — no Docker daemon needed on the runner.
+      # API_URL is the public HTTPS FQDN of the Container App; baked into the
+      # JS bundle so the browser constructs correct WebSocket URLs.
       - name: Build & push image to ACR
         run: |
+          FQDN=$(az containerapp show \
+            --name "${{ secrets.AZURE_CONTAINER_APP_NAME }}" \
+            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
+            --query "properties.configuration.ingress.fqdn" -o tsv)
+          if [[ -z "$FQDN" ]]; then
+            echo "ERROR: Container App ingress FQDN is empty. Ensure ingress is enabled before deployment."
+            exit 1
+          fi
+          echo "Container App FQDN: $FQDN"
           az acr build \
             --registry "${{ secrets.ACR_NAME }}" \
             --image "pp-agent-toolkit:${{ github.sha }}" \
             --image "pp-agent-toolkit:latest" \
+            --build-arg "API_URL=https://${FQDN}" \
             .
 
       # Ensure the Container App can pull from ACR via its system-assigned identity.
@@ -157,40 +181,81 @@ jobs:
           ACR_ID=$(az acr show \
             --name "${{ secrets.ACR_NAME }}" \
             --query "id" --output tsv)
+          echo "ACR resource ID: $ACR_ID"
           PRINCIPAL_ID=$(az containerapp show \
             --name "${{ secrets.AZURE_CONTAINER_APP_NAME }}" \
             --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
             --query "identity.principalId" --output tsv)
+          echo "Container App principal ID: $PRINCIPAL_ID"
           az role assignment create \
             --assignee "$PRINCIPAL_ID" \
             --role "AcrPull" \
             --scope "$ACR_ID" \
             2>/dev/null || echo "Role assignment already exists, skipping."
 
-      # One-time idempotent config: register ACR with the Container App's
-      # system-assigned identity. Skipped automatically if already set.
-      - name: Configure ACR registry on Container App (one-time idempotent)
-        run: |
-          az containerapp registry set \
-            --name "${{ secrets.AZURE_CONTAINER_APP_NAME }}" \
-            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
-            --server "${{ secrets.ACR_NAME }}.azurecr.io" \
-            --identity system
-
+      # Update image + registry config in a single command to avoid triggering
+      # two separate revision rollouts (one per az containerapp * call).
       - name: Deploy to Azure Container App
         run: |
           IMAGE="${{ secrets.ACR_NAME }}.azurecr.io/pp-agent-toolkit:${{ github.sha }}"
           echo "Deploying image: $IMAGE"
-          az containerapp update \
+          if az containerapp update \
             --name "${{ secrets.AZURE_CONTAINER_APP_NAME }}" \
             --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
             --image "$IMAGE" \
-            --no-wait
+            --registry-server "${{ secrets.ACR_NAME }}.azurecr.io" \
+            --registry-identity system; then
+            echo "Deployed with registry flags on update."
+          else
+            echo "Update with registry flags failed; falling back to registry set + image update."
+            az containerapp registry set \
+              --name "${{ secrets.AZURE_CONTAINER_APP_NAME }}" \
+              --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
+              --server "${{ secrets.ACR_NAME }}.azurecr.io" \
+              --identity system
+            az containerapp update \
+              --name "${{ secrets.AZURE_CONTAINER_APP_NAME }}" \
+              --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
+              --image "$IMAGE"
+          fi
+
+      # Poll until the new revision is healthy or fail with logs for debugging.
+      - name: Wait for revision to become healthy
+        run: |
+          APP="${{ secrets.AZURE_CONTAINER_APP_NAME }}"
+          RG="${{ secrets.AZURE_RESOURCE_GROUP }}"
+          REVISION=$(az containerapp show \
+            --name "$APP" --resource-group "$RG" \
+            --query "properties.latestRevisionName" -o tsv)
+          echo "Polling health of revision: $REVISION"
+          for i in $(seq 1 24); do
+            HEALTH=$(az containerapp revision show \
+              --name "$APP" --resource-group "$RG" \
+              --revision "$REVISION" \
+              --query "properties.healthState" -o tsv 2>/dev/null || echo "Unknown")
+            RUNNING=$(az containerapp revision show \
+              --name "$APP" --resource-group "$RG" \
+              --revision "$REVISION" \
+              --query "properties.runningState" -o tsv 2>/dev/null || echo "Unknown")
+            echo "  [${i}/24] healthState=$HEALTH  runningState=$RUNNING"
+            if [[ "$HEALTH" == "Healthy" ]]; then
+              echo "Revision is healthy."
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "ERROR: Revision did not become healthy after 6 minutes."
+          echo "--- Last 100 container log lines ---"
+          az containerapp logs show \
+            --name "$APP" --resource-group "$RG" \
+            --tail 100 --follow false || true
+          exit 1
 
       - name: Show active revision
+        if: always()
         run: |
-          az containerapp show \
+          az containerapp revision list \
             --name "${{ secrets.AZURE_CONTAINER_APP_NAME }}" \
             --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
-            --query "properties.latestRevisionName" \
-            --output tsv
+            --query "[].{revision:name, health:properties.healthState, running:properties.runningState, created:properties.createdTime}" \
+            --output table
