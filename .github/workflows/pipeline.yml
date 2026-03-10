@@ -1,0 +1,178 @@
+name: Pipeline
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  schedule:
+    # Run every Monday at 08:00 UTC to catch newly disclosed CVEs
+    - cron: "0 8 * * 1"
+
+# OIDC token required for Azure Login in the deploy job.
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  # ── 1. Lint & Format (fast gate — fails early before heavier jobs run) ──────
+  lint:
+    name: Lint & Format
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --all-groups
+
+      - name: Lint with Ruff
+        run: uv run ruff check .
+
+      - name: Check formatting with Ruff
+        run: uv run ruff format --check .
+
+  # ── 2. Tests (matrix 3.12 + 3.13, runs after lint passes) ──────────────────
+  test:
+    name: Test (Python ${{ matrix.python-version }})
+    needs: lint
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: uv sync --all-groups
+
+      - name: Run tests
+        run: uv run pytest tests/ -v --tb=short
+
+  # ── 3a. Bandit SAST (parallel to test, after lint) ──────────────────────────
+  bandit:
+    name: Bandit SAST
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install dependencies
+        run: uv sync --all-groups
+
+      - name: Run Bandit
+        run: |
+          uv run bandit -c pyproject.toml -r . -f json -o bandit-results.json || true
+
+      - name: Upload Bandit results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bandit-results
+          path: bandit-results.json
+
+  # ── 3b. pip-audit CVE scan (parallel to test & bandit, after lint) ──────────
+  pip-audit:
+    name: pip-audit (CVE check)
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install dependencies
+        run: uv sync --all-groups
+
+      - name: Run pip-audit
+        run: uv run pip-audit --strict
+
+  # ── 4. Build & Deploy (only on push to main, after all checks pass) ─────────
+  deploy:
+    name: Build & Deploy
+    needs: [test, bandit, pip-audit]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Authenticate to Azure via OIDC — no stored service principal secrets.
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # Build the Dockerfile inside ACR — no Docker daemon needed on the runner.
+      - name: Build & push image to ACR
+        run: |
+          az acr build \
+            --registry "${{ secrets.ACR_NAME }}" \
+            --image "pp-agent-toolkit:${{ github.sha }}" \
+            --image "pp-agent-toolkit:latest" \
+            .
+
+      # Ensure the Container App pulls from ACR using its system-assigned identity.
+      - name: Configure ACR pull via managed identity
+        run: |
+          az containerapp registry set \
+            --name "${{ secrets.AZURE_CONTAINER_APP_NAME }}" \
+            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
+            --server "${{ secrets.ACR_NAME }}.azurecr.io" \
+            --identity system
+
+      - name: Deploy to Azure Container App
+        run: |
+          IMAGE="${{ secrets.ACR_NAME }}.azurecr.io/pp-agent-toolkit:${{ github.sha }}"
+          echo "Deploying image: $IMAGE"
+          az containerapp update \
+            --name "${{ secrets.AZURE_CONTAINER_APP_NAME }}" \
+            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
+            --image "$IMAGE" \
+            --no-wait
+
+      - name: Show active revision
+        run: |
+          az containerapp show \
+            --name "${{ secrets.AZURE_CONTAINER_APP_NAME }}" \
+            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
+            --query "properties.latestRevisionName" \
+            --output tsv
