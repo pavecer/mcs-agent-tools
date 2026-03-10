@@ -19,23 +19,24 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
 WORKDIR /app
 
-# ── Python dependencies (install before copying source for better layer cache)
+# ── Python dependencies (cached independently of application source) ──────────
 COPY pyproject.toml uv.lock ./
 RUN uv sync --no-dev --frozen
 
+# ── Production environment (set before reflex init/export so they pick it up) ─
+ENV REFLEX_ENV=prod \
+    PORT=2009
+
+# ── Frontend scaffold: only re-runs when pyproject.toml / uv.lock change ─────
+# reflex init downloads npm packages into .web/ — cache this expensive layer.
+RUN uv run reflex init
+
 # ── Application source ────────────────────────────────────────────────────────
+# Copied AFTER reflex init so that source edits don't bust the npm-install layer.
 COPY . .
 
 # Create the uploads directory (gitignored, not present in the COPY above).
 RUN mkdir -p uploaded_files
-
-# ── Production environment ────────────────────────────────────────────────────
-ENV REFLEX_ENV=prod \
-    PORT=2009
-
-# Pre-initialise Reflex: installs npm packages into .web/ so container startup
-# is fast (no npm install on every container boot).
-RUN uv run reflex init
 
 # Pre-build the Next.js frontend for production during image build.
 # This avoids a heavy, time-constrained npm/next build at container startup

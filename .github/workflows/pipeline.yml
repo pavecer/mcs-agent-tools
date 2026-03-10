@@ -167,19 +167,20 @@ jobs:
             --scope "$ACR_ID" \
             2>/dev/null || echo "Role assignment already exists, skipping."
 
-      - name: Deploy to Azure Container App
+      # One-time idempotent config: register ACR with the Container App's
+      # system-assigned identity. Skipped automatically if already set.
+      - name: Configure ACR registry on Container App (one-time idempotent)
         run: |
-          IMAGE="${{ secrets.ACR_NAME }}.azurecr.io/pp-agent-toolkit:${{ github.sha }}"
-          echo "Deploying image: $IMAGE"
-          az containerapp ingress update \
-            --name "${{ secrets.AZURE_CONTAINER_APP_NAME }}" \
-            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
-            --target-port 2009
           az containerapp registry set \
             --name "${{ secrets.AZURE_CONTAINER_APP_NAME }}" \
             --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
             --server "${{ secrets.ACR_NAME }}.azurecr.io" \
             --identity system
+
+      - name: Deploy to Azure Container App
+        run: |
+          IMAGE="${{ secrets.ACR_NAME }}.azurecr.io/pp-agent-toolkit:${{ github.sha }}"
+          echo "Deploying image: $IMAGE"
           az containerapp update \
             --name "${{ secrets.AZURE_CONTAINER_APP_NAME }}" \
             --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
