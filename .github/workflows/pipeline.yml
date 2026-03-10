@@ -214,6 +214,35 @@ jobs:
           IMAGE="$ACR_SERVER/pp-agent-toolkit:${{ github.sha }}"
           echo "Deploying image: $IMAGE"
 
+          wait_for_stable() {
+            local max_tries="$1"
+            local sleep_seconds="$2"
+            for i in $(seq 1 "$max_tries"); do
+              STATE=$(az containerapp show \
+                --name "$APP" \
+                --resource-group "$RG" \
+                --query "properties.provisioningState" \
+                -o tsv)
+              echo "  [${i}/${max_tries}] provisioningState=$STATE"
+              if [[ "$STATE" != "InProgress" ]]; then
+                return 0
+              fi
+              sleep "$sleep_seconds"
+            done
+            return 1
+          }
+
+          echo "Waiting for any prior Container App operation to finish..."
+          if ! wait_for_stable 60 10; then
+            echo "ERROR: Container App is still locked in provisioning after 10 minutes."
+            az containerapp revision list \
+              --name "$APP" \
+              --resource-group "$RG" \
+              --query "[].{revision:name,health:properties.healthState,running:properties.runningState,created:properties.createdTime}" \
+              --output table || true
+            exit 1
+          fi
+
           CURRENT_REGISTRY=$(az containerapp show \
             --name "$APP" \
             --resource-group "$RG" \
@@ -229,24 +258,16 @@ jobs:
               --identity system
 
             echo "Waiting for registry configuration provisioning to finish..."
-            for i in $(seq 1 20); do
-              STATE=$(az containerapp show \
-                --name "$APP" \
-                --resource-group "$RG" \
-                --query "properties.provisioningState" \
-                -o tsv)
-              echo "  [${i}/20] provisioningState=$STATE"
-              if [[ "$STATE" == "Succeeded" ]]; then
-                break
-              fi
-              sleep 10
-            done
+            if ! wait_for_stable 60 10; then
+              echo "ERROR: Registry update did not complete within 10 minutes."
+              exit 1
+            fi
           else
             echo "Container App already configured to use registry: $CURRENT_REGISTRY"
           fi
 
-          for i in $(seq 1 6); do
-            echo "Image update attempt ${i}/6"
+          for i in $(seq 1 20); do
+            echo "Image update attempt ${i}/20"
             set +e
             UPDATE_OUT=$(az containerapp update \
               --name "$APP" \
@@ -263,9 +284,9 @@ jobs:
 
             echo "$UPDATE_OUT"
             if echo "$UPDATE_OUT" | grep -q "ContainerAppOperationInProgress"; then
-              echo "Container App operation in progress. Waiting 15s before retry..."
-              sleep 15
-              if [[ "$i" -lt 6 ]]; then
+              echo "Container App operation in progress. Waiting 20s before retry..."
+              sleep 20
+              if [[ "$i" -lt 20 ]]; then
                 continue
               fi
             fi
