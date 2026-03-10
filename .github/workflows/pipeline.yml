@@ -200,16 +200,31 @@ jobs:
             --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
             --query "identity.principalId" --output tsv)
           echo "Container App principal ID: $PRINCIPAL_ID"
-          az role assignment create \
-            --assignee "$PRINCIPAL_ID" \
+          set +e
+          ASSIGN_OUT=$(az role assignment create \
+            --assignee-object-id "$PRINCIPAL_ID" \
+            --assignee-principal-type ServicePrincipal \
             --role "AcrPull" \
-            --scope "$ACR_ID" \
-            2>/dev/null || echo "Role assignment already exists, skipping."
+            --scope "$ACR_ID" 2>&1)
+          ASSIGN_CODE=$?
+          set -e
+
+          if [[ $ASSIGN_CODE -ne 0 ]]; then
+            if echo "$ASSIGN_OUT" | grep -qi "RoleAssignmentExists"; then
+              echo "Role assignment already exists, skipping."
+            else
+              echo "$ASSIGN_OUT"
+              echo "ERROR: Failed to create AcrPull role assignment."
+              exit 1
+            fi
+          else
+            echo "$ASSIGN_OUT"
+          fi
 
           echo "Waiting for AcrPull assignment visibility in ARM..."
           for i in $(seq 1 30); do
             ASSIGN_COUNT=$(az role assignment list \
-              --assignee "$PRINCIPAL_ID" \
+              --assignee-object-id "$PRINCIPAL_ID" \
               --scope "$ACR_ID" \
               --query "[?roleDefinitionName=='AcrPull'] | length(@)" \
               -o tsv)
@@ -219,6 +234,16 @@ jobs:
             fi
             sleep 10
           done
+
+          FINAL_ASSIGN_COUNT=$(az role assignment list \
+            --assignee-object-id "$PRINCIPAL_ID" \
+            --scope "$ACR_ID" \
+            --query "[?roleDefinitionName=='AcrPull'] | length(@)" \
+            -o tsv)
+          if [[ "$FINAL_ASSIGN_COUNT" -lt 1 ]]; then
+            echo "ERROR: AcrPull role assignment is still missing after waiting."
+            exit 1
+          fi
 
       - name: Deploy to Azure Container App
         run: |
