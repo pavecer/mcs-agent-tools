@@ -9,6 +9,7 @@ from web.components import (
     detected_info_panel,
     evals_panel,
     inspect_error_banner,
+    json_upload_area,
     login_form,
     mcs_analyse_panel,
     name_inputs,
@@ -36,7 +37,11 @@ def _file_bar() -> rx.Component:
     return rx.cond(
         State.has_upload,
         rx.hstack(
-            rx.icon("file-archive", color="#0078d4", size=18),
+            rx.cond(
+                State.mcs_source == "transcript",
+                rx.icon("file-json", color="#0078d4", size=18),
+                rx.icon("file-archive", color="#0078d4", size=18),
+            ),
             rx.text(
                 State.upload_filename,
                 font_size="13px",
@@ -186,6 +191,27 @@ def index() -> rx.Component:
                             margin_bottom="8px",
                         ),
                         unified_upload_area(),
+                        rx.hstack(
+                            rx.divider(flex="1"),
+                            rx.text("or", font_size="12px", color="#605e5c", padding_x="12px"),
+                            rx.divider(flex="1"),
+                            align="center",
+                            width="100%",
+                            margin_y="4px",
+                        ),
+                        rx.text(
+                            "Analyse a conversation transcript",
+                            font_size="13px",
+                            font_weight="600",
+                            color="#201f1e",
+                        ),
+                        rx.text(
+                            "Drop a Copilot Studio session transcript JSON for standalone conversation analysis.",
+                            font_size="13px",
+                            color="#605e5c",
+                            margin_bottom="8px",
+                        ),
+                        json_upload_area(),
                         inspect_error_banner(),
                         spacing="4",
                         width="100%",
@@ -207,8 +233,16 @@ def index() -> rx.Component:
                                 rx.box(),
                                 _tab_trigger("Analyse", "search", "analyse"),
                             ),
-                            _tab_trigger("Visualize", "git-branch", "visualize"),
-                            _tab_trigger("Validate", "shield-check", "validate"),
+                            rx.cond(
+                                State.mcs_source == "transcript",
+                                rx.box(),
+                                _tab_trigger("Visualize", "git-branch", "visualize"),
+                            ),
+                            rx.cond(
+                                State.mcs_source == "transcript",
+                                rx.box(),
+                                _tab_trigger("Validate", "shield-check", "validate"),
+                            ),
                             rx.cond(
                                 State.is_solution_zip,
                                 _tab_trigger("Check", "scan-search", "check"),

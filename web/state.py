@@ -198,7 +198,7 @@ class State(rx.State):
 
     @rx.var
     def has_upload(self) -> bool:
-        return bool(self.zip_bytes_b64)
+        return bool(self.zip_bytes_b64) or self.mcs_source == "transcript"
 
     @rx.var
     def has_detection(self) -> bool:
@@ -885,6 +885,8 @@ class State(rx.State):
                     self.mcs_source = "transcript"
                     self.mcs_report_markdown = transcript_report
                     self.mcs_analyse_tab = "conversation"
+                    self.upload_filename = filename
+                    self.active_tab = "analyse"
 
         except Exception as exc:
             self.mcs_upload_error = f"Analysis failed: {exc}\n{traceback.format_exc()}"

@@ -131,6 +131,54 @@ def unified_upload_area() -> rx.Component:
     )
 
 
+def json_upload_area() -> rx.Component:
+    """Drop zone for conversation transcript JSON on the landing page."""
+    return rx.vstack(
+        rx.upload(
+            rx.vstack(
+                rx.icon("file-json", color=PRIMARY, size=40),
+                rx.text(
+                    "Drag & drop a conversation transcript JSON",
+                    font_size="15px",
+                    font_weight="600",
+                    color="#201f1e",
+                ),
+                rx.text(
+                    "Copilot Studio session transcript — conversation analysis",
+                    font_size="12px",
+                    color="#605e5c",
+                ),
+                rx.text("or click to browse", font_size="13px", color="#605e5c"),
+                spacing="2",
+                align="center",
+            ),
+            id="mcs_landing_upload",
+            accept={".json": ["application/json"]},
+            multiple=False,
+            border=f"2px dashed {PRIMARY}",
+            border_radius="8px",
+            padding="40px",
+            cursor="pointer",
+            width="100%",
+            on_drop=State.handle_mcs_upload(rx.upload_files(upload_id="mcs_landing_upload")),  # type: ignore[arg-type]
+            _hover={"background_color": "#deecf9"},
+        ),
+        rx.cond(
+            State.mcs_upload_error != "",
+            rx.callout(
+                State.mcs_upload_error,
+                icon="triangle-alert",
+                color_scheme="red",
+                margin_top="8px",
+            ),
+            rx.box(),
+        ),
+        spacing="3",
+        width="100%",
+        align="start",
+    )
+
+
 # ── Detected info panel (read-only summary) ────────────────────────────────────
 
 
@@ -850,15 +898,25 @@ def _mcs_section_tab_bar() -> rx.Component:
             user_select="none",
         )
 
-    return rx.hstack(
-        _btn("profile", "user-round", "Profile"),
-        _btn("topics", "list", "Topics"),
-        _btn("graph", "git-branch", "Topic Graph"),
-        _btn("conversation", "message-square", "Conversation"),
-        spacing="0",
-        border_bottom="1px solid #edebe9",
-        width="100%",
-        overflow_x="auto",
+    return rx.cond(
+        State.mcs_source == "transcript",
+        rx.hstack(
+            _btn("conversation", "message-square", "Conversation"),
+            spacing="0",
+            border_bottom="1px solid #edebe9",
+            width="100%",
+            overflow_x="auto",
+        ),
+        rx.hstack(
+            _btn("profile", "user-round", "Profile"),
+            _btn("topics", "list", "Topics"),
+            _btn("graph", "git-branch", "Topic Graph"),
+            _btn("conversation", "message-square", "Conversation"),
+            spacing="0",
+            border_bottom="1px solid #edebe9",
+            width="100%",
+            overflow_x="auto",
+        ),
     )
 
 
