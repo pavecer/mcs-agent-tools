@@ -200,6 +200,17 @@ jobs:
             --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
             --query "identity.principalId" --output tsv)
           echo "Container App principal ID: $PRINCIPAL_ID"
+
+          EXISTING_ASSIGN_COUNT=$(az role assignment list \
+            --assignee-object-id "$PRINCIPAL_ID" \
+            --scope "$ACR_ID" \
+            --query "[?roleDefinitionName=='AcrPull'] | length(@)" \
+            -o tsv)
+
+          if [[ "$EXISTING_ASSIGN_COUNT" -ge 1 ]]; then
+            echo "AcrPull already assigned; skipping role assignment create."
+          else
+            echo "AcrPull not found; attempting to create role assignment..."
           set +e
           ASSIGN_OUT=$(az role assignment create \
             --assignee-object-id "$PRINCIPAL_ID" \
@@ -215,10 +226,13 @@ jobs:
             else
               echo "$ASSIGN_OUT"
               echo "ERROR: Failed to create AcrPull role assignment."
+              echo "This CI identity does not have Microsoft.Authorization/roleAssignments/write."
+              echo "Grant User Access Administrator/Owner on the ACR scope, or pre-create AcrPull manually."
               exit 1
             fi
           else
             echo "$ASSIGN_OUT"
+          fi
           fi
 
           echo "Waiting for AcrPull assignment visibility in ARM..."
