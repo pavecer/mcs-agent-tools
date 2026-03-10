@@ -37,8 +37,13 @@ ENV REFLEX_ENV=prod \
 # is fast (no npm install on every container boot).
 RUN uv run reflex init
 
+# Pre-build the Next.js frontend for production during image build.
+# This avoids a heavy, time-constrained npm/next build at container startup
+# which causes health-probe timeouts and container crashes on Container Apps.
+RUN uv run reflex export --no-zip
+
 EXPOSE 2009
 
 # USERS env var is injected at runtime via Azure Container App secrets —
 # never bake credentials into the image.
-CMD ["uv", "run", "reflex", "run", "--env", "prod", "--loglevel", "info"]
+CMD ["uv", "run", "reflex", "run", "--env", "prod", "--backend-only", "--loglevel", "info"]

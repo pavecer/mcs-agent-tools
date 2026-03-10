@@ -158,6 +158,7 @@ jobs:
             --name "${{ secrets.AZURE_CONTAINER_APP_NAME }}" \
             --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
             --image "$IMAGE" \
+            --target-port 2009 \
             --no-wait
 
       - name: Show active revision
