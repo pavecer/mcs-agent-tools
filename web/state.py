@@ -187,6 +187,7 @@ class State(rx.State):
 
     # ── ZIP type detection ────────────────────────────────────────────────────
     zip_type: str = ""  # "solution" | "snapshot"
+    solution_has_agent_assets: bool = False
 
     # ── MCS Analyse ───────────────────────────────────────────────────────────
     mcs_upload_type: str = "mcs_zip"  # kept for backward compat
@@ -291,6 +292,10 @@ class State(rx.State):
         return self.zip_type == "solution"
 
     @rx.var
+    def is_agent_solution_zip(self) -> bool:
+        return self.zip_type == "solution" and self.solution_has_agent_assets
+
+    @rx.var
     def is_snapshot_zip(self) -> bool:
         return self.zip_type == "snapshot"
 
@@ -358,17 +363,20 @@ class State(rx.State):
 
         _has_solution = any(n == "bots" or n.startswith("bots/") for n in _names)
         _has_snapshot = any("botContent.yml" in n for n in _names)
+        _has_solution_manifest = any(Path(n).name.lower() == "solution.xml" for n in _names)
 
-        if not _has_solution and not _has_snapshot:
+        if not _has_solution and not _has_snapshot and not _has_solution_manifest:
             self.inspect_error = (
                 "Unrecognised ZIP format — expected a Power Platform solution export "
-                "(containing bots/) or a Copilot Studio snapshot ZIP (containing botContent.yml)."
+                "(containing solution.xml / bots/) or a Copilot Studio snapshot ZIP "
+                "(containing botContent.yml)."
             )
             return
 
         # ── Reset all upload-derived state ────────────────────────────────
-        self.zip_type = "solution" if _has_solution else "snapshot"
-        self.active_tab = "visualize" if _has_solution else "analyse"
+        self.zip_type = "snapshot" if _has_snapshot else "solution"
+        self.solution_has_agent_assets = _has_solution
+        self.active_tab = "analyse" if _has_snapshot else ("visualize" if _has_solution else "deps")
         self.mcs_analyse_tab = "profile"
         self.zip_bytes_b64 = base64.b64encode(file_bytes).decode()
         self.upload_filename = file.filename
@@ -423,154 +431,163 @@ class State(rx.State):
         self.detected_solution_name = ""
         self.detected_solution_display = ""
         self.detected_component_count = 0
+        if self.zip_type == "solution" and not _has_solution:
+            self.no_agent_warning = (
+                "This solution ZIP has no Copilot Studio agent assets (bots/). "
+                "Dependencies analysis is available; rename/validate/check/evals require an agent solution ZIP."
+            )
         yield
 
-        if _has_solution:
-            # ── Solution ZIP: inspect → visualize → validate ──────────────
-            with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tf:
-                tf.write(file_bytes)
-                tmp_path = Path(tf.name)
-            try:
-                info = inspect_zip(tmp_path)
-                self.detected_bot_schema = info.bot_schema_name
-                self.detected_bot_name = info.bot_display_name
-                self.detected_solution_name = info.solution_unique_name
-                self.detected_solution_display = info.solution_display_name
-                self.detected_component_count = len(info.botcomponent_folders)
-                if not self.new_agent_name:
-                    self.new_agent_name = info.bot_display_name + " Copy"
-                if not self.new_solution_display_name:
-                    self.new_solution_display_name = info.solution_display_name + " Copy"
-                self._update_derived_schema()
-                self._update_derived_solution_unique()
-            except Exception as exc:
-                self.inspect_error = f"Could not inspect ZIP: {exc}"
-            finally:
-                os.unlink(tmp_path)
-                self.is_inspecting = False
-
-            if not self.inspect_error:
-                self.is_visualizing = True
-                yield
+        if self.zip_type == "solution":
+            if _has_solution:
+                # ── Agent solution ZIP: inspect → visualize → validate ───────
+                with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tf:
+                    tf.write(file_bytes)
+                    tmp_path = Path(tf.name)
                 try:
-                    self.viz_segments = visualize_zip_bytes(file_bytes)
-                    self.viz_error = ""
-                except Exception as viz_exc:
-                    self.viz_error = str(viz_exc)
-                    self.viz_segments = []
+                    info = inspect_zip(tmp_path)
+                    self.detected_bot_schema = info.bot_schema_name
+                    self.detected_bot_name = info.bot_display_name
+                    self.detected_solution_name = info.solution_unique_name
+                    self.detected_solution_display = info.solution_display_name
+                    self.detected_component_count = len(info.botcomponent_folders)
+                    if not self.new_agent_name:
+                        self.new_agent_name = info.bot_display_name + " Copy"
+                    if not self.new_solution_display_name:
+                        self.new_solution_display_name = info.solution_display_name + " Copy"
+                    self._update_derived_schema()
+                    self._update_derived_solution_unique()
+                except Exception as exc:
+                    self.inspect_error = f"Could not inspect ZIP: {exc}"
                 finally:
-                    self.is_visualizing = False
+                    os.unlink(tmp_path)
+                    self.is_inspecting = False
 
-            if not self.inspect_error:
-                self.is_validating = True
-                yield
-                try:
-                    report = validate_zip_bytes(file_bytes)
-                    self.validation_model_key = report["model_key"]
-                    self.validation_model_display = report["model_display"]
-                    self.validation_results = report["results"]
-                    self.validation_best_practices = report.get("best_practices_md", "")
-                    self.validation_instructions_length = report.get("instructions_length", 0)
-                    self.validation_ran = True
-                    self.validation_error = ""
-                except Exception as val_exc:
-                    self.validation_error = str(val_exc)
-                    self.validation_results = []
-                    self.validation_ran = False
-                finally:
-                    self.is_validating = False
+                if not self.inspect_error:
+                    self.is_visualizing = True
+                    yield
+                    try:
+                        self.viz_segments = visualize_zip_bytes(file_bytes)
+                        self.viz_error = ""
+                    except Exception as viz_exc:
+                        self.viz_error = str(viz_exc)
+                        self.viz_segments = []
+                    finally:
+                        self.is_visualizing = False
 
-            if not self.inspect_error:
-                self.is_checking = True
-                yield
-                try:
-                    check_report = check_solution_zip(file_bytes)
-                    if check_report["error"]:
-                        self.check_error = check_report["error"]
+                if not self.inspect_error:
+                    self.is_validating = True
+                    yield
+                    try:
+                        report = validate_zip_bytes(file_bytes)
+                        self.validation_model_key = report["model_key"]
+                        self.validation_model_display = report["model_display"]
+                        self.validation_results = report["results"]
+                        self.validation_best_practices = report.get("best_practices_md", "")
+                        self.validation_instructions_length = report.get("instructions_length", 0)
+                        self.validation_ran = True
+                        self.validation_error = ""
+                    except Exception as val_exc:
+                        self.validation_error = str(val_exc)
+                        self.validation_results = []
+                        self.validation_ran = False
+                    finally:
+                        self.is_validating = False
+
+                if not self.inspect_error:
+                    self.is_checking = True
+                    yield
+                    try:
+                        check_report = check_solution_zip(file_bytes)
+                        if check_report["error"]:
+                            self.check_error = check_report["error"]
+                            self.check_ran = False
+                        else:
+                            self.check_results = check_report["results"]
+                            self.check_pass_count = check_report["pass_count"]
+                            self.check_warn_count = check_report["warn_count"]
+                            self.check_fail_count = check_report["fail_count"]
+                            self.check_info_count = check_report["info_count"]
+                            self.check_agent_name = check_report["agent_name"]
+                            self.check_solution_name = check_report["solution_name"]
+                            self.check_ran = True
+                            self.check_error = ""
+                    except Exception as chk_exc:
+                        self.check_error = str(chk_exc)
                         self.check_ran = False
-                    else:
-                        self.check_results = check_report["results"]
-                        self.check_pass_count = check_report["pass_count"]
-                        self.check_warn_count = check_report["warn_count"]
-                        self.check_fail_count = check_report["fail_count"]
-                        self.check_info_count = check_report["info_count"]
-                        self.check_agent_name = check_report["agent_name"]
-                        self.check_solution_name = check_report["solution_name"]
-                        self.check_ran = True
-                        self.check_error = ""
-                except Exception as chk_exc:
-                    self.check_error = str(chk_exc)
-                    self.check_ran = False
-                finally:
-                    self.is_checking = False
+                    finally:
+                        self.is_checking = False
 
-            if not self.inspect_error:
-                yield
-                try:
-                    evals = get_evals_data(file_bytes)
-                    test_sets_summary = []
-                    all_test_cases = []
-                    for ts in evals.get("test_sets", []):
-                        test_sets_summary.append(
-                            {
-                                "schema_name": ts["schema_name"],
-                                "display_name": ts["display_name"],
-                                "test_count": len(ts.get("test_cases", [])),
-                            }
-                        )
-                        for tc in ts.get("test_cases", []):
-                            all_test_cases.append(
+                if not self.inspect_error:
+                    yield
+                    try:
+                        evals = get_evals_data(file_bytes)
+                        test_sets_summary = []
+                        all_test_cases = []
+                        for ts in evals.get("test_sets", []):
+                            test_sets_summary.append(
                                 {
-                                    "set_schema": ts["schema_name"],
-                                    "set_name": ts["display_name"],
-                                    "input": tc["input"],
-                                    "expected_response": tc["expected_response"],
-                                    "score_threshold": tc["score_threshold"],
-                                    "origin_type": tc["origin_type"],
+                                    "schema_name": ts["schema_name"],
+                                    "display_name": ts["display_name"],
+                                    "test_count": len(ts.get("test_cases", [])),
                                 }
                             )
-                    eval_sets_summary = []
-                    all_eval_rows = []
-                    for es in evals.get("eval_sets", []):
-                        eval_sets_summary.append(
-                            {
-                                "schema_name": es["schema_name"],
-                                "display_name": es["display_name"],
-                                "graders": ", ".join(es.get("graders", [])) or "None",
-                                "row_count": len(es.get("rows", [])),
-                            }
-                        )
-                        for row in es.get("rows", []):
-                            all_eval_rows.append(
+                            for tc in ts.get("test_cases", []):
+                                all_test_cases.append(
+                                    {
+                                        "set_schema": ts["schema_name"],
+                                        "set_name": ts["display_name"],
+                                        "input": tc["input"],
+                                        "expected_response": tc["expected_response"],
+                                        "score_threshold": tc["score_threshold"],
+                                        "origin_type": tc["origin_type"],
+                                    }
+                                )
+                        eval_sets_summary = []
+                        all_eval_rows = []
+                        for es in evals.get("eval_sets", []):
+                            eval_sets_summary.append(
                                 {
-                                    "set_schema": es["schema_name"],
-                                    "set_name": es["display_name"],
-                                    "input": row["input"],
-                                    "expected_output": row["expected_output"],
-                                    "keywords": " · ".join(row.get("keywords", [])),
-                                    "source": row["source"],
+                                    "schema_name": es["schema_name"],
+                                    "display_name": es["display_name"],
+                                    "graders": ", ".join(es.get("graders", [])) or "None",
+                                    "row_count": len(es.get("rows", [])),
                                 }
                             )
-                    self.evals_test_sets = test_sets_summary
-                    self.evals_all_test_cases = all_test_cases
-                    self.evals_eval_sets = eval_sets_summary
-                    self.evals_all_eval_rows = all_eval_rows
-                except Exception:
-                    pass  # evals are non-critical; silently skip on error
+                            for row in es.get("rows", []):
+                                all_eval_rows.append(
+                                    {
+                                        "set_schema": es["schema_name"],
+                                        "set_name": es["display_name"],
+                                        "input": row["input"],
+                                        "expected_output": row["expected_output"],
+                                        "keywords": " · ".join(row.get("keywords", [])),
+                                        "source": row["source"],
+                                    }
+                                )
+                        self.evals_test_sets = test_sets_summary
+                        self.evals_all_test_cases = all_test_cases
+                        self.evals_eval_sets = eval_sets_summary
+                        self.evals_all_eval_rows = all_eval_rows
+                    except Exception:
+                        pass  # evals are non-critical; silently skip on error
+            else:
+                # Generic solution ZIP (no Copilot agent assets): run dependencies only.
+                self.is_inspecting = False
+                self.detected_solution_display = file.filename
 
-            if not self.inspect_error:
-                self.deps_is_analyzing = True
-                yield
-                try:
-                    self.deps_segments = analyze_deps_zip_bytes(file_bytes)
-                    self.deps_ran = True
-                    self.deps_error = ""
-                except Exception as dep_exc:
-                    self.deps_error = str(dep_exc)
-                    self.deps_segments = []
-                    self.deps_ran = False
-                finally:
-                    self.deps_is_analyzing = False
+            self.deps_is_analyzing = True
+            yield
+            try:
+                self.deps_segments = analyze_deps_zip_bytes(file_bytes)
+                self.deps_ran = True
+                self.deps_error = ""
+            except Exception as dep_exc:
+                self.deps_error = str(dep_exc)
+                self.deps_segments = []
+                self.deps_ran = False
+            finally:
+                self.deps_is_analyzing = False
 
         else:
             # ── Snapshot ZIP: parse → visualize (topic graph) → validate (instructions) → analyse ──
@@ -777,6 +794,7 @@ class State(rx.State):
         self.no_agent_warning = ""
         self.active_tab = "visualize"
         self.zip_type = ""
+        self.solution_has_agent_assets = False
         self.deps_is_analyzing = False
         self.deps_error = ""
         self.deps_ran = False
