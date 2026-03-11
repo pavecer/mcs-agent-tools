@@ -5,6 +5,8 @@ Adapted from github.com/Roelzz/mcs-agent-analyser (MIT licence).
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from mcs_credits import MCSCreditEstimate
 from mcs_models import MCSBotProfile, MCSConversationTimeline, MCSEventType
 
@@ -249,6 +251,197 @@ def render_event_log(timeline: MCSConversationTimeline) -> str:
     return "\n".join(lines)
 
 
+def _ms_between_iso(start: str | None, end: str | None) -> float:
+    """Best-effort milliseconds between two ISO timestamps."""
+    if not start or not end:
+        return 0.0
+    try:
+        s = datetime.fromisoformat(start.replace("Z", "+00:00"))
+        e = datetime.fromisoformat(end.replace("Z", "+00:00"))
+        return (e - s).total_seconds() * 1000
+    except Exception:
+        return 0.0
+
+
+def _pair_message_turns(timeline: MCSConversationTimeline) -> list[dict]:
+    """Pair user messages with the next bot message to form chat turns."""
+    turns: list[dict] = []
+    pending_user: dict | None = None
+
+    for ev in timeline.events:
+        if ev.event_type == MCSEventType.USER_MESSAGE:
+            pending_user = {
+                "user_ts": ev.timestamp,
+                "user_msg": (ev.summary or "").replace("User: ", "", 1),
+            }
+            continue
+
+        if ev.event_type == MCSEventType.BOT_MESSAGE and pending_user is not None:
+            latency_ms = _ms_between_iso(pending_user.get("user_ts"), ev.timestamp)
+            turns.append(
+                {
+                    "user_ts": pending_user.get("user_ts") or "",
+                    "user_msg": pending_user.get("user_msg") or "",
+                    "bot_ts": ev.timestamp or "",
+                    "bot_msg": (ev.summary or "").replace("Bot: ", "", 1),
+                    "latency_ms": latency_ms,
+                }
+            )
+            pending_user = None
+
+    return turns
+
+
+def render_conversation_overview(timeline: MCSConversationTimeline) -> str:
+    """Render KPI summary for transcript diagnostics."""
+    user_msgs = sum(1 for e in timeline.events if e.event_type == MCSEventType.USER_MESSAGE)
+    bot_msgs = sum(1 for e in timeline.events if e.event_type == MCSEventType.BOT_MESSAGE)
+    steps_triggered = sum(1 for e in timeline.events if e.event_type == MCSEventType.STEP_TRIGGERED)
+    steps_finished = sum(1 for e in timeline.events if e.event_type == MCSEventType.STEP_FINISHED)
+    searches = sum(1 for e in timeline.events if e.event_type == MCSEventType.KNOWLEDGE_SEARCH)
+    errors = sum(1 for e in timeline.events if e.event_type == MCSEventType.ERROR)
+    turns = _pair_message_turns(timeline)
+    avg_latency = (sum(t["latency_ms"] for t in turns) / len(turns)) if turns else 0.0
+    p95_latency = 0.0
+    if turns:
+        sorted_lat = sorted(t["latency_ms"] for t in turns)
+        idx = int(max(0, min(len(sorted_lat) - 1, round(0.95 * (len(sorted_lat) - 1)))))
+        p95_latency = sorted_lat[idx]
+
+    lines: list[str] = [
+        "## Conversation Overview",
+        "",
+        "| KPI | Value |",
+        "| --- | ---: |",
+        f"| Total activities | {timeline.total_activities} |",
+        f"| Message events | {timeline.message_count} |",
+        f"| Event telemetry | {timeline.event_count} |",
+        f"| Trace telemetry | {timeline.trace_count} |",
+        f"| Typing indicators | {timeline.typing_count} |",
+        f"| User messages | {user_msgs} |",
+        f"| Bot messages | {bot_msgs} |",
+        f"| Steps triggered | {steps_triggered} |",
+        f"| Steps finished | {steps_finished} |",
+        f"| UniversalSearch calls | {searches} |",
+        f"| Error events | {errors} |",
+        f"| Total elapsed | {timeline.total_elapsed_ms:.0f} ms |",
+        f"| Avg turn latency | {avg_latency:.0f} ms |",
+        f"| P95 turn latency | {p95_latency:.0f} ms |",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def render_message_chat_timeline(timeline: MCSConversationTimeline) -> str:
+    """Render a message-only sequence and turn latency table."""
+    turns = _pair_message_turns(timeline)
+    if not turns:
+        return ""
+
+    lines: list[str] = [
+        "## Message Chat Timeline",
+        "",
+        "```mermaid",
+        "sequenceDiagram",
+        "    autonumber",
+        "    participant U as User",
+        "    participant C as Copilot",
+        "",
+    ]
+    for turn in turns[:80]:
+        umsg = turn["user_msg"].replace('"', "'")[:90]
+        bmsg = turn["bot_msg"].replace('"', "'")[:90]
+        uts = (turn["user_ts"] or "")[-14:-6] if turn["user_ts"] else ""
+        bts = (turn["bot_ts"] or "")[-14:-6] if turn["bot_ts"] else ""
+        lines.append(f'    U->>C: [{uts}] {umsg}')
+        lines.append(f'    C-->>U: [{bts}] {bmsg}')
+
+    lines += [
+        "```",
+        "",
+        "### Turn Latency",
+        "",
+        "| Turn | User Message | Bot Response | Latency (ms) |",
+        "| ---: | --- | --- | ---: |",
+    ]
+    for i, turn in enumerate(turns, 1):
+        umsg = turn["user_msg"][:80].replace("|", "\\|")
+        bmsg = turn["bot_msg"][:80].replace("|", "\\|")
+        lines.append(f"| {i} | {umsg} | {bmsg} | {turn['latency_ms']:.0f} |")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def render_tool_diagnostics(timeline: MCSConversationTimeline) -> str:
+    """Render execution and tool diagnostics for troubleshooting."""
+    step_started = [e for e in timeline.events if e.event_type == MCSEventType.STEP_TRIGGERED]
+    step_finished = [e for e in timeline.events if e.event_type == MCSEventType.STEP_FINISHED]
+    step_by_id: dict[str, dict] = {}
+    for e in step_started:
+        if e.step_id:
+            step_by_id[e.step_id] = {"topic": e.topic_name or "—", "start": e.timestamp, "state": "started"}
+    for e in step_finished:
+        if e.step_id:
+            rec = step_by_id.setdefault(e.step_id, {"topic": e.topic_name or "—", "start": None})
+            rec["end"] = e.timestamp
+            rec["state"] = e.state or "unknown"
+            rec["error"] = e.error or ""
+
+    lines: list[str] = [
+        "## Tool & Step Diagnostics",
+        "",
+        "| Step ID | Topic | Start | End | State | Error |",
+        "| --- | --- | --- | --- | --- | --- |",
+    ]
+
+    if step_by_id:
+        for sid, row in list(step_by_id.items())[:200]:
+            topic = str(row.get("topic", "—")).replace("|", "\\|")
+            start = row.get("start") or "—"
+            end = row.get("end") or "—"
+            state = row.get("state") or "—"
+            err = str(row.get("error", "")).replace("|", "\\|")[:120] or "—"
+            lines.append(f"| `{sid[:12]}…` | {topic} | {start} | {end} | {state} | {err} |")
+    else:
+        lines.append("| — | — | — | — | — | — |")
+
+    lines += ["", "### Universal Search Diagnostics", "", "| Timestamp | Query | Sources | Results |", "| --- | --- | --- | ---: |"]
+    search_events = [e for e in timeline.events if e.event_type == MCSEventType.KNOWLEDGE_SEARCH]
+    if search_events:
+        for e in search_events[:200]:
+            query = (e.search_query or "").replace("|", "\\|")[:140] or "—"
+            sources = (e.details.get("sources", "none") if e.details else "none").replace("|", "\\|")
+            results = e.details.get("result_count", "0") if e.details else "0"
+            lines.append(f"| {e.timestamp or '—'} | {query} | {sources} | {results} |")
+    else:
+        lines.append("| — | — | — | 0 |")
+
+    lines.append("")
+    return "\n".join(lines)
+
+
+def render_conversation_findings(timeline: MCSConversationTimeline) -> str:
+    """Highlight potential issues and bottlenecks in the conversation flow."""
+    turns = _pair_message_turns(timeline)
+    long_turns = [t for t in turns if t["latency_ms"] >= 8000]
+    incomplete_steps = [e for e in timeline.events if e.event_type == MCSEventType.STEP_TRIGGERED and e.step_id]
+    finished_ids = {e.step_id for e in timeline.events if e.event_type == MCSEventType.STEP_FINISHED and e.step_id}
+    orphaned = [e for e in incomplete_steps if e.step_id not in finished_ids]
+    searches = [e for e in timeline.events if e.event_type == MCSEventType.KNOWLEDGE_SEARCH]
+    search_without_query = [e for e in searches if not e.search_query]
+
+    lines: list[str] = [
+        "## Findings",
+        "",
+        f"- Long user-to-bot turns (>= 8000 ms): **{len(long_turns)}**",
+        f"- Step triggers without matching finish event: **{len(orphaned)}**",
+        f"- Universal Search calls without extracted query payload: **{len(search_without_query)}**",
+        f"- Total explicit errors in telemetry: **{len(timeline.errors)}**",
+        "",
+    ]
+    return "\n".join(lines)
+
+
 def render_errors(timeline: MCSConversationTimeline) -> str:
     error_events = [e for e in timeline.events if e.event_type == MCSEventType.ERROR]
     if not error_events:
@@ -289,6 +482,10 @@ def render_report(profile: MCSBotProfile, timeline: MCSConversationTimeline) -> 
 
     if timeline.events:
         sections += [
+            render_conversation_overview(timeline),
+            render_message_chat_timeline(timeline),
+            render_tool_diagnostics(timeline),
+            render_conversation_findings(timeline),
             render_mermaid_sequence(timeline),
             render_gantt_chart(timeline),
             render_phase_breakdown(timeline),
@@ -331,6 +528,10 @@ def render_report_sections(profile: MCSBotProfile, timeline: MCSConversationTime
 
     if timeline.events:
         conv_parts = [
+            render_conversation_overview(timeline),
+            render_message_chat_timeline(timeline),
+            render_tool_diagnostics(timeline),
+            render_conversation_findings(timeline),
             render_mermaid_sequence(timeline),
             render_gantt_chart(timeline),
             render_phase_breakdown(timeline),
@@ -436,6 +637,10 @@ def render_transcript_report(
 
     if timeline.events:
         sections += [
+            render_conversation_overview(timeline),
+            render_message_chat_timeline(timeline),
+            render_tool_diagnostics(timeline),
+            render_conversation_findings(timeline),
             render_mermaid_sequence(timeline),
             render_gantt_chart(timeline),
             render_phase_breakdown(timeline),

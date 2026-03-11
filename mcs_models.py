@@ -97,6 +97,9 @@ class MCSTimelineEvent(BaseModel):
     error: str | None = None
     step_id: str | None = None
     plan_identifier: str | None = None
+    tool_name: str | None = None
+    search_query: str | None = None
+    details: dict[str, str] = Field(default_factory=dict)
 
 
 class MCSExecutionPhase(BaseModel):
@@ -116,3 +119,8 @@ class MCSConversationTimeline(BaseModel):
     phases: list[MCSExecutionPhase] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
     total_elapsed_ms: float = 0.0
+    total_activities: int = 0
+    message_count: int = 0
+    event_count: int = 0
+    trace_count: int = 0
+    typing_count: int = 0

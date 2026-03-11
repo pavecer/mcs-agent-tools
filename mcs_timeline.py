@@ -15,23 +15,53 @@ from mcs_models import (
 )
 
 
+def _extract_strings(obj, key_hints: tuple[str, ...], out: list[str], max_items: int = 6) -> None:
+    """Recursively collect string values whose keys match provided hints."""
+    if len(out) >= max_items:
+        return
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            k_low = str(k).lower()
+            if isinstance(v, str) and any(h in k_low for h in key_hints):
+                s = v.strip()
+                if s and s not in out:
+                    out.append(s)
+                    if len(out) >= max_items:
+                        return
+            _extract_strings(v, key_hints, out, max_items=max_items)
+            if len(out) >= max_items:
+                return
+    elif isinstance(obj, list):
+        for item in obj:
+            _extract_strings(item, key_hints, out, max_items=max_items)
+            if len(out) >= max_items:
+                return
+
+
+def _extract_list_count(value: dict, candidate_keys: tuple[str, ...]) -> int:
+    """Find first list under matching keys and return its length."""
+    for key in candidate_keys:
+        if key in value and isinstance(value[key], list):
+            return len(value[key])
+    # one-level nested fallback
+    for nested in value.values():
+        if isinstance(nested, dict):
+            for key in candidate_keys:
+                if key in nested and isinstance(nested[key], list):
+                    return len(nested[key])
+    return 0
+
+
 def _parse_timestamp(ts: str | None) -> datetime | None:
     """Parse ISO timestamp string to datetime."""
     if not ts:
         return None
     try:
-        ts_stripped = ts.rstrip("Z")
-        if "+" in ts_stripped and ts_stripped.count("+") > 0:
-            ts_part = ts_stripped.rsplit("+", 1)[0]
-        else:
-            ts_part = ts_stripped
-
-        if "." in ts_part:
-            main, frac = ts_part.split(".", 1)
-            frac = frac[:6]
-            ts_part = f"{main}.{frac}"
-
-        return datetime.fromisoformat(ts_part).replace(tzinfo=timezone.utc)
+        iso = ts.strip().replace("Z", "+00:00")
+        dt = datetime.fromisoformat(iso)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
     except (ValueError, TypeError):
         return None
 
@@ -108,6 +138,11 @@ def build_timeline(activities: list[dict], schema_lookup: dict[str, str]) -> MCS
     user_query = ""
     first_timestamp: str | None = None
     last_timestamp: str | None = None
+    total_activities = len(activities)
+    message_count = 0
+    event_count = 0
+    trace_count = 0
+    typing_count = 0
 
     # Track step triggers for duration calculation
     step_triggers: dict[str, str] = {}  # step_id -> trigger timestamp
@@ -133,6 +168,15 @@ def build_timeline(activities: list[dict], schema_lookup: dict[str, str]) -> MCS
             if not first_timestamp:
                 first_timestamp = timestamp
             last_timestamp = timestamp
+
+        if act_type == "message":
+            message_count += 1
+        elif act_type == "event":
+            event_count += 1
+        elif act_type == "trace":
+            trace_count += 1
+        elif act_type == "typing":
+            typing_count += 1
 
         # Skip typing indicators
         if act_type == "typing":
@@ -325,13 +369,49 @@ def build_timeline(activities: list[dict], schema_lookup: dict[str, str]) -> MCS
             elif value_type == "UniversalSearchToolTraceData":
                 sources = value.get("knowledgeSources", [])
                 source_names = [s.split(".")[-1] if "." in s else s for s in sources]
+                query_candidates: list[str] = []
+                _extract_strings(
+                    value,
+                    (
+                        "query",
+                        "searchquery",
+                        "rewrittenquery",
+                        "inputquery",
+                        "keywords",
+                        "searchtext",
+                    ),
+                    query_candidates,
+                )
+                search_query = query_candidates[0] if query_candidates else ""
+                returned_count = _extract_list_count(
+                    value,
+                    (
+                        "filteredResults",
+                        "results",
+                        "documents",
+                        "hits",
+                        "chunks",
+                    ),
+                )
+                query_preview = search_query[:80] + "..." if len(search_query) > 80 else search_query
                 events.append(
                     MCSTimelineEvent(
                         timestamp=timestamp,
                         position=position,
                         event_type=MCSEventType.KNOWLEDGE_SEARCH,
-                        summary=f"Knowledge search: [{', '.join(source_names[:3])}]"
-                        + (f" (+{len(source_names) - 3})" if len(source_names) > 3 else ""),
+                        summary=(
+                            f"Knowledge search: {query_preview}"
+                            if query_preview
+                            else f"Knowledge search: [{', '.join(source_names[:3])}]"
+                            + (f" (+{len(source_names) - 3})" if len(source_names) > 3 else "")
+                        ),
+                        tool_name="UniversalSearchTool",
+                        search_query=search_query or None,
+                        details={
+                            "sources": ", ".join(source_names[:8]) if source_names else "none",
+                            "source_count": str(len(source_names)),
+                            "result_count": str(returned_count),
+                        },
                     )
                 )
 
@@ -399,4 +479,9 @@ def build_timeline(activities: list[dict], schema_lookup: dict[str, str]) -> MCS
         phases=phases,
         errors=errors,
         total_elapsed_ms=total_elapsed,
+        total_activities=total_activities,
+        message_count=message_count,
+        event_count=event_count,
+        trace_count=trace_count,
+        typing_count=typing_count,
     )

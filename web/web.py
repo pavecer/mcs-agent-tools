@@ -27,9 +27,9 @@ from web.components import (
 from web.mermaid import mermaid_script
 from web.state import State
 
-BG = "#f3f2f1"
-MAX_WIDTH = "920px"
-VIZ_MAX_WIDTH = "1200px"
+BG = "radial-gradient(1200px 500px at 15% -5%, #d8e8ff 0%, rgba(216, 232, 255, 0) 60%), radial-gradient(1000px 450px at 90% 0%, #d7fff0 0%, rgba(215, 255, 240, 0) 55%), #eef3fb"
+MAX_WIDTH = "980px"
+VIZ_MAX_WIDTH = "1280px"
 
 
 # ── Shared: file status bar shown at top of both tabs ────────────────────────
@@ -67,10 +67,11 @@ def _file_bar() -> rx.Component:
             ),
             spacing="2",
             align="center",
-            padding="10px 16px",
-            background="#ffffff",
-            border="1px solid #edebe9",
-            border_radius="8px",
+            padding="12px 16px",
+            background="#f7faff",
+            border="1px solid #d7e2f2",
+            border_radius="12px",
+            box_shadow="inset 0 1px 0 rgba(255,255,255,0.8)",
             width="100%",
         ),
         rx.box(),
@@ -91,12 +92,14 @@ def _tab_trigger(label: str, icon: str, tab_id: str) -> rx.Component:
             align="center",
         ),
         on_click=State.set_active_tab(tab_id),
-        padding="10px 20px",
+        padding="10px 16px",
         cursor="pointer",
-        border_bottom=rx.cond(active, "2px solid #0078d4", "2px solid transparent"),
-        color=rx.cond(active, "#0078d4", "#605e5c"),
-        _hover={"color": "#0078d4"},
-        transition="all 0.15s ease",
+        border_radius="10px 10px 0 0",
+        border_bottom=rx.cond(active, "2px solid #0a66ff", "2px solid transparent"),
+        background=rx.cond(active, "#eef4ff", "transparent"),
+        color=rx.cond(active, "#0a66ff", "#51627a"),
+        _hover={"color": "#0a66ff", "background": "#f3f8ff"},
+        transition="all 0.18s ease",
         user_select="none",
     )
 
@@ -233,9 +236,10 @@ def index() -> rx.Component:
                         align="start",
                     ),
                     background="#ffffff",
-                    border_radius="8px",
-                    box_shadow="0 2px 8px rgba(0,0,0,.08)",
-                    padding="24px",
+                    border="1px solid #d7e2f2",
+                    border_radius="16px",
+                    box_shadow="0 16px 40px rgba(12, 33, 70, 0.10)",
+                    padding="26px",
                     width="100%",
                 ),
                 # ── File uploaded: conditional tabs + content ─────────────
@@ -280,12 +284,15 @@ def index() -> rx.Component:
                             ),
                             spacing="0",
                             border_bottom="1px solid #edebe9",
+                            padding_x="8px",
                             width="100%",
                         ),
                         width="100%",
                         background="#ffffff",
-                        border_radius="8px 8px 0 0",
-                        box_shadow="0 2px 8px rgba(0,0,0,.08)",
+                        border="1px solid #d7e2f2",
+                        border_bottom="0",
+                        border_radius="16px 16px 0 0",
+                        box_shadow="0 16px 40px rgba(12, 33, 70, 0.10)",
                     ),
                     # Content area
                     rx.box(
@@ -317,10 +324,12 @@ def index() -> rx.Component:
                                 ),
                             ),
                         ),
-                        padding="20px 24px 28px",
+                        padding="20px 22px 28px",
                         background="#ffffff",
-                        border_radius="0 0 8px 8px",
-                        box_shadow="0 2px 8px rgba(0,0,0,.08)",
+                        border="1px solid #d7e2f2",
+                        border_top="0",
+                        border_radius="0 0 16px 16px",
+                        box_shadow="0 16px 40px rgba(12, 33, 70, 0.10)",
                         width="100%",
                     ),
                     spacing="0",
@@ -335,11 +344,12 @@ def index() -> rx.Component:
             ),
             margin_x="auto",
             padding_x="16px",
-            padding_y="24px",
+            padding_y="28px",
             width="100%",
         ),
         feedback_footer(),
-        background_color=BG,
+        background=BG,
+        font_family="Manrope, Segoe UI, sans-serif",
         min_height="100vh",
         width="100%",
         spacing="0",
@@ -354,7 +364,7 @@ def login_page() -> rx.Component:
 
 
 app = rx.App(
-    theme=rx.theme(appearance="light", accent_color="blue"),
+    theme=rx.theme(appearance="light", accent_color="cyan"),
 )
 app.add_page(index, route="/", title="PP Agent Toolkit")
 app.add_page(login_page, route="/login", title="Sign in — PP Agent Toolkit", on_load=State.check_already_authed)

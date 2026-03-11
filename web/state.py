@@ -1034,7 +1034,7 @@ class State(rx.State):
                         ]
                         if s.strip()
                     )
-                    self.mcs_analyse_tab = "credits"
+                    self.mcs_analyse_tab = "conversation"
                 else:
                     # No snapshot: populate sections with placeholders + transcript conv
                     self.mcs_section_profile = (
@@ -1058,7 +1058,7 @@ class State(rx.State):
                         ]
                         if s.strip()
                     )
-                    self.mcs_analyse_tab = "credits"
+                    self.mcs_analyse_tab = "conversation"
                     self.upload_filename = filename
                     self.active_tab = "analyse"
 

@@ -55,28 +55,30 @@ def render_segment(segment: dict) -> rx.Component:
             rx.el.pre(segment["content"], class_name="mermaid"),
             width="100%",
             overflow_x="auto",
-            padding="20px",
-            background="#fafafa",
-            border="1px solid #edebe9",
-            border_radius="8px",
+            padding="22px",
+            background="#f7fbff",
+            border="1px solid #d7e2f2",
+            border_radius="14px",
+            box_shadow="inset 0 1px 0 rgba(255,255,255,0.85)",
             margin_y="4px",
         ),
         rx.box(
             rx.markdown(
                 segment["content"],
                 component_map={
-                    "h1": lambda text: rx.heading(text, size="6", margin_bottom="10px", color="#201f1e"),
+                    "h1": lambda text: rx.heading(text, size="6", margin_bottom="10px", color="#102548"),
                     "h2": lambda text: rx.heading(
-                        text, size="4", margin_top="18px", margin_bottom="8px", color="#201f1e"
+                        text, size="4", margin_top="18px", margin_bottom="8px", color="#102548"
                     ),
                     "h3": lambda text: rx.heading(
-                        text, size="3", margin_top="14px", margin_bottom="6px", color="#323130"
+                        text, size="3", margin_top="14px", margin_bottom="6px", color="#2a3f63"
                     ),
-                    "p": lambda text: rx.text(text, font_size="13px", color="#323130", line_height="1.6"),
-                    "code": lambda text: rx.code(text, font_size="12px"),
+                    "p": lambda text: rx.text(text, font_size="13px", color="#2f425f", line_height="1.65"),
+                    "code": lambda text: rx.code(text, font_size="12px", background="#ecf3ff"),
                 },
             ),
             width="100%",
             overflow_x="auto",
+            padding="2px 2px 6px",
         ),
     )
