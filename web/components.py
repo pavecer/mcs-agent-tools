@@ -110,7 +110,7 @@ def unified_upload_area() -> rx.Component:
                 color="#201f1e",
             ),
             rx.text(
-                "Solution ZIP — rename, visualise & validate  ·  Snapshot ZIP — deep agent analysis",
+                "Any solution ZIP — dependencies  ·  Agent solution ZIP — rename/visualize/validate  ·  Snapshot ZIP — deep agent analysis",
                 font_size="12px",
                 color="#605e5c",
             ),

@@ -249,22 +249,22 @@ def index() -> rx.Component:
                                 _tab_trigger("Analyse", "search", "analyse"),
                             ),
                             rx.cond(
-                                State.mcs_source == "transcript",
-                                rx.box(),
+                                State.is_snapshot_zip | State.is_agent_solution_zip,
                                 _tab_trigger("Visualize", "git-branch", "visualize"),
-                            ),
-                            rx.cond(
-                                State.mcs_source == "transcript",
                                 rx.box(),
-                                _tab_trigger("Validate", "shield-check", "validate"),
                             ),
                             rx.cond(
-                                State.is_solution_zip,
+                                State.is_snapshot_zip | State.is_agent_solution_zip,
+                                _tab_trigger("Validate", "shield-check", "validate"),
+                                rx.box(),
+                            ),
+                            rx.cond(
+                                State.is_agent_solution_zip,
                                 _tab_trigger("Check", "scan-search", "check"),
                                 rx.box(),
                             ),
                             rx.cond(
-                                State.is_solution_zip,
+                                State.is_agent_solution_zip,
                                 _tab_trigger("Evals", "flask-conical", "evals"),
                                 rx.box(),
                             ),
@@ -274,7 +274,7 @@ def index() -> rx.Component:
                                 rx.box(),
                             ),
                             rx.cond(
-                                State.is_solution_zip,
+                                State.is_agent_solution_zip,
                                 _tab_trigger("Rename", "refresh-cw", "rename"),
                                 rx.box(),
                             ),

@@ -81,6 +81,20 @@ _GROUP_LABELS: dict[str, tuple[str, str]] = {
     "other": ("📦", "Other"),
 }
 
+_MISSING_TYPE_NAME_TO_CODE: dict[str, int] = {
+    "bot": 430,
+    "botcomponent": 431,
+    "botcomponentcollection": 432,
+    "cloudflow": 30,
+    "workflow": 30,
+    "canvasapp": 300,
+    "connectionreference": 10066,
+    "environmentvariable": 44,
+    "environmentvariablevalue": 45,
+    "table": 1,
+    "entity": 1,
+}
+
 # Maximum individual nodes before collapsing to a summary node
 _MAX_INDIVIDUAL = 5
 
@@ -118,17 +132,101 @@ class _Component:
 
 
 class _MissingDep:
-    __slots__ = ("req_type", "req_name", "req_schema", "dep_id")
+    __slots__ = (
+        "req_type",
+        "req_type_name",
+        "req_name",
+        "req_schema",
+        "req_identifier",
+        "req_solution",
+        "req_package",
+        "dep_type",
+        "dep_type_name",
+        "dep_name",
+        "dep_schema",
+        "dep_identifier",
+        "dep_id",
+    )
 
-    def __init__(self, req_type: int, req_name: str, req_schema: str, dep_id: str) -> None:
+    def __init__(
+        self,
+        req_type: int,
+        req_type_name: str,
+        req_name: str,
+        req_schema: str,
+        req_identifier: str,
+        req_solution: str,
+        req_package: str,
+        dep_type: int,
+        dep_type_name: str,
+        dep_name: str,
+        dep_schema: str,
+        dep_identifier: str,
+        dep_id: str,
+    ) -> None:
         self.req_type = req_type
-        self.req_name = req_name or req_schema or "Unknown"
+        self.req_type_name = req_type_name
+        self.req_name = req_name or req_schema or req_identifier or "Unknown"
         self.req_schema = req_schema
+        self.req_identifier = req_identifier
+        self.req_solution = req_solution
+        self.req_package = req_package
+
+        self.dep_type = dep_type
+        self.dep_type_name = dep_type_name
+        self.dep_name = dep_name or dep_schema or dep_identifier or "Unknown"
+        self.dep_schema = dep_schema
+        self.dep_identifier = dep_identifier
         self.dep_id = dep_id.strip("{}")
 
     @property
+    def type_label(self) -> str:
+        if self.req_type > 0:
+            return _type_info(self.req_type)[0]
+        if self.req_type_name:
+            return self.req_type_name
+        return "Unknown"
+
+    @property
     def dedup_key(self) -> str:
-        return f"{self.req_type}:{(self.req_schema or self.req_name).lower()}"
+        req_ref = (self.req_schema or self.req_identifier or self.req_name).lower()
+        return f"{self.req_type}:{self.req_type_name.lower()}:{req_ref}"
+
+    @property
+    def relation_key(self) -> str:
+        dep_ref = (self.dep_schema or self.dep_identifier or self.dep_name).lower()
+        return f"{dep_ref}->{self.dedup_key}"
+
+
+def _first_attr(el: ET.Element | None, candidates: list[str]) -> str:
+    if el is None:
+        return ""
+    lower_map = {k.lower(): v for k, v in el.attrib.items()}
+    for key in candidates:
+        if key in el.attrib and el.attrib[key]:
+            return el.attrib[key]
+        v = lower_map.get(key.lower())
+        if v:
+            return v
+    return ""
+
+
+def _parse_missing_type(type_value: str) -> tuple[int, str]:
+    """Parse MissingDependency type into (numeric_code, display_name)."""
+    raw = (type_value or "").strip()
+    if not raw:
+        return 0, ""
+    if raw.isdigit():
+        code = int(raw)
+        return code, _type_info(code)[0]
+
+    normalized = re.sub(r"[^a-z0-9]", "", raw.lower())
+    mapped = _MISSING_TYPE_NAME_TO_CODE.get(normalized)
+    if mapped is not None:
+        return mapped, _type_info(mapped)[0]
+
+    # Keep original symbolic type when no numeric mapping exists.
+    return 0, raw
 
 
 # ── solution.xml parser ───────────────────────────────────────────────────────
@@ -193,14 +291,53 @@ def _parse_solution_xml(sol_path: Path) -> tuple[dict, list[_Component], list[_M
             dep = md.find("Dependent")
             if req is None:
                 continue
-            try:
-                rt = int(req.get("type") or "0")
-            except ValueError:
-                rt = 0
-            rname = req.get("displayName") or req.get("parentDisplayName") or ""
-            rschema = req.get("schemaName") or ""
-            dep_id = (dep.get("id") or "") if dep is not None else ""
-            missing.append(_MissingDep(rt, rname, rschema, dep_id))
+            rt, rt_name = _parse_missing_type(req.get("type") or "")
+            rname = _first_attr(req, ["displayName", "parentDisplayName", "name"])
+            rschema = _first_attr(req, ["schemaName", "id.schemaname"])
+            rid = _first_attr(
+                req,
+                [
+                    "id",
+                    "id.schemaname",
+                    "id.uniquename",
+                    "id.msdyn_uniquename",
+                    "id.name",
+                ],
+            )
+            rsolution = _first_attr(req, ["solution"])
+            rpackage = (req.findtext("package") or "").strip()
+
+            dt, dt_name = _parse_missing_type((dep.get("type") or "") if dep is not None else "")
+            dname = _first_attr(dep, ["displayName", "parentDisplayName", "name"])
+            dschema = _first_attr(dep, ["schemaName", "id.schemaname"])
+            did = _first_attr(
+                dep,
+                [
+                    "id",
+                    "id.schemaname",
+                    "id.uniquename",
+                    "id.msdyn_uniquename",
+                    "id.name",
+                ],
+            )
+            dep_id = _first_attr(dep, ["id"]) if dep is not None else ""
+            missing.append(
+                _MissingDep(
+                    rt,
+                    rt_name,
+                    rname,
+                    rschema,
+                    rid,
+                    rsolution,
+                    rpackage,
+                    dt,
+                    dt_name,
+                    dname,
+                    dschema,
+                    did,
+                    dep_id,
+                )
+            )
 
     return metadata, components, missing
 
@@ -463,23 +600,45 @@ def _build_mermaid(
 
     lines.append("    end")  # close SOL subgraph
 
-    # ── Missing dependencies subgraph ──────────────────────────────────────────
-    seen_keys: set[str] = set()
-    deduped: list[_MissingDep] = []
+    # ── Missing dependencies map (Dependent -> Required) ─────────────────────
+    required_seen: set[str] = set()
+    required_unique: list[_MissingDep] = []
     for m in missing:
-        if m.dedup_key not in seen_keys:
-            seen_keys.add(m.dedup_key)
-            deduped.append(m)
+        if m.dedup_key not in required_seen:
+            required_seen.add(m.dedup_key)
+            required_unique.append(m)
+
+    relation_seen: set[str] = set()
+    relation_unique: list[_MissingDep] = []
+    for m in missing:
+        if m.relation_key not in relation_seen:
+            relation_seen.add(m.relation_key)
+            relation_unique.append(m)
 
     miss_key_to_nid: dict[str, str] = {}
-    if deduped:
-        lines.append('    subgraph MISS["⚠️ Missing Dependencies  (must be installed in target env)"]')
-        for i, m in enumerate(deduped):
-            nid = f"MDEP{i}"
-            miss_key_to_nid[m.dedup_key] = nid
-            type_name, _ = _type_info(m.req_type)
-            lbl = f"❌ {_esc(m.req_name or m.req_schema)}  ({type_name})"
-            lines.append(f'        {nid}["{lbl}"]')
+    dep_key_to_nid: dict[str, str] = {}
+    if relation_unique:
+        lines.append('    subgraph MISS["⚠️ Missing Dependency Map  (Dependent -> Required)"]')
+        lines.append('        subgraph MISS_DEP["Dependent Components in this solution"]')
+        for i, m in enumerate(relation_unique):
+            dep_key = (m.dep_schema or m.dep_identifier or m.dep_name).lower()
+            if dep_key in dep_key_to_nid:
+                continue
+            dnid = f"MDEP_SRC{i}"
+            dep_key_to_nid[dep_key] = dnid
+            dep_type = _type_info(m.dep_type)[0] if m.dep_type > 0 else (m.dep_type_name or "Component")
+            dlabel = f"{_esc(m.dep_name)} ({_esc(dep_type)})"
+            lines.append(f'            {dnid}["{dlabel}"]')
+        lines.append("        end")
+
+        lines.append('        subgraph MISS_REQ["Required Components missing in target environment"]')
+        for i, m in enumerate(required_unique):
+            rnid = f"MDEP_REQ{i}"
+            miss_key_to_nid[m.dedup_key] = rnid
+            req_label = m.req_name or m.req_schema or m.req_identifier
+            lbl = f"❌ {_esc(req_label)} ({_esc(m.type_label)})"
+            lines.append(f'            {rnid}["{lbl}"]')
+        lines.append("        end")
         lines.append("    end")
 
     # ── Edges ──────────────────────────────────────────────────────────────────
@@ -498,17 +657,22 @@ def _build_mermaid(
         for crid in cr_nids:
             lines.append(f"    {fid} --> {crid}")
 
-    # Missing dep edges: dep_id → required missing component
-    for m in deduped:
+    # Missing dependency relation edges: dependent -> required
+    for m in relation_unique:
         mnid = miss_key_to_nid.get(m.dedup_key)
-        if not mnid:
-            continue
+        dkey = (m.dep_schema or m.dep_identifier or m.dep_name).lower()
+        dnid = dep_key_to_nid.get(dkey)
+        if dnid and mnid:
+            lines.append(f"    {dnid} -.->|requires| {mnid}")
+
+    # If dependent ID maps to an already known component node, connect it as context.
+    for m in relation_unique:
         dep_id_clean = m.dep_id.lower()
         source = id_to_nid.get(dep_id_clean)
-        if source is None and agent_nids:
-            source = agent_nids[0]  # fall back to first agent node
-        if source:
-            lines.append(f"    {source} -.->|missing| {mnid}")
+        dkey = (m.dep_schema or m.dep_identifier or m.dep_name).lower()
+        dnid = dep_key_to_nid.get(dkey)
+        if source and dnid:
+            lines.append(f"    {source} -.->|dependency| {dnid}")
 
     # ── Node styles ────────────────────────────────────────────────────────────
     for i in range(len(agents)):
@@ -535,6 +699,8 @@ def _build_mermaid(
             lines.append(f"    style CA{i} fill:#fce8e8,color:#601010,stroke:#d13438")
     elif canvas_apps:
         lines.append("    style CAS fill:#fce8e8,color:#601010,stroke:#d13438")
+    for nid in dep_key_to_nid.values():
+        lines.append(f"    style {nid} fill:#fff4ce,color:#4d3800,stroke:#d29200,stroke-dasharray:3 3")
     for nid in miss_key_to_nid.values():
         lines.append(f"    style {nid} fill:#fde7e9,color:#a4262c,stroke:#a4262c,stroke-dasharray:5 5")
 
@@ -554,13 +720,20 @@ def _build_summary_md(
     managed = "**Managed** ✔" if metadata.get("managed") else "Unmanaged"
     publisher = metadata.get("publisher") or "—"
 
-    # De-duplicate missing deps
+    # De-duplicate missing required components and relations
     seen: set[str] = set()
     unique_missing: list[_MissingDep] = []
     for m in missing:
         if m.dedup_key not in seen:
             seen.add(m.dedup_key)
             unique_missing.append(m)
+
+    rel_seen: set[str] = set()
+    unique_relations: list[_MissingDep] = []
+    for m in missing:
+        if m.relation_key not in rel_seen:
+            rel_seen.add(m.relation_key)
+            unique_relations.append(m)
 
     # Tally by type
     type_counts: dict[int, int] = defaultdict(int)
@@ -584,9 +757,12 @@ def _build_summary_md(
         "|---|---|",
     ]
 
-    for tc, cnt in sorted(type_counts.items(), key=lambda x: (-x[1], x[0])):
-        type_name, _ = _type_info(tc)
-        lines.append(f"| {type_name} | {cnt} |")
+    if type_counts:
+        for tc, cnt in sorted(type_counts.items(), key=lambda x: (-x[1], x[0])):
+            type_name, _ = _type_info(tc)
+            lines.append(f"| {type_name} | {cnt} |")
+    else:
+        lines.append("| _No RootComponents in solution.xml_ | 0 |")
 
     if unique_missing:
         lines += [
@@ -600,9 +776,25 @@ def _build_summary_md(
             "|---|---|---|",
         ]
         for m in unique_missing:
-            type_name, _ = _type_info(m.req_type)
+            type_name = m.type_label
             dep_ref = f"`{m.dep_id[:8]}…`" if m.dep_id else "—"
             lines.append(f"| `{m.req_name or m.req_schema}` | {type_name} | {dep_ref} |")
+
+        lines += [
+            "",
+            "### Dependency Relations",
+            "",
+            "| Dependent Component | Required Component | Required Type | Source Solution/Package |",
+            "|---|---|---|---|",
+        ]
+        for m in unique_relations:
+            dep_type = _type_info(m.dep_type)[0] if m.dep_type > 0 else (m.dep_type_name or "Component")
+            dep_name = m.dep_name or m.dep_schema or m.dep_identifier
+            req_name = m.req_name or m.req_schema or m.req_identifier
+            source = m.req_solution or m.req_package or "Active"
+            lines.append(
+                f"| `{dep_name}` ({dep_type}) | `{req_name}` | {m.type_label} | `{source}` |"
+            )
     else:
         lines += [
             "",
@@ -639,10 +831,10 @@ def analyze_deps_zip_bytes(zip_bytes: bytes) -> list[dict]:
         metadata, components, missing = _parse_solution_xml(sol_path)
         _enrich_from_files(components, work_dir)
 
-        if not components:
+        if not components and not missing:
             raise ValueError(
-                "solution.xml contains no RootComponents — the solution may be empty "
-                "or the XML format is not recognised."
+                "solution.xml contains no RootComponents or MissingDependencies — "
+                "the solution may be empty or the XML format is not recognised."
             )
 
         summary_md = _build_summary_md(metadata, components, missing)
