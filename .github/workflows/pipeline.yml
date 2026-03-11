@@ -1,6 +1,8 @@
 name: Pipeline
 
 on:
+  push:
+    branches: ["main"]
   workflow_dispatch:
   schedule:
     # Run daily at 02:00 UTC (03:00 CET in winter; 04:00 CEST in summer).
@@ -120,11 +122,11 @@ jobs:
       - name: Run pip-audit
         run: uv run pip-audit --strict
 
-  # ── 4. Build & Deploy (only on push to main, after all checks pass) ─────────
+  # ── 4. Build & Deploy (only on schedule, after all checks pass) ─────────────
   deploy:
     name: Build & Deploy
     needs: [test, bandit, pip-audit]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'schedule' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
