@@ -21,8 +21,9 @@ if is_prod:
     config = rx.Config(
         app_name="web",
         api_url=os.getenv("API_URL", "http://localhost:2009"),
-        frontend_port=3000,
-        backend_port=8000,
+        # Avoid common/default collisions in managed environments.
+        frontend_port=int(os.getenv("FRONTEND_PORT", "3100")),
+        backend_port=int(os.getenv("BACKEND_PORT", "8000")),
         disable_plugins=["reflex.plugins.sitemap.SitemapPlugin"],
     )
 else:

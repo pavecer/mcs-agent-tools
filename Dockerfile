@@ -63,5 +63,5 @@ EXPOSE 2009
 
 # USERS env var is injected at runtime via Azure Container App secrets —
 # never bake credentials into the image.
-# Topology: nginx:2009 (external) → Next.js:3000 (frontend) + granian:8000 (backend)
+# Topology: nginx:2009 (external) → Next.js:3100 (frontend) + granian:8000 (backend)
 CMD ["/app/docker-entrypoint.sh"]
