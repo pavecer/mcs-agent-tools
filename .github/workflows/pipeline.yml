@@ -1,13 +1,10 @@
 name: Pipeline
 
 on:
-  push:
-    branches: ["main"]
-  pull_request:
-    branches: ["main"]
+  workflow_dispatch:
   schedule:
-    # Run every Monday at 08:00 UTC to catch newly disclosed CVEs
-    - cron: "0 8 * * 1"
+    # Run daily at 02:00 UTC (03:00 CET in winter; 04:00 CEST in summer).
+    - cron: "0 2 * * *"
 
 # OIDC token required for Azure Login in the deploy job.
 permissions:
