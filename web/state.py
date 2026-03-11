@@ -661,7 +661,9 @@ class State(rx.State):
                     self.mcs_section_topics = sections["topics"]
                     self.mcs_section_graph = sections["graph"]
                     self.mcs_section_conversation = sections["conversation"]
-                    estimate = estimate_credits_from_activities(activities, profile.gpt_info.model_hint if profile.gpt_info else None)
+                    estimate = estimate_credits_from_activities(
+                        activities, profile.gpt_info.model_hint if profile.gpt_info else None
+                    )
                     self.mcs_section_credits = mcs_render_credit_estimate("Credit Prediction", estimate)
                     self.mcs_credit_rows = [
                         {
