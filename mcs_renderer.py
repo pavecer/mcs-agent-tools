@@ -5,6 +5,7 @@ Adapted from github.com/Roelzz/mcs-agent-analyser (MIT licence).
 
 from __future__ import annotations
 
+from mcs_credits import MCSCreditEstimate
 from mcs_models import MCSBotProfile, MCSConversationTimeline, MCSEventType
 
 # ---------------------------------------------------------------------------
@@ -443,3 +444,27 @@ def render_transcript_report(
         ]
 
     return "\n".join(sections)
+
+
+def render_credit_estimate(title: str, estimate: MCSCreditEstimate) -> str:
+    """Render credit estimation breakdown as Markdown."""
+    lines: list[str] = [
+        f"## {title}",
+        "",
+        "| Meter | Observed count | Rate | Estimated credits |",
+        "| --- | ---: | ---: | ---: |",
+        f"| Classic answer | {estimate.classic_answers} | 1 | {estimate.classic_credits} |",
+        f"| Generative answer | {estimate.generative_answers} | 2 | {estimate.generative_credits} |",
+        f"| Agent action | {estimate.agent_actions} | 5 | {estimate.agent_action_credits} |",
+        f"| Tenant graph grounding (messages) | {estimate.tenant_graph_grounding_messages} | 10 | {estimate.tenant_graph_credits} |",
+        f"| Agent flow actions | {estimate.agent_flow_actions} | 13 / 100 | {estimate.agent_flow_credits} |",
+        f"| Text/gen AI tools (premium) responses | {estimate.premium_tool_responses} | 100 / 10 | {estimate.premium_tool_credits} |",
+        "",
+        f"**Total predicted Copilot Credits:** {estimate.total_credits}",
+        "",
+        "### Assumptions",
+        "",
+    ]
+    lines.extend(f"- {item}" for item in estimate.assumptions)
+    lines.append("")
+    return "\n".join(lines)

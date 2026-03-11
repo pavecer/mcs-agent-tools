@@ -14,9 +14,11 @@ from pathlib import Path
 import reflex as rx
 from dotenv import load_dotenv
 
+from mcs_credits import estimate_credits_from_activities
 from mcs_models import MCSConversationTimeline as _MCSTl
 from mcs_parser import parse_dialog_json as mcs_parse_dialog_json
 from mcs_parser import parse_yaml as mcs_parse_yaml
+from mcs_renderer import render_credit_estimate as mcs_render_credit_estimate
 from mcs_renderer import render_report_sections as mcs_render_report_sections
 from mcs_renderer import render_transcript_report as mcs_render_transcript_report
 from mcs_renderer import to_viz_segments as mcs_to_viz_segments
@@ -200,6 +202,10 @@ class State(rx.State):
     mcs_section_topics: str = ""
     mcs_section_graph: str = ""
     mcs_section_conversation: str = ""
+    mcs_section_credits: str = ""
+    mcs_credit_rows: list[dict] = []
+    mcs_credit_total: float = 0.0
+    mcs_credit_assumptions: list[str] = []
 
     # ── Computed / derived ────────────────────────────────────────────────
 
@@ -311,6 +317,7 @@ class State(rx.State):
             "topics": self.mcs_section_topics,
             "graph": self.mcs_section_graph,
             "conversation": self.mcs_section_conversation,
+            "credits": self.mcs_section_credits,
         }
         md = section_map.get(self.mcs_analyse_tab, "")
         return _md_to_segments(md)
@@ -414,6 +421,10 @@ class State(rx.State):
         self.mcs_section_topics = ""
         self.mcs_section_graph = ""
         self.mcs_section_conversation = ""
+        self.mcs_section_credits = ""
+        self.mcs_credit_rows = []
+        self.mcs_credit_total = 0.0
+        self.mcs_credit_assumptions = []
         self.mcs_report_markdown = ""
         self.mcs_report_title = ""
         self.mcs_upload_error = ""
@@ -650,8 +661,60 @@ class State(rx.State):
                     self.mcs_section_topics = sections["topics"]
                     self.mcs_section_graph = sections["graph"]
                     self.mcs_section_conversation = sections["conversation"]
+                    estimate = estimate_credits_from_activities(activities, profile.gpt_info.model_hint if profile.gpt_info else None)
+                    self.mcs_section_credits = mcs_render_credit_estimate("Credit Prediction", estimate)
+                    self.mcs_credit_rows = [
+                        {
+                            "meter": "Classic answer",
+                            "count": estimate.classic_answers,
+                            "rate": "1",
+                            "credits": estimate.classic_credits,
+                        },
+                        {
+                            "meter": "Generative answer",
+                            "count": estimate.generative_answers,
+                            "rate": "2",
+                            "credits": estimate.generative_credits,
+                        },
+                        {
+                            "meter": "Agent action",
+                            "count": estimate.agent_actions,
+                            "rate": "5",
+                            "credits": estimate.agent_action_credits,
+                        },
+                        {
+                            "meter": "Tenant graph grounding (messages)",
+                            "count": estimate.tenant_graph_grounding_messages,
+                            "rate": "10",
+                            "credits": estimate.tenant_graph_credits,
+                        },
+                        {
+                            "meter": "Agent flow actions",
+                            "count": estimate.agent_flow_actions,
+                            "rate": "13 / 100",
+                            "credits": estimate.agent_flow_credits,
+                        },
+                        {
+                            "meter": "Text/gen AI tools (premium) responses",
+                            "count": estimate.premium_tool_responses,
+                            "rate": "100 / 10",
+                            "credits": estimate.premium_tool_credits,
+                        },
+                    ]
+                    self.mcs_credit_total = estimate.total_credits
+                    self.mcs_credit_assumptions = estimate.assumptions
                     self.mcs_source = "snapshot"
-                    self.mcs_report_markdown = "\n\n".join(v for v in sections.values() if v.strip())
+                    self.mcs_report_markdown = "\n\n".join(
+                        v
+                        for v in [
+                            self.mcs_section_profile,
+                            self.mcs_section_topics,
+                            self.mcs_section_graph,
+                            self.mcs_section_conversation,
+                            self.mcs_section_credits,
+                        ]
+                        if v.strip()
+                    )
                     self.mcs_upload_error = ""
                 except Exception as e:
                     self.mcs_upload_error = f"Snapshot analysis failed: {e}"
@@ -887,12 +950,58 @@ class State(rx.State):
                 timeline = mcs_build_timeline(activities, {})
                 title = f"Transcript Analysis — {filename}"
                 transcript_report = mcs_render_transcript_report(title, timeline, metadata)
+                estimate = estimate_credits_from_activities(activities, None)
+                credit_report = mcs_render_credit_estimate("Credit Prediction", estimate)
+                self.mcs_credit_rows = [
+                    {
+                        "meter": "Classic answer",
+                        "count": estimate.classic_answers,
+                        "rate": "1",
+                        "credits": estimate.classic_credits,
+                    },
+                    {
+                        "meter": "Generative answer",
+                        "count": estimate.generative_answers,
+                        "rate": "2",
+                        "credits": estimate.generative_credits,
+                    },
+                    {
+                        "meter": "Agent action",
+                        "count": estimate.agent_actions,
+                        "rate": "5",
+                        "credits": estimate.agent_action_credits,
+                    },
+                    {
+                        "meter": "Tenant graph grounding (messages)",
+                        "count": estimate.tenant_graph_grounding_messages,
+                        "rate": "10",
+                        "credits": estimate.tenant_graph_credits,
+                    },
+                    {
+                        "meter": "Agent flow actions",
+                        "count": estimate.agent_flow_actions,
+                        "rate": "13 / 100",
+                        "credits": estimate.agent_flow_credits,
+                    },
+                    {
+                        "meter": "Text/gen AI tools (premium) responses",
+                        "count": estimate.premium_tool_responses,
+                        "rate": "100 / 10",
+                        "credits": estimate.premium_tool_credits,
+                    },
+                ]
+                self.mcs_credit_total = estimate.total_credits
+                self.mcs_credit_assumptions = estimate.assumptions
 
                 if self.mcs_source == "snapshot":
                     # Append transcript to the existing snapshot conversation section
                     existing = self.mcs_section_conversation.rstrip()
                     self.mcs_section_conversation = (
                         existing + "\n\n---\n\n## Uploaded Transcript\n\n" + transcript_report
+                    )
+                    existing_credits = self.mcs_section_credits.rstrip()
+                    self.mcs_section_credits = (
+                        existing_credits + "\n\n---\n\n## Uploaded Transcript Credits\n\n" + credit_report
                     )
                     self.mcs_report_markdown = "\n\n".join(
                         s
@@ -901,10 +1010,11 @@ class State(rx.State):
                             self.mcs_section_topics,
                             self.mcs_section_graph,
                             self.mcs_section_conversation,
+                            self.mcs_section_credits,
                         ]
                         if s.strip()
                     )
-                    self.mcs_analyse_tab = "conversation"
+                    self.mcs_analyse_tab = "credits"
                 else:
                     # No snapshot: populate sections with placeholders + transcript conv
                     self.mcs_section_profile = (
@@ -914,10 +1024,21 @@ class State(rx.State):
                     self.mcs_section_topics = "## Topics & Components\n\n_No snapshot loaded._\n"
                     self.mcs_section_graph = "## Topic Redirect Graph\n\n_No snapshot loaded._\n"
                     self.mcs_section_conversation = transcript_report
+                    self.mcs_section_credits = credit_report
                     self.mcs_report_title = title
                     self.mcs_source = "transcript"
-                    self.mcs_report_markdown = transcript_report
-                    self.mcs_analyse_tab = "conversation"
+                    self.mcs_report_markdown = "\n\n".join(
+                        s
+                        for s in [
+                            self.mcs_section_profile,
+                            self.mcs_section_topics,
+                            self.mcs_section_graph,
+                            self.mcs_section_credits,
+                            self.mcs_section_conversation,
+                        ]
+                        if s.strip()
+                    )
+                    self.mcs_analyse_tab = "credits"
                     self.upload_filename = filename
                     self.active_tab = "analyse"
 
@@ -950,6 +1071,10 @@ class State(rx.State):
         self.mcs_section_topics = ""
         self.mcs_section_graph = ""
         self.mcs_section_conversation = ""
+        self.mcs_section_credits = ""
+        self.mcs_credit_rows = []
+        self.mcs_credit_total = 0.0
+        self.mcs_credit_assumptions = []
         self.mcs_analyse_tab = "profile"
 
     # ── Private helpers ───────────────────────────────────────────────────

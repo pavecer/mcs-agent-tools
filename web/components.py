@@ -901,6 +901,7 @@ def _mcs_section_tab_bar() -> rx.Component:
     return rx.cond(
         State.mcs_source == "transcript",
         rx.hstack(
+            _btn("credits", "coins", "Credits"),
             _btn("conversation", "message-square", "Conversation"),
             spacing="0",
             border_bottom="1px solid #edebe9",
@@ -911,6 +912,7 @@ def _mcs_section_tab_bar() -> rx.Component:
             _btn("profile", "user-round", "Profile"),
             _btn("topics", "list", "Topics"),
             _btn("graph", "git-branch", "Topic Graph"),
+            _btn("credits", "coins", "Credits"),
             _btn("conversation", "message-square", "Conversation"),
             spacing="0",
             border_bottom="1px solid #edebe9",
@@ -960,6 +962,81 @@ def _mcs_upload_form() -> rx.Component:
         spacing="3",
         width="100%",
         align="start",
+    )
+
+
+def _mcs_credit_row(item: dict) -> rx.Component:
+    return rx.grid(
+        rx.text(item["meter"], font_size="13px", color="#201f1e", font_weight="500"),
+        rx.text(item["count"], font_size="13px", color="#323130", text_align="right"),
+        rx.text(item["rate"], font_size="13px", color="#605e5c", text_align="right"),
+        rx.text(item["credits"], font_size="13px", color="#323130", font_weight="600", text_align="right"),
+        columns="3fr 1fr 1fr 1fr",
+        gap="8px",
+        align="center",
+        padding_y="8px",
+        border_bottom="1px solid #f3f2f1",
+        width="100%",
+    )
+
+
+def _mcs_credits_panel() -> rx.Component:
+    return card(
+        rx.hstack(
+            rx.vstack(
+                rx.text("Predicted Copilot Credits", font_size="12px", color="#605e5c", font_weight="600"),
+                rx.text(
+                    State.mcs_credit_total,
+                    font_size="30px",
+                    font_weight="800",
+                    color=PRIMARY,
+                    line_height="1.1",
+                ),
+                align="start",
+                spacing="1",
+            ),
+            rx.spacer(),
+            rx.badge("Heuristic Estimate", color_scheme="amber", variant="soft"),
+            align="start",
+            width="100%",
+            margin_bottom="14px",
+        ),
+        rx.box(
+            rx.grid(
+                rx.text("Meter", font_size="12px", color="#605e5c", font_weight="700"),
+                rx.text("Count", font_size="12px", color="#605e5c", font_weight="700", text_align="right"),
+                rx.text("Rate", font_size="12px", color="#605e5c", font_weight="700", text_align="right"),
+                rx.text("Credits", font_size="12px", color="#605e5c", font_weight="700", text_align="right"),
+                columns="3fr 1fr 1fr 1fr",
+                gap="8px",
+                padding_y="8px",
+                width="100%",
+            ),
+            rx.foreach(State.mcs_credit_rows, _mcs_credit_row),
+            width="100%",
+            border="1px solid #edebe9",
+            border_radius="8px",
+            padding_x="12px",
+            background="#faf9f8",
+        ),
+        rx.vstack(
+            rx.text("Assumptions", font_size="13px", color="#201f1e", font_weight="700"),
+            rx.foreach(
+                State.mcs_credit_assumptions,
+                lambda line: rx.hstack(
+                    rx.text("•", color="#605e5c", margin_top="1px"),
+                    rx.text(line, font_size="13px", color="#605e5c"),
+                    align="start",
+                    spacing="2",
+                    width="100%",
+                ),
+            ),
+            align="start",
+            spacing="2",
+            margin_top="14px",
+            width="100%",
+        ),
+        width="100%",
     )
 
 
@@ -1330,7 +1407,11 @@ def mcs_analyse_panel() -> rx.Component:
                 # Active section content
                 rx.box(
                     rx.vstack(
-                        rx.foreach(State.mcs_current_section_segments, render_segment),
+                        rx.cond(
+                            State.mcs_analyse_tab == "credits",
+                            _mcs_credits_panel(),
+                            rx.foreach(State.mcs_current_section_segments, render_segment),
+                        ),
                         # Transcript uploader inside Conversation sub-tab
                         rx.cond(
                             State.mcs_analyse_tab == "conversation",
