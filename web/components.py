@@ -466,6 +466,57 @@ def navbar() -> rx.Component:
     )
 
 
+def feedback_footer() -> rx.Component:
+    """Bottom-left floating footer with GitHub feedback links."""
+    issue_url = "https://github.com/pavecer/mcs-agent-tools/issues/new?template=bug_report.yml"
+    feature_url = "https://github.com/pavecer/mcs-agent-tools/issues/new?template=feature_request.yml"
+    return rx.box(
+        rx.hstack(
+            rx.link(
+                rx.hstack(
+                    rx.icon("circle-alert", size=13),
+                    rx.text("Create Issue", font_size="12px", font_weight="600"),
+                    spacing="1",
+                    align="center",
+                ),
+                href=issue_url,
+                target="_blank",
+                rel="noopener noreferrer",
+                color="#a4262c",
+                text_decoration="none",
+                _hover={"text_decoration": "underline"},
+            ),
+            rx.text("·", font_size="12px", color="#a19f9d"),
+            rx.link(
+                rx.hstack(
+                    rx.icon("lightbulb", size=13),
+                    rx.text("Request Feature", font_size="12px", font_weight="600"),
+                    spacing="1",
+                    align="center",
+                ),
+                href=feature_url,
+                target="_blank",
+                rel="noopener noreferrer",
+                color="#0078d4",
+                text_decoration="none",
+                _hover={"text_decoration": "underline"},
+            ),
+            spacing="2",
+            align="center",
+        ),
+        position="fixed",
+        left="16px",
+        bottom="12px",
+        background="rgba(255,255,255,0.94)",
+        backdrop_filter="blur(3px)",
+        border="1px solid #e1dfdd",
+        border_radius="8px",
+        box_shadow="0 2px 8px rgba(0,0,0,.08)",
+        padding="8px 10px",
+        z_index="1000",
+    )
+
+
 # ── Visualization panel ───────────────────────────────────────────────────────
 
 

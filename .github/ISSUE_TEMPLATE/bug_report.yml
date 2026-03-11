@@ -1,0 +1,73 @@
+name: Bug report
+description: Report a defect, regression, or unexpected behavior in PP Agent Toolkit.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting an issue. Please provide as much detail as possible so we can reproduce quickly.
+  - type: input
+    id: summary
+    attributes:
+      label: Summary
+      description: One-line summary of the problem.
+      placeholder: Uploading snapshot ZIP fails on Analyze tab
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Tell us exactly how to reproduce.
+      placeholder: |
+        1. Open app
+        2. Upload file X
+        3. Click Analyze
+        4. See error...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      placeholder: It should parse and show analysis sections.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      placeholder: Shows "Snapshot analysis failed" with traceback.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error logs / screenshots
+      description: Paste traceback, browser console logs, or add screenshots.
+      render: shell
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment mode
+      options:
+        - Local dev (uv run reflex run)
+        - Docker single-container
+        - Azure Container Apps
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: App version / commit
+      description: Commit SHA or image tag if known.
+      placeholder: main@abc1234
+  - type: input
+    id: environment
+    attributes:
+      label: Environment details
+      description: Browser + OS, and any relevant runtime notes.
+      placeholder: Chrome 133 on macOS 14

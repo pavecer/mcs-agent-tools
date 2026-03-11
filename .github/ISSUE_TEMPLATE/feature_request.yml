@@ -1,0 +1,62 @@
+name: Feature request
+description: Suggest an improvement or a new capability for PP Agent Toolkit.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for your idea. Please describe the user problem first, then the proposed solution.
+  - type: input
+    id: problem
+    attributes:
+      label: Problem statement
+      description: What user problem are you trying to solve?
+      placeholder: Hard to compare credit predictions across runs
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the feature and expected UX/behavior.
+      placeholder: Add export to CSV/JSON from Credits tab with timestamp and source file.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any alternative approaches you evaluated.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options:
+        - Analyze
+        - Visualize
+        - Validate
+        - Check
+        - Rename
+        - Dependencies
+        - Authentication
+        - Deployment / Docker
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: impact
+    attributes:
+      label: Expected impact
+      options:
+        - Nice to have
+        - Improves workflow significantly
+        - Critical for adoption
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Extra context / mockups
+      description: Links, screenshots, and examples are welcome.
