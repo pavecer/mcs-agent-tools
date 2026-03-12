@@ -552,8 +552,8 @@ def render_message_chat_timeline(timeline: MCSConversationTimeline) -> str:
         bmsg = turn["bot_msg"].replace('"', "'")[:90]
         uts = (turn["user_ts"] or "")[-14:-6] if turn["user_ts"] else ""
         bts = (turn["bot_ts"] or "")[-14:-6] if turn["bot_ts"] else ""
-        lines.append(f'    U->>C: [{uts}] {umsg}')
-        lines.append(f'    C-->>U: [{bts}] {bmsg}')
+        lines.append(f"    U->>C: [{uts}] {umsg}")
+        lines.append(f"    C-->>U: [{bts}] {bmsg}")
 
     lines += [
         "```",
@@ -604,7 +604,13 @@ def render_tool_diagnostics(timeline: MCSConversationTimeline) -> str:
     else:
         lines.append("| — | — | — | — | — | — |")
 
-    lines += ["", "### Universal Search Diagnostics", "", "| Timestamp | Query | Sources | Results |", "| --- | --- | --- | ---: |"]
+    lines += [
+        "",
+        "### Universal Search Diagnostics",
+        "",
+        "| Timestamp | Query | Sources | Results |",
+        "| --- | --- | --- | ---: |",
+    ]
     search_events = [e for e in timeline.events if e.event_type == MCSEventType.KNOWLEDGE_SEARCH]
     if search_events:
         for e in search_events[:200]:

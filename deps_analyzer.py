@@ -805,9 +805,7 @@ def _build_summary_md(
             dep_name = m.dep_name or m.dep_schema or m.dep_identifier
             req_name = m.req_name or m.req_schema or m.req_identifier
             source = m.req_solution or m.req_package or "Active"
-            lines.append(
-                f"- **{dep_name}** ({dep_type}) requires **{req_name}** ({m.type_label}) · source: `{source}`"
-            )
+            lines.append(f"- **{dep_name}** ({dep_type}) requires **{req_name}** ({m.type_label}) · source: `{source}`")
     else:
         lines += [
             "",

@@ -27,20 +27,8 @@ from web.components import (
 from web.mermaid import mermaid_script
 from web.state import State
 
-BG_BLUE_RADIAL = (
-    "radial-gradient("
-    "1200px 500px at 15% -5%, "
-    "#d8e8ff 0%, "
-    "rgba(216, 232, 255, 0) 60%"
-    ")"
-)
-BG_MINT_RADIAL = (
-    "radial-gradient("
-    "1000px 450px at 90% 0%, "
-    "#d7fff0 0%, "
-    "rgba(215, 255, 240, 0) 55%"
-    ")"
-)
+BG_BLUE_RADIAL = "radial-gradient(1200px 500px at 15% -5%, #d8e8ff 0%, rgba(216, 232, 255, 0) 60%)"
+BG_MINT_RADIAL = "radial-gradient(1000px 450px at 90% 0%, #d7fff0 0%, rgba(215, 255, 240, 0) 55%)"
 BG_BASE_COLOR = "#eef3fb"
 BG = f"{BG_BLUE_RADIAL}, {BG_MINT_RADIAL}, {BG_BASE_COLOR}"
 MAX_WIDTH = "980px"
