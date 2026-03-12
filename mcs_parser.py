@@ -139,6 +139,12 @@ def parse_yaml(path: Path) -> tuple[MCSBotProfile, dict[str, str]]:
     # Recognizer
     recognizer = config.get("recognizer", {}) or {}
     recognizer_kind = recognizer.get("kind", "Unknown")
+    recognizer_id = (
+        recognizer.get("recognizerId")
+        or recognizer.get("projectName")
+        or recognizer.get("applicationId")
+        or ""
+    )
 
     # Components + lookup table
     components: list[MCSComponentSummary] = []
@@ -155,11 +161,15 @@ def parse_yaml(path: Path) -> tuple[MCSBotProfile, dict[str, str]]:
         dialog = comp.get("dialog", {}) or {}
         dialog_kind = dialog.get("kind")
         trigger_kind = None
+        trigger_queries: list[str] = []
         action_kind = None
 
         begin_dialog = dialog.get("beginDialog", {}) or {}
         if begin_dialog:
             trigger_kind = begin_dialog.get("kind")
+            if trigger_kind == "OnRecognizedIntent":
+                raw_queries = begin_dialog.get("triggerQueries", []) or []
+                trigger_queries = [q for q in raw_queries if isinstance(q, str)]
 
         if dialog_kind in ("TaskDialog", "AgentDialog"):
             is_orchestrator = True
@@ -177,6 +187,7 @@ def parse_yaml(path: Path) -> tuple[MCSBotProfile, dict[str, str]]:
                 schema_name=schema_name,
                 state=state,
                 trigger_kind=trigger_kind,
+                trigger_queries=trigger_queries,
                 dialog_kind=dialog_kind,
                 action_kind=action_kind,
                 description=description,
@@ -222,6 +233,7 @@ def parse_yaml(path: Path) -> tuple[MCSBotProfile, dict[str, str]]:
         channels=channels,
         ai_settings=ai_settings,
         recognizer_kind=recognizer_kind,
+        recognizer_id=recognizer_id,
         components=components,
         is_orchestrator=is_orchestrator,
         gpt_info=gpt_info,
