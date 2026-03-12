@@ -503,7 +503,7 @@ def navbar() -> rx.Component:
 
 
 def feedback_footer() -> rx.Component:
-    """Bottom-right floating footer with GitHub feedback links and version info."""
+    """Bottom-left floating footer with GitHub feedback links and version info."""
     app_version = get_app_version()
     return rx.box(
         rx.hstack(
@@ -544,7 +544,7 @@ def feedback_footer() -> rx.Component:
             align="center",
         ),
         position="fixed",
-        right="16px",
+        left="16px",
         bottom="12px",
         background="rgba(255,255,255,0.97)",
         backdrop_filter="blur(3px)",
