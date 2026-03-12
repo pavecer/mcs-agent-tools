@@ -19,6 +19,8 @@ from mcs_models import MCSConversationTimeline as _MCSTl
 from mcs_parser import parse_dialog_json as mcs_parse_dialog_json
 from mcs_parser import parse_yaml as mcs_parse_yaml
 from mcs_renderer import render_credit_estimate as mcs_render_credit_estimate
+from mcs_renderer import build_conversation_flow_items as mcs_build_conversation_flow_items
+from mcs_renderer import build_conversation_visual_summary as mcs_build_conversation_visual_summary
 from mcs_renderer import render_report_sections as mcs_render_report_sections
 from mcs_renderer import render_transcript_report as mcs_render_transcript_report
 from mcs_renderer import to_viz_segments as mcs_to_viz_segments
@@ -207,6 +209,12 @@ class State(rx.State):
     mcs_credit_rows: list[dict] = []
     mcs_credit_total: float = 0.0
     mcs_credit_assumptions: list[str] = []
+    mcs_conversation_flow: list[dict] = []
+    mcs_conversation_flow_source: str = ""  # "snapshot" | "transcript" | ""
+    mcs_conv_kpis: list[dict] = []
+    mcs_conv_event_mix: list[dict] = []
+    mcs_conv_latency_bands: list[dict] = []
+    mcs_conv_highlights: list[dict] = []
 
     # ── Computed / derived ────────────────────────────────────────────────
 
@@ -308,6 +316,14 @@ class State(rx.State):
     @rx.var
     def has_mcs_report(self) -> bool:
         return bool(self.mcs_source)
+
+    @rx.var
+    def has_mcs_conversation_flow(self) -> bool:
+        return bool(self.mcs_conversation_flow)
+
+    @rx.var
+    def has_mcs_conv_visual_summary(self) -> bool:
+        return bool(self.mcs_conv_kpis)
 
     @rx.var
     def mcs_report_segments(self) -> list[dict]:
@@ -433,6 +449,12 @@ class State(rx.State):
         self.mcs_credit_rows = []
         self.mcs_credit_total = 0.0
         self.mcs_credit_assumptions = []
+        self.mcs_conversation_flow = []
+        self.mcs_conversation_flow_source = ""
+        self.mcs_conv_kpis = []
+        self.mcs_conv_event_mix = []
+        self.mcs_conv_latency_bands = []
+        self.mcs_conv_highlights = []
         self.mcs_report_markdown = ""
         self.mcs_report_title = ""
         self.mcs_upload_error = ""
@@ -667,6 +689,7 @@ class State(rx.State):
                 yield
                 try:
                     dialog_json = next((p for p in extracted.rglob("dialog.json") if p.is_file()), None)
+                    activities: list[dict] = []
                     if dialog_json:
                         activities = mcs_parse_dialog_json(dialog_json)
                         timeline = mcs_build_timeline(activities, schema_lookup)
@@ -722,6 +745,13 @@ class State(rx.State):
                     ]
                     self.mcs_credit_total = estimate.total_credits
                     self.mcs_credit_assumptions = estimate.assumptions
+                    self.mcs_conversation_flow = mcs_build_conversation_flow_items(timeline)
+                    self.mcs_conversation_flow_source = "snapshot"
+                    conv_summary = mcs_build_conversation_visual_summary(timeline)
+                    self.mcs_conv_kpis = conv_summary.get("kpis", [])
+                    self.mcs_conv_event_mix = conv_summary.get("event_mix", [])
+                    self.mcs_conv_latency_bands = conv_summary.get("latency_bands", [])
+                    self.mcs_conv_highlights = conv_summary.get("highlights", [])
                     self.mcs_source = "snapshot"
                     self.mcs_report_markdown = "\n\n".join(
                         v
@@ -869,6 +899,16 @@ class State(rx.State):
         self.mcs_section_topics = ""
         self.mcs_section_graph = ""
         self.mcs_section_conversation = ""
+        self.mcs_section_credits = ""
+        self.mcs_credit_rows = []
+        self.mcs_credit_total = 0.0
+        self.mcs_credit_assumptions = []
+        self.mcs_conversation_flow = []
+        self.mcs_conversation_flow_source = ""
+        self.mcs_conv_kpis = []
+        self.mcs_conv_event_mix = []
+        self.mcs_conv_latency_bands = []
+        self.mcs_conv_highlights = []
         self.mcs_analyse_tab = "profile"
         self.mcs_report_markdown = ""
         self.mcs_report_title = ""
@@ -1012,6 +1052,13 @@ class State(rx.State):
                 ]
                 self.mcs_credit_total = estimate.total_credits
                 self.mcs_credit_assumptions = estimate.assumptions
+                self.mcs_conversation_flow = mcs_build_conversation_flow_items(timeline)
+                self.mcs_conversation_flow_source = "transcript"
+                conv_summary = mcs_build_conversation_visual_summary(timeline)
+                self.mcs_conv_kpis = conv_summary.get("kpis", [])
+                self.mcs_conv_event_mix = conv_summary.get("event_mix", [])
+                self.mcs_conv_latency_bands = conv_summary.get("latency_bands", [])
+                self.mcs_conv_highlights = conv_summary.get("highlights", [])
 
                 if self.mcs_source == "snapshot":
                     # Append transcript to the existing snapshot conversation section
@@ -1034,7 +1081,7 @@ class State(rx.State):
                         ]
                         if s.strip()
                     )
-                    self.mcs_analyse_tab = "credits"
+                    self.mcs_analyse_tab = "conversation"
                 else:
                     # No snapshot: populate sections with placeholders + transcript conv
                     self.mcs_section_profile = (
@@ -1058,7 +1105,7 @@ class State(rx.State):
                         ]
                         if s.strip()
                     )
-                    self.mcs_analyse_tab = "credits"
+                    self.mcs_analyse_tab = "conversation"
                     self.upload_filename = filename
                     self.active_tab = "analyse"
 
@@ -1095,6 +1142,12 @@ class State(rx.State):
         self.mcs_credit_rows = []
         self.mcs_credit_total = 0.0
         self.mcs_credit_assumptions = []
+        self.mcs_conversation_flow = []
+        self.mcs_conversation_flow_source = ""
+        self.mcs_conv_kpis = []
+        self.mcs_conv_event_mix = []
+        self.mcs_conv_latency_bands = []
+        self.mcs_conv_highlights = []
         self.mcs_analyse_tab = "profile"
 
     # ── Private helpers ───────────────────────────────────────────────────

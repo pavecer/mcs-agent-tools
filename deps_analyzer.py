@@ -19,10 +19,14 @@ import tempfile
 import zipfile
 from collections import defaultdict
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import defusedxml.ElementTree as ET
 
 from renamer import safe_extractall
+
+if TYPE_CHECKING:
+    from xml.etree.ElementTree import Element as XmlElement
 
 # ── Component type registry ────────────────────────────────────────────────────
 
@@ -198,7 +202,7 @@ class _MissingDep:
         return f"{dep_ref}->{self.dedup_key}"
 
 
-def _first_attr(el: ET.Element | None, candidates: list[str]) -> str:
+def _first_attr(el: "XmlElement | None", candidates: list[str]) -> str:
     if el is None:
         return ""
     lower_map = {k.lower(): v for k, v in el.attrib.items()}
@@ -437,7 +441,20 @@ def _esc(text: str) -> str:
     """Sanitise a string for use inside a Mermaid double-quoted label."""
     if not text:
         return ""
-    return text.replace('"', "'").replace("\n", " ").replace("\r", "").strip()[:60]
+    return text.replace('"', "'").replace("\n", " ").replace("\r", "").strip()[:140]
+
+
+def _truncate_middle(text: str, max_len: int = 52) -> str:
+    """Compact very long labels while preserving both prefix and suffix context."""
+    clean = (text or "").strip()
+    if max_len < 5:
+        return clean[:max_len]
+    if len(clean) <= max_len:
+        return clean
+    keep = max_len - 1
+    left = keep // 2
+    right = keep - left
+    return f"{clean[:left]}…{clean[-right:]}"
 
 
 def _node(nid: str, label: str, shape: str = "rect") -> str:
@@ -488,7 +505,7 @@ def _build_mermaid(
         agent_nids.append(nid)
         if ag.stripped_id:
             id_to_nid[ag.stripped_id] = nid
-        lbl = f"🤖 {_esc(ag.label)}"
+        lbl = f"🤖 {_esc(_truncate_middle(ag.label, 54))}"
         lines.append(f'        {nid}["{lbl}"]')
 
     # Bot components collapsed into one summary node
@@ -507,7 +524,7 @@ def _build_mermaid(
                 flow_nids.append(nid)
                 if f.stripped_id:
                     id_to_nid[f.stripped_id] = nid
-                lbl = f"⚡ {_esc(f.label)}"
+                lbl = f"⚡ {_esc(_truncate_middle(f.label, 54))}"
                 lines.append(f'        {nid}["{lbl}"]')
         else:
             nid = "FLWS"
@@ -526,7 +543,7 @@ def _build_mermaid(
                 cr_nids.append(nid)
                 if cr.stripped_id:
                     id_to_nid[cr.stripped_id] = nid
-                lbl = f"🔗 {_esc(cr.label)}"
+                lbl = f"🔗 {_esc(_truncate_middle(cr.label, 54))}"
                 lines.append(f'        {nid}["{lbl}"]')
         else:
             nid = "CRS"
@@ -545,7 +562,7 @@ def _build_mermaid(
                 ev_nids.append(nid)
                 if ev.stripped_id:
                     id_to_nid[ev.stripped_id] = nid
-                lbl = f"⚙️ {_esc(ev.label)}"
+                lbl = f"⚙️ {_esc(_truncate_middle(ev.label, 54))}"
                 lines.append(f'        {nid}["{lbl}"]')
         else:
             nid = "EVS"
@@ -561,7 +578,7 @@ def _build_mermaid(
                 ca_nids.append(nid)
                 if ca.stripped_id:
                     id_to_nid[ca.stripped_id] = nid
-                lbl = f"📱 {_esc(ca.label)}"
+                lbl = f"📱 {_esc(_truncate_middle(ca.label, 54))}"
                 lines.append(f'        {nid}["{lbl}"]')
         else:
             nid = "CAS"
@@ -577,7 +594,7 @@ def _build_mermaid(
                 tbl_nids.append(nid)
                 if t.stripped_id:
                     id_to_nid[t.stripped_id] = nid
-                lbl = f"🗃 {_esc(t.label)}"
+                lbl = f"🗃 {_esc(_truncate_middle(t.label, 54))}"
                 lines.append(f'        {nid}["{lbl}"]')
         else:
             nid = "TBLS"
@@ -593,7 +610,8 @@ def _build_mermaid(
             type_name, _ = _type_info(tc)
             nid = f"OTH{ti}"
             if len(items) == 1:
-                lbl = f"📦 {_esc(items[0].label)} ({type_name})"
+                short_label = _truncate_middle(items[0].label, 40)
+                lbl = f"📦 {_esc(short_label)} ({type_name})"
             else:
                 lbl = f"📦 {len(items)} {type_name}s"
             lines.append(f'        {nid}["{lbl}"]')
@@ -627,7 +645,8 @@ def _build_mermaid(
             dnid = f"MDEP_SRC{i}"
             dep_key_to_nid[dep_key] = dnid
             dep_type = _type_info(m.dep_type)[0] if m.dep_type > 0 else (m.dep_type_name or "Component")
-            dlabel = f"{_esc(m.dep_name)} ({_esc(dep_type)})"
+            dep_name_short = _truncate_middle(m.dep_name, 42)
+            dlabel = f"{_esc(dep_name_short)} ({_esc(dep_type)})"
             lines.append(f'            {dnid}["{dlabel}"]')
         lines.append("        end")
 
@@ -636,7 +655,8 @@ def _build_mermaid(
             rnid = f"MDEP_REQ{i}"
             miss_key_to_nid[m.dedup_key] = rnid
             req_label = m.req_name or m.req_schema or m.req_identifier
-            lbl = f"❌ {_esc(req_label)} ({_esc(m.type_label)})"
+            req_name_short = _truncate_middle(req_label, 42)
+            lbl = f"❌ {_esc(req_name_short)} ({_esc(m.type_label)})"
             lines.append(f'            {rnid}["{lbl}"]')
         lines.append("        end")
         lines.append("    end")
@@ -743,56 +763,51 @@ def _build_summary_md(
     lines: list[str] = [
         f"## Solution: {sol_name}",
         "",
-        "| Field | Value |",
-        "|---|---|",
-        f"| Version | `{version}` |",
-        f"| State | {managed} |",
-        f"| Publisher | `{publisher}` |",
-        f"| Total Components | **{len(components)}** |",
-        f"| Missing Dependencies | **{len(unique_missing)}** |",
+        f"- Version: `{version}`",
+        f"- State: {managed}",
+        f"- Publisher: `{publisher}`",
+        f"- Total Components: **{len(components)}**",
+        f"- Missing Dependencies: **{len(unique_missing)}**",
         "",
         "### Component Breakdown",
         "",
-        "| Type | Count |",
-        "|---|---|",
     ]
 
     if type_counts:
         for tc, cnt in sorted(type_counts.items(), key=lambda x: (-x[1], x[0])):
             type_name, _ = _type_info(tc)
-            lines.append(f"| {type_name} | {cnt} |")
+            lines.append(f"- {type_name}: **{cnt}**")
     else:
-        lines.append("| _No RootComponents in solution.xml_ | 0 |")
+        lines.append("- _No RootComponents in solution.xml_")
 
     if unique_missing:
         lines += [
             "",
             "### Missing Dependencies",
             "",
-            "> ⚠️ These components are **required** by this solution but are **not included** in the "
-            "ZIP. They must be present in the target environment before import will succeed.",
+            "> ⚠️ These components are required by this solution but are not included in the ZIP. "
+            "They must exist in the target environment before import succeeds.",
             "",
-            "| Required Component | Type | Dep ID (first 8 chars) |",
-            "|---|---|---|",
         ]
         for m in unique_missing:
             type_name = m.type_label
             dep_ref = f"`{m.dep_id[:8]}…`" if m.dep_id else "—"
-            lines.append(f"| `{m.req_name or m.req_schema}` | {type_name} | {dep_ref} |")
+            req = m.req_name or m.req_schema
+            lines.append(f"- `{req}` ({type_name}) · referenced by dependent {dep_ref}")
 
         lines += [
             "",
             "### Dependency Relations",
             "",
-            "| Dependent Component | Required Component | Required Type | Source Solution/Package |",
-            "|---|---|---|---|",
         ]
         for m in unique_relations:
             dep_type = _type_info(m.dep_type)[0] if m.dep_type > 0 else (m.dep_type_name or "Component")
             dep_name = m.dep_name or m.dep_schema or m.dep_identifier
             req_name = m.req_name or m.req_schema or m.req_identifier
             source = m.req_solution or m.req_package or "Active"
-            lines.append(f"| `{dep_name}` ({dep_type}) | `{req_name}` | {m.type_label} | `{source}` |")
+            lines.append(
+                f"- **{dep_name}** ({dep_type}) requires **{req_name}** ({m.type_label}) · source: `{source}`"
+            )
     else:
         lines += [
             "",
