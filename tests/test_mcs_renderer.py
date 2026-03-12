@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from mcs_models import MCSConversationTimeline, MCSEventType, MCSTimelineEvent
+from mcs_models import MCSBotProfile, MCSConversationTimeline, MCSEventType, MCSTimelineEvent, MCSTopicConnection
 from mcs_renderer import build_conversation_flow_items
 from mcs_renderer import build_conversation_visual_summary
+from mcs_renderer import render_topic_graph
 
 
 def test_build_conversation_flow_items_emits_message_and_event_items():
@@ -94,3 +95,23 @@ def test_build_conversation_visual_summary_contains_kpis_and_mix():
 
     labels = {item["label"] for item in summary["event_mix"]}
     assert labels == {"Messages", "Steps", "Search", "Errors"}
+
+
+def test_render_topic_graph_escapes_labels_and_uses_safe_node_ids():
+    profile = MCSBotProfile(
+        topic_connections=[
+            MCSTopicConnection(
+                source_schema="s1",
+                source_display='[CA] Ask "HR"',
+                target_schema="t1",
+                target_display="Employee/Benefits (EU)\\V2",
+            )
+        ]
+    )
+
+    graph = render_topic_graph(profile)
+
+    assert "graph TD" in graph
+    assert 'N1["[CA] Ask \\"HR\\""]' in graph
+    assert 'N2["Employee/Benefits (EU)\\\\V2"]' in graph
+    assert "N1 --> N2" in graph

@@ -1015,6 +1015,7 @@ def _mcs_section_tab_bar() -> rx.Component:
         ),
         rx.hstack(
             _btn("profile", "user-round", "Profile"),
+            _btn("knowledge_tools", "database", "Knowledge & Tools"),
             _btn("topics", "list", "Topics"),
             _btn("graph", "git-branch", "Topic Graph"),
             _btn("credits", "coins", "Credits"),

@@ -5,7 +5,11 @@ Adapted from github.com/Roelzz/mcs-agent-analyser (MIT licence).
 
 from __future__ import annotations
 
+import socket
 from datetime import datetime
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlparse
+from urllib.request import Request, urlopen
 
 from mcs_credits import MCSCreditEstimate
 from mcs_models import MCSBotProfile, MCSConversationTimeline, MCSEventType
@@ -85,6 +89,113 @@ def render_bot_metadata(profile: MCSBotProfile) -> str:
     return "\n".join(lines)
 
 
+def _check_public_url(url: str, timeout_s: float = 5.0) -> tuple[bool, str]:
+    """Perform a basic HTTP GET check and return (is_accessible, status)."""
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"}:
+        return False, "Not HTTP/HTTPS"
+
+    req = Request(url=url, method="GET", headers={"User-Agent": "pp-agent-toolkit/0.2"})
+    try:
+        with urlopen(req, timeout=timeout_s) as response:
+            code = getattr(response, "status", None) or response.getcode()
+            if code == 200:
+                return True, "HTTP 200"
+            return False, f"HTTP {code}"
+    except HTTPError as exc:
+        return False, f"HTTP {exc.code}"
+    except (URLError, TimeoutError, socket.timeout) as exc:
+        return False, f"Error: {exc}"
+    except Exception as exc:
+        return False, f"Error: {exc}"
+
+
+def _format_auth_mode(auth_mode: str | None) -> str:
+    if not auth_mode:
+        return "—"
+    mode = auth_mode.strip().lower()
+    if "user" in mode:
+        return "user identity"
+    if any(token in mode for token in ("maker", "service", "owner", "application", "app")):
+        return "service account (maker auth)"
+    return auth_mode
+
+
+def render_knowledge_sources_and_tools(profile: MCSBotProfile) -> str:
+    """Render knowledge source inventory and external connector/tool usage."""
+    lines: list[str] = ["## Knowledge Sources & External Tools", ""]
+
+    lines += ["### Knowledge Sources", ""]
+    if not profile.knowledge_sources:
+        lines += ["_No knowledge sources detected in snapshot configuration._", ""]
+    else:
+        url_cache: dict[str, tuple[bool, str]] = {}
+        for source in profile.knowledge_sources:
+            source_type = source.source_type or "Unknown"
+            label = source.name or "Unnamed source"
+            location = source.location or "(location not provided)"
+
+            line = f"- *Knowledge Source - {source_type}:* **{label}** ({location})"
+            if source.site_id:
+                line += f" [siteId: `{source.site_id}`]"
+
+            if source_type.lower() == "website" and source.location:
+                parsed = urlparse(source.location)
+                if parsed.scheme in {"http", "https"}:
+                    status = url_cache.get(source.location)
+                    if status is None:
+                        status = _check_public_url(source.location)
+                        url_cache[source.location] = status
+                    ok, reason = status
+                    if ok:
+                        line += " - **Accessible✅**"
+                    else:
+                        line += f" - **Inaccessible⚠️** ({reason})"
+                else:
+                    line += " - **Inaccessible⚠️** (invalid URL scheme)"
+            elif source_type.lower() == "website" and not source.location:
+                line += " - **Missing Resource⚠️** (URL not provided)"
+            elif source.location is None:
+                line += " - **Missing Resource⚠️** (no URL/path provided)"
+
+            details = []
+            for key, value in source.details.items():
+                if value:
+                    details.append(f"{key}={value}")
+            if details:
+                line += f" [{'; '.join(details)}]"
+
+            lines.append(line)
+        lines.append("")
+
+    lines += ["### External Tools, Connectors & Flows", ""]
+    if not profile.external_tools:
+        lines += ["_No external tools/connectors detected in snapshot configuration._", ""]
+    else:
+        for tool in profile.external_tools:
+            tool_type = tool.tool_type or "Tool"
+            name = tool.name or tool.connector_id or "Unnamed tool"
+            connector = tool.connector_id or "n/a"
+            auth = _format_auth_mode(tool.auth_mode)
+
+            line = f"- *{tool_type}:* **{name}**"
+            if connector != "n/a":
+                line += f" (connectorId: `{connector}`)"
+            line += f" - uses **{auth}**"
+
+            details = []
+            for key, value in tool.details.items():
+                if value:
+                    details.append(f"{key}={value}")
+            if details:
+                line += f" [{'; '.join(details)}]"
+
+            lines.append(line)
+        lines.append("")
+
+    return "\n".join(lines)
+
+
 def render_components(profile: MCSBotProfile) -> str:
     if not profile.components:
         return ""
@@ -111,11 +222,22 @@ def render_topic_graph(profile: MCSBotProfile) -> str:
         "graph TD",
     ]
 
-    seen_nodes: set[str] = set()
     seen_edges: set[tuple[str, str]] = set()
+    declared_node_ids: set[str] = set()
 
-    def node_id(name: str) -> str:
-        return name.replace(" ", "_").replace("-", "_").replace("(", "").replace(")", "")
+    label_to_id: dict[str, str] = {}
+
+    def _escape_label(text: str) -> str:
+        # Mermaid quoted labels require escaped quotes/backslashes/newlines.
+        return text.replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ")
+
+    def _node_id_for(label: str) -> str:
+        existing = label_to_id.get(label)
+        if existing:
+            return existing
+        node_id = f"N{len(label_to_id) + 1}"
+        label_to_id[label] = node_id
+        return node_id
 
     for conn in profile.topic_connections:
         src = conn.source_display or conn.source_schema or "Unknown"
@@ -125,14 +247,14 @@ def render_topic_graph(profile: MCSBotProfile) -> str:
             continue
         seen_edges.add(edge)
 
-        sid = node_id(src)
-        did = node_id(dst)
-        if sid not in seen_nodes:
-            seen_nodes.add(sid)
-            lines.append(f'    {sid}["{src}"]')
-        if did not in seen_nodes:
-            seen_nodes.add(did)
-            lines.append(f'    {did}["{dst}"]')
+        sid = _node_id_for(src)
+        did = _node_id_for(dst)
+        if sid not in declared_node_ids:
+            declared_node_ids.add(sid)
+            lines.append(f'    {sid}["{_escape_label(src)}"]')
+        if did not in declared_node_ids:
+            declared_node_ids.add(did)
+            lines.append(f'    {did}["{_escape_label(dst)}"]')
         lines.append(f"    {sid} --> {did}")
 
     lines += ["```", ""]
@@ -261,6 +383,9 @@ def render_topic_trigger_audit(profile: MCSBotProfile) -> str:
     return "\n".join(lines)
 
 
+def render_mermaid_sequence(timeline: MCSConversationTimeline) -> str:
+    if not timeline.events:
+        return ""
 
     lines: list[str] = [
         "## Conversation Sequence Diagram",
@@ -803,6 +928,7 @@ def render_report(profile: MCSBotProfile, timeline: MCSConversationTimeline) -> 
         "",
         render_bot_profile(profile),
         render_bot_metadata(profile),
+        render_knowledge_sources_and_tools(profile),
         render_components(profile),
         render_topic_graph(profile),
         render_topic_trigger_audit(profile),
@@ -827,7 +953,7 @@ def render_report(profile: MCSBotProfile, timeline: MCSConversationTimeline) -> 
 def render_report_sections(profile: MCSBotProfile, timeline: MCSConversationTimeline) -> dict[str, str]:
     """Return the report split into named sections for tabbed display.
 
-    Keys: ``"profile"``, ``"topics"``, ``"graph"``, ``"audit"``, ``"conversation"``.
+    Keys: ``"profile"``, ``"knowledge_tools"``, ``"topics"``, ``"graph"``, ``"audit"``, ``"conversation"``.
     """
     bot_name = profile.display_name or "Unknown Bot"
 
@@ -841,6 +967,8 @@ def render_report_sections(profile: MCSBotProfile, timeline: MCSConversationTime
         ]
         if p
     )
+
+    knowledge_tools_md = render_knowledge_sources_and_tools(profile)
 
     topics_md = (
         render_components(profile)
@@ -878,6 +1006,7 @@ def render_report_sections(profile: MCSBotProfile, timeline: MCSConversationTime
 
     return {
         "profile": profile_md,
+        "knowledge_tools": knowledge_tools_md,
         "topics": topics_md,
         "graph": graph_md,
         "audit": audit_md,

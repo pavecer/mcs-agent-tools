@@ -14,10 +14,297 @@ from mcs_models import (
     MCSAISettings,
     MCSBotProfile,
     MCSComponentSummary,
+    MCSExternalTool,
     MCSGptInfo,
+    MCSKnowledgeSource,
     MCSTopicConnection,
 )
 from yaml_utils import sanitize_yaml
+
+
+def _flatten_scalar(value: object) -> str | None:
+    """Return a compact string for scalar-like values, otherwise None."""
+    if value is None:
+        return None
+    if isinstance(value, (str, int, float, bool)):
+        text = str(value).strip()
+        return text or None
+    return None
+
+
+def _iter_dict_nodes(node: object):
+    """Yield all dict nodes recursively from a nested JSON/YAML structure."""
+    if isinstance(node, dict):
+        yield node
+        for value in node.values():
+            yield from _iter_dict_nodes(value)
+    elif isinstance(node, list):
+        for item in node:
+            yield from _iter_dict_nodes(item)
+
+
+def _normalize_knowledge_type(raw: str | None, bucket: str | None = None) -> str:
+    src = (raw or bucket or "").strip().lower()
+    mapping = {
+        "publicsites": "Website",
+        "websites": "Website",
+        "urls": "Website",
+        "sharepointsites": "SharePoint",
+        "sharepoint": "SharePoint",
+        "files": "File",
+        "filesources": "File",
+        "dataverse": "Dataverse",
+        "dataversesources": "Dataverse",
+        "dataversetables": "Dataverse",
+        "customsources": "Custom",
+        "custom": "Custom",
+    }
+    if src in mapping:
+        return mapping[src]
+    if src:
+        return src.replace("_", " ").replace("-", " ").title()
+    return "Unknown"
+
+
+def _extract_knowledge_entry(entry: object, bucket: str | None = None) -> MCSKnowledgeSource | None:
+    """Best-effort extraction of a single knowledge source entry."""
+    if isinstance(entry, str):
+        text = entry.strip()
+        if not text:
+            return None
+        src_type = _normalize_knowledge_type(None, bucket)
+        return MCSKnowledgeSource(
+            name=text,
+            source_type=src_type,
+            location=text if text.startswith(("http://", "https://", "/")) else None,
+        )
+
+    if not isinstance(entry, dict):
+        return None
+
+    src_type = _normalize_knowledge_type(
+        _flatten_scalar(entry.get("type"))
+        or _flatten_scalar(entry.get("kind"))
+        or _flatten_scalar(entry.get("sourceType")),
+        bucket,
+    )
+    name = (
+        _flatten_scalar(entry.get("name"))
+        or _flatten_scalar(entry.get("displayName"))
+        or _flatten_scalar(entry.get("title"))
+        or _flatten_scalar(entry.get("id"))
+        or "Unnamed source"
+    )
+    location = (
+        _flatten_scalar(entry.get("url"))
+        or _flatten_scalar(entry.get("siteUrl"))
+        or _flatten_scalar(entry.get("sharePointSiteUrl"))
+        or _flatten_scalar(entry.get("path"))
+        or _flatten_scalar(entry.get("filePath"))
+        or _flatten_scalar(entry.get("resource"))
+        or _flatten_scalar(entry.get("entityName"))
+        or _flatten_scalar(entry.get("tableName"))
+    )
+    site_id = (
+        _flatten_scalar(entry.get("siteId"))
+        or _flatten_scalar(entry.get("sharePointSiteId"))
+        or _flatten_scalar(entry.get("sharepointSiteId"))
+    )
+
+    details: dict[str, str] = {}
+    for key in (
+        "description",
+        "library",
+        "list",
+        "folder",
+        "table",
+        "entityName",
+        "environment",
+        "connectionReference",
+        "connectionReferenceLogicalName",
+    ):
+        val = _flatten_scalar(entry.get(key))
+        if val:
+            details[key] = val
+
+    return MCSKnowledgeSource(
+        name=name,
+        source_type=src_type,
+        location=location,
+        site_id=site_id,
+        details=details,
+    )
+
+
+def _extract_knowledge_sources(data: dict) -> list[MCSKnowledgeSource]:
+    """Extract knowledge sources from any knowledgeSources blocks in the YAML."""
+    items: list[MCSKnowledgeSource] = []
+    seen: set[tuple[str, str, str]] = set()
+
+    for node in _iter_dict_nodes(data):
+        if "knowledgeSources" not in node:
+            continue
+        block = node.get("knowledgeSources")
+
+        if isinstance(block, dict):
+            for bucket, value in block.items():
+                if isinstance(value, list):
+                    for entry in value:
+                        src = _extract_knowledge_entry(entry, bucket=bucket)
+                        if src is None:
+                            continue
+                        sig = (src.source_type, src.name, src.location or "")
+                        if sig not in seen:
+                            seen.add(sig)
+                            items.append(src)
+                else:
+                    src = _extract_knowledge_entry(value, bucket=bucket)
+                    if src is None:
+                        continue
+                    sig = (src.source_type, src.name, src.location or "")
+                    if sig not in seen:
+                        seen.add(sig)
+                        items.append(src)
+        elif isinstance(block, list):
+            for entry in block:
+                src = _extract_knowledge_entry(entry)
+                if src is None:
+                    continue
+                sig = (src.source_type, src.name, src.location or "")
+                if sig not in seen:
+                    seen.add(sig)
+                    items.append(src)
+
+    return items
+
+
+def _normalize_auth_mode(raw_mode: str | None) -> str | None:
+    if not raw_mode:
+        return None
+    mode = raw_mode.strip().lower()
+    if not mode:
+        return None
+    if any(token in mode for token in ("invoking", "user", "caller")):
+        return "User identity"
+    if any(token in mode for token in ("maker", "owner", "service", "application", "app")):
+        return "Maker/service account"
+    return raw_mode
+
+
+def _extract_auth_mode(node: dict) -> str | None:
+    cp = node.get("connectionProperties")
+    if isinstance(cp, dict):
+        mode = _flatten_scalar(cp.get("mode"))
+        if mode:
+            return _normalize_auth_mode(mode)
+
+    for key in ("authMode", "authenticationMode", "mode"):
+        mode = _flatten_scalar(node.get(key))
+        if mode:
+            return _normalize_auth_mode(mode)
+    return None
+
+
+_ACTION_KIND_TO_TOOL_TYPE = {
+    "HttpRequestAction": "HTTP Request",
+    "InvokeAIBuilderModelAction": "AI Builder Model",
+    "InvokeExternalAgentTaskAction": "External Agent / MCP",
+    "InvokeFlowAction": "Cloud Flow",
+}
+
+
+def _extract_external_tools(data: dict) -> list[MCSExternalTool]:
+    """Extract connector and tool references from components and action nodes."""
+    tools: list[MCSExternalTool] = []
+    seen: set[tuple[str, str, str]] = set()
+
+    def _append(tool: MCSExternalTool) -> None:
+        sig = (tool.tool_type, tool.name or "", tool.connector_id or "")
+        if sig in seen:
+            return
+        seen.add(sig)
+        tools.append(tool)
+
+    for node in _iter_dict_nodes(data):
+        kind = _flatten_scalar(node.get("kind"))
+        connector_id = _flatten_scalar(node.get("connectorId"))
+        connection_ref = _flatten_scalar(node.get("connectionReference")) or _flatten_scalar(
+            node.get("connectionReferenceLogicalName")
+        )
+        auth_mode = _extract_auth_mode(node)
+
+        if kind in _ACTION_KIND_TO_TOOL_TYPE:
+            name = (
+                _flatten_scalar(node.get("displayName"))
+                or _flatten_scalar(node.get("name"))
+                or _flatten_scalar(node.get("actionName"))
+                or _flatten_scalar(node.get("flowName"))
+                or _flatten_scalar(node.get("flowId"))
+                or _flatten_scalar(node.get("modelName"))
+                or kind
+            )
+            details: dict[str, str] = {}
+            for key in ("flowId", "modelName", "taskName", "operationId", "url", "method"):
+                val = _flatten_scalar(node.get(key))
+                if val:
+                    details[key] = val
+            if connection_ref:
+                details["connectionReference"] = connection_ref
+            _append(
+                MCSExternalTool(
+                    name=name,
+                    tool_type=_ACTION_KIND_TO_TOOL_TYPE[kind],
+                    connector_id=connector_id,
+                    auth_mode=auth_mode,
+                    details=details,
+                )
+            )
+
+        # Generic connector references and connection entries.
+        if connector_id or connection_ref:
+            name = (
+                _flatten_scalar(node.get("displayName"))
+                or _flatten_scalar(node.get("name"))
+                or _flatten_scalar(node.get("connectorName"))
+                or connector_id
+                or connection_ref
+                or "Connector"
+            )
+            details = {}
+            if connection_ref:
+                details["connectionReference"] = connection_ref
+            for key in ("operationId", "apiId", "connectionId"):
+                val = _flatten_scalar(node.get(key))
+                if val:
+                    details[key] = val
+            _append(
+                MCSExternalTool(
+                    name=name,
+                    tool_type="Connector",
+                    connector_id=connector_id,
+                    auth_mode=auth_mode,
+                    details=details,
+                )
+            )
+
+        # MCP/External server references even when kind is absent.
+        mcp_url = _flatten_scalar(node.get("serverUrl")) or _flatten_scalar(node.get("mcpServerUrl"))
+        mcp_name = _flatten_scalar(node.get("serverName")) or _flatten_scalar(node.get("mcpServer"))
+        if mcp_url or mcp_name:
+            details = {}
+            if mcp_url:
+                details["serverUrl"] = mcp_url
+            _append(
+                MCSExternalTool(
+                    name=mcp_name or mcp_url or "MCP Server",
+                    tool_type="External Agent / MCP",
+                    connector_id=connector_id,
+                    auth_mode=auth_mode,
+                    details=details,
+                )
+            )
+
+    return tools
 
 
 def _extract_gpt_info(comp: dict) -> MCSGptInfo:
@@ -209,6 +496,8 @@ def parse_yaml(path: Path) -> tuple[MCSBotProfile, dict[str, str]]:
     # Second pass: extract GPT info and topic connections
     gpt_info: MCSGptInfo | None = None
     topic_connections: list[MCSTopicConnection] = []
+    knowledge_sources = _extract_knowledge_sources(data)
+    external_tools = _extract_external_tools(data)
 
     for comp in data.get("components", []) or []:
         kind = comp.get("kind", "")
@@ -238,6 +527,8 @@ def parse_yaml(path: Path) -> tuple[MCSBotProfile, dict[str, str]]:
         is_orchestrator=is_orchestrator,
         gpt_info=gpt_info,
         topic_connections=topic_connections,
+        knowledge_sources=knowledge_sources,
+        external_tools=external_tools,
     )
 
     return profile, schema_to_display

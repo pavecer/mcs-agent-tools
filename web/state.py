@@ -202,6 +202,7 @@ class State(rx.State):
     mcs_source: str = ""  # "snapshot" | "transcript" | ""
     mcs_analyse_tab: str = "profile"  # active section sub-tab
     mcs_section_profile: str = ""
+    mcs_section_knowledge_tools: str = ""
     mcs_section_topics: str = ""
     mcs_section_graph: str = ""
     mcs_section_conversation: str = ""
@@ -335,6 +336,7 @@ class State(rx.State):
         """Segments for the currently active MCS analyse sub-tab."""
         section_map = {
             "profile": self.mcs_section_profile,
+            "knowledge_tools": self.mcs_section_knowledge_tools,
             "topics": self.mcs_section_topics,
             "graph": self.mcs_section_graph,
             "conversation": self.mcs_section_conversation,
@@ -442,6 +444,7 @@ class State(rx.State):
         self.deps_ran = False
         self.deps_segments = []
         self.mcs_section_profile = ""
+        self.mcs_section_knowledge_tools = ""
         self.mcs_section_topics = ""
         self.mcs_section_graph = ""
         self.mcs_section_conversation = ""
@@ -698,6 +701,7 @@ class State(rx.State):
 
                     sections = mcs_render_report_sections(profile, timeline)
                     self.mcs_section_profile = sections["profile"]
+                    self.mcs_section_knowledge_tools = sections.get("knowledge_tools", "")
                     self.mcs_section_topics = sections["topics"]
                     self.mcs_section_graph = sections["graph"]
                     self.mcs_section_conversation = sections["conversation"]
@@ -757,6 +761,7 @@ class State(rx.State):
                         v
                         for v in [
                             self.mcs_section_profile,
+                            self.mcs_section_knowledge_tools,
                             self.mcs_section_topics,
                             self.mcs_section_graph,
                             self.mcs_section_conversation,
@@ -896,6 +901,7 @@ class State(rx.State):
         self.deps_segments = []
         self.mcs_source = ""
         self.mcs_section_profile = ""
+        self.mcs_section_knowledge_tools = ""
         self.mcs_section_topics = ""
         self.mcs_section_graph = ""
         self.mcs_section_conversation = ""
@@ -1074,6 +1080,7 @@ class State(rx.State):
                         s
                         for s in [
                             self.mcs_section_profile,
+                            self.mcs_section_knowledge_tools,
                             self.mcs_section_topics,
                             self.mcs_section_graph,
                             self.mcs_section_conversation,
@@ -1088,6 +1095,10 @@ class State(rx.State):
                         "## Bot Profile\n\n"
                         "_No snapshot loaded — drop a Copilot Studio snapshot ZIP for full agent analysis._\n"
                     )
+                    self.mcs_section_knowledge_tools = (
+                        "## Knowledge Sources & External Tools\n\n"
+                        "_No snapshot loaded — drop a Copilot Studio snapshot ZIP for knowledge and connector inventory._\n"
+                    )
                     self.mcs_section_topics = "## Topics & Components\n\n_No snapshot loaded._\n"
                     self.mcs_section_graph = "## Topic Redirect Graph\n\n_No snapshot loaded._\n"
                     self.mcs_section_conversation = transcript_report
@@ -1098,6 +1109,7 @@ class State(rx.State):
                         s
                         for s in [
                             self.mcs_section_profile,
+                            self.mcs_section_knowledge_tools,
                             self.mcs_section_topics,
                             self.mcs_section_graph,
                             self.mcs_section_credits,
@@ -1135,6 +1147,7 @@ class State(rx.State):
         self.mcs_is_processing = False
         self.mcs_source = ""
         self.mcs_section_profile = ""
+        self.mcs_section_knowledge_tools = ""
         self.mcs_section_topics = ""
         self.mcs_section_graph = ""
         self.mcs_section_conversation = ""

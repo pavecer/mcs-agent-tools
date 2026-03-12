@@ -43,6 +43,22 @@ class MCSGptInfo(BaseModel):
     code_interpreter: bool = False
 
 
+class MCSKnowledgeSource(BaseModel):
+    name: str = ""
+    source_type: str = "Unknown"
+    location: str | None = None
+    site_id: str | None = None
+    details: dict[str, str] = Field(default_factory=dict)
+
+
+class MCSExternalTool(BaseModel):
+    name: str = ""
+    tool_type: str = "Unknown"
+    connector_id: str | None = None
+    auth_mode: str | None = None
+    details: dict[str, str] = Field(default_factory=dict)
+
+
 class MCSTopicConnection(BaseModel):
     source_schema: str
     source_display: str
@@ -63,6 +79,8 @@ class MCSBotProfile(BaseModel):
     is_orchestrator: bool = False
     gpt_info: MCSGptInfo | None = None
     topic_connections: list[MCSTopicConnection] = Field(default_factory=list)
+    knowledge_sources: list[MCSKnowledgeSource] = Field(default_factory=list)
+    external_tools: list[MCSExternalTool] = Field(default_factory=list)
 
 
 # ── Timeline models (from dialog.json / transcript.json) ──────────────────────
