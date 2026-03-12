@@ -26,6 +26,7 @@ except ImportError:  # pragma: no cover
 
 from loguru import logger
 from renamer import safe_extractall
+from yaml_utils import sanitize_yaml
 
 
 # ── Pydantic models ────────────────────────────────────────────────────────────
@@ -102,24 +103,6 @@ class EvalsProfile(BaseModel):
     eval_sets: list[EvalSet] = Field(default_factory=list)
 
 
-# ── YAML sanitisation ──────────────────────────────────────────────────────────
-
-
-def _sanitize_yaml(text: str) -> str:
-    """Fix common quirks in Power Platform YAML exports."""
-    text = text.replace("\t", "    ")
-    # Quote bare keys starting with @ (e.g. `@odata.type: …`)
-    text = re.sub(r"^(\s*)(@[a-zA-Z0-9_.]+)(\s*:)", r'\1"\2"\3', text, flags=re.MULTILINE)
-    # Quote bare values starting with @
-    text = re.sub(
-        r"(:\s+)(@[^\n]+)$",
-        lambda m: m.group(1) + '"' + m.group(2) + '"',
-        text,
-        flags=re.MULTILINE,
-    )
-    return text
-
-
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 
@@ -138,7 +121,7 @@ def _load_data_yaml(data_path: Path) -> dict:
         return {}
     try:
         raw = data_path.read_text(encoding="utf-8", errors="replace")
-        result = _yaml.safe_load(_sanitize_yaml(raw))  # type: ignore[union-attr]
+        result = _yaml.safe_load(sanitize_yaml(raw))  # type: ignore[union-attr]
         return result if isinstance(result, dict) else {}
     except Exception:
         return {}

@@ -6,7 +6,6 @@ Adapted from github.com/Roelzz/mcs-agent-analyser (MIT licence).
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 
 import yaml
@@ -18,21 +17,7 @@ from mcs_models import (
     MCSGptInfo,
     MCSTopicConnection,
 )
-
-
-def _sanitize_yaml(text: str) -> str:
-    """Fix YAML quirks that PyYAML cannot handle."""
-    text = text.replace("\t", "    ")
-    # Quote bare keys starting with @ (e.g. @odata.type)
-    text = re.sub(r"^(\s*)(@[a-zA-Z0-9_.]+)(\s*:)", r'\1"\2"\3', text, flags=re.MULTILINE)
-    # Quote bare values starting with @
-    text = re.sub(
-        r"(:\s+)(@[^\n]+)$",
-        lambda m: m.group(1) + '"' + m.group(2) + '"',
-        text,
-        flags=re.MULTILINE,
-    )
-    return text
+from yaml_utils import sanitize_yaml
 
 
 def _extract_gpt_info(comp: dict) -> MCSGptInfo:
@@ -132,7 +117,7 @@ def _extract_begin_dialogs(
 def parse_yaml(path: Path) -> tuple[MCSBotProfile, dict[str, str]]:
     """Parse botContent.yml and return (MCSBotProfile, schema_to_display lookup)."""
     raw = path.read_text(encoding="utf-8")
-    data = yaml.safe_load(_sanitize_yaml(raw))
+    data = yaml.safe_load(sanitize_yaml(raw))
 
     entity = data.get("entity", {})
     config = entity.get("configuration", {})

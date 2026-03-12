@@ -2,6 +2,7 @@
 name = "pp-agent-toolkit"
 version = "0.2.0"
 description = "Power Platform Copilot Studio agent toolkit: rename solution exports, visualise agent structure, and validate system instructions against model best practices"
+license = { text = "MIT" }
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

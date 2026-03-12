@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import reflex as rx
 
+from app_meta import FEATURE_URL, ISSUE_URL, LICENSE_NAME, get_app_version
 from web.mermaid import render_segment
 from web.state import State
 
@@ -502,9 +503,8 @@ def navbar() -> rx.Component:
 
 
 def feedback_footer() -> rx.Component:
-    """Bottom-left floating footer with GitHub feedback links."""
-    issue_url = "https://github.com/pavecer/mcs-agent-tools/issues/new?template=bug_report.yml"
-    feature_url = "https://github.com/pavecer/mcs-agent-tools/issues/new?template=feature_request.yml"
+    """Bottom-right floating footer with GitHub feedback links and version info."""
+    app_version = get_app_version()
     return rx.box(
         rx.hstack(
             rx.link(
@@ -514,7 +514,7 @@ def feedback_footer() -> rx.Component:
                     spacing="1",
                     align="center",
                 ),
-                href=issue_url,
+                href=ISSUE_URL,
                 target="_blank",
                 rel="noopener noreferrer",
                 color="#a4262c",
@@ -529,18 +529,22 @@ def feedback_footer() -> rx.Component:
                     spacing="1",
                     align="center",
                 ),
-                href=feature_url,
+                href=FEATURE_URL,
                 target="_blank",
                 rel="noopener noreferrer",
                 color="#0078d4",
                 text_decoration="none",
                 _hover={"text_decoration": "underline"},
             ),
+            rx.text("·", font_size="12px", color="#a19f9d"),
+            rx.text(f"v{app_version}", font_size="12px", color="#334a6d", font_weight="600"),
+            rx.text("·", font_size="12px", color="#a19f9d"),
+            rx.text(LICENSE_NAME, font_size="12px", color="#334a6d", font_weight="600"),
             spacing="2",
             align="center",
         ),
         position="fixed",
-        left="16px",
+        right="16px",
         bottom="12px",
         background="rgba(255,255,255,0.97)",
         backdrop_filter="blur(3px)",
