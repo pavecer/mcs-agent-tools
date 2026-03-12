@@ -205,6 +205,7 @@ class State(rx.State):
     mcs_section_knowledge_tools: str = ""
     mcs_section_topics: str = ""
     mcs_section_graph: str = ""
+    mcs_section_model_comparison: str = ""
     mcs_section_conversation: str = ""
     mcs_section_credits: str = ""
     mcs_credit_rows: list[dict] = []
@@ -339,6 +340,7 @@ class State(rx.State):
             "knowledge_tools": self.mcs_section_knowledge_tools,
             "topics": self.mcs_section_topics,
             "graph": self.mcs_section_graph,
+            "model_comparison": self.mcs_section_model_comparison,
             "conversation": self.mcs_section_conversation,
             "credits": self.mcs_section_credits,
         }
@@ -447,6 +449,7 @@ class State(rx.State):
         self.mcs_section_knowledge_tools = ""
         self.mcs_section_topics = ""
         self.mcs_section_graph = ""
+        self.mcs_section_model_comparison = ""
         self.mcs_section_conversation = ""
         self.mcs_section_credits = ""
         self.mcs_credit_rows = []
@@ -704,6 +707,7 @@ class State(rx.State):
                     self.mcs_section_knowledge_tools = sections.get("knowledge_tools", "")
                     self.mcs_section_topics = sections["topics"]
                     self.mcs_section_graph = sections["graph"]
+                    self.mcs_section_model_comparison = sections.get("model_comparison", "")
                     self.mcs_section_conversation = sections["conversation"]
                     estimate = estimate_credits_from_activities(
                         activities, profile.gpt_info.model_hint if profile.gpt_info else None
@@ -764,6 +768,7 @@ class State(rx.State):
                             self.mcs_section_knowledge_tools,
                             self.mcs_section_topics,
                             self.mcs_section_graph,
+                            self.mcs_section_model_comparison,
                             self.mcs_section_conversation,
                             self.mcs_section_credits,
                         ]
@@ -905,6 +910,7 @@ class State(rx.State):
         self.mcs_section_topics = ""
         self.mcs_section_graph = ""
         self.mcs_section_conversation = ""
+        self.mcs_section_model_comparison = ""
         self.mcs_section_credits = ""
         self.mcs_credit_rows = []
         self.mcs_credit_total = 0.0
@@ -1083,6 +1089,7 @@ class State(rx.State):
                             self.mcs_section_knowledge_tools,
                             self.mcs_section_topics,
                             self.mcs_section_graph,
+                            self.mcs_section_model_comparison,
                             self.mcs_section_conversation,
                             self.mcs_section_credits,
                         ]
@@ -1151,6 +1158,7 @@ class State(rx.State):
         self.mcs_section_topics = ""
         self.mcs_section_graph = ""
         self.mcs_section_conversation = ""
+        self.mcs_section_model_comparison = ""
         self.mcs_section_credits = ""
         self.mcs_credit_rows = []
         self.mcs_credit_total = 0.0

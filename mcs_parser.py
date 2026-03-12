@@ -427,10 +427,7 @@ def parse_yaml(path: Path) -> tuple[MCSBotProfile, dict[str, str]]:
     recognizer = config.get("recognizer", {}) or {}
     recognizer_kind = recognizer.get("kind", "Unknown")
     recognizer_id = (
-        recognizer.get("recognizerId")
-        or recognizer.get("projectName")
-        or recognizer.get("applicationId")
-        or ""
+        recognizer.get("recognizerId") or recognizer.get("projectName") or recognizer.get("applicationId") or ""
     )
 
     # Components + lookup table
