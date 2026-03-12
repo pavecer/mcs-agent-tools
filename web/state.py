@@ -14,18 +14,18 @@ from pathlib import Path
 import reflex as rx
 from dotenv import load_dotenv
 
-from mcs_credits import estimate_credits_from_activities
-from mcs_models import MCSConversationTimeline as _MCSTl
-from mcs_parser import parse_dialog_json as mcs_parse_dialog_json
-from mcs_parser import parse_yaml as mcs_parse_yaml
-from mcs_renderer import render_credit_estimate as mcs_render_credit_estimate
-from mcs_renderer import build_conversation_flow_items as mcs_build_conversation_flow_items
-from mcs_renderer import build_conversation_visual_summary as mcs_build_conversation_visual_summary
-from mcs_renderer import render_report_sections as mcs_render_report_sections
-from mcs_renderer import render_transcript_report as mcs_render_transcript_report
-from mcs_renderer import to_viz_segments as mcs_to_viz_segments
-from mcs_timeline import build_timeline as mcs_build_timeline
-from mcs_transcript import parse_transcript_json as mcs_parse_transcript
+from toolkit.mcs.credits import estimate_credits_from_activities
+from toolkit.mcs.models import MCSConversationTimeline as _MCSTl
+from toolkit.mcs.parser import parse_dialog_json as mcs_parse_dialog_json
+from toolkit.mcs.parser import parse_yaml as mcs_parse_yaml
+from toolkit.mcs.renderer import render_credit_estimate as mcs_render_credit_estimate
+from toolkit.mcs.renderer import build_conversation_flow_items as mcs_build_conversation_flow_items
+from toolkit.mcs.renderer import build_conversation_visual_summary as mcs_build_conversation_visual_summary
+from toolkit.mcs.renderer import render_report_sections as mcs_render_report_sections
+from toolkit.mcs.renderer import render_transcript_report as mcs_render_transcript_report
+from toolkit.mcs.renderer import to_viz_segments as mcs_to_viz_segments
+from toolkit.mcs.timeline import build_timeline as mcs_build_timeline
+from toolkit.mcs.transcript import parse_transcript_json as mcs_parse_transcript
 from renamer import (
     derive_schema_name,
     derive_solution_unique_name,
@@ -33,7 +33,7 @@ from renamer import (
     rename_solution_from_bytes,
     safe_extractall,
 )
-from deps_analyzer import analyze_deps_zip_bytes
+from deps_analyzer import analyze_deps_zip_bytes_report
 from solution_checker import check_solution_zip
 from validator import validate_instructions, validate_zip_bytes
 from visualizer import visualize_zip_bytes, get_evals_data
@@ -162,6 +162,16 @@ class State(rx.State):
     deps_error: str = ""
     deps_ran: bool = False
     deps_segments: list[dict] = []
+    deps_relation_rows: list[dict] = []
+    deps_component_rows: list[dict] = []
+    deps_diagram_mode: str = "aggregated"  # "aggregated" | "detailed"
+    deps_diagram_zoom_pct: int = 100
+    deps_relation_query: str = ""
+    deps_relation_sort_key: str = "dependent"  # dependent | dependent_type | required | required_type | source
+    deps_relation_sort_dir: str = "asc"  # asc | desc
+    deps_component_query: str = ""
+    deps_component_sort_key: str = "name"  # name | schema | type | type_code | group | kind | source
+    deps_component_sort_dir: str = "asc"  # asc | desc
 
     # ── Active tab ("rename" | "visualize" | "validate" | "check" | "evals" | "deps") ─────────
     active_tab: str = "visualize"
@@ -265,6 +275,78 @@ class State(rx.State):
     @rx.var
     def has_deps(self) -> bool:
         return bool(self.deps_segments)
+
+    @rx.var
+    def deps_visible_segments(self) -> list[dict]:
+        """Visible dependency segments for current diagram mode.
+
+        In detailed mode, keep only the diagram to reduce noise.
+        """
+        if self.deps_diagram_mode != "detailed":
+            return self.deps_segments
+        return [seg for seg in self.deps_segments if seg.get("type") == "mermaid"]
+
+    @rx.var
+    def deps_diagram_zoom_style(self) -> str:
+        return f"{self.deps_diagram_zoom_pct}%"
+
+    @rx.var
+    def has_deps_relations(self) -> bool:
+        return bool(self.deps_relation_rows)
+
+    @rx.var
+    def has_deps_components(self) -> bool:
+        return bool(self.deps_component_rows)
+
+    @rx.var
+    def deps_filtered_component_rows(self) -> list[dict]:
+        rows = list(self.deps_component_rows)
+
+        query = (self.deps_component_query or "").strip().lower()
+        if query:
+            rows = [
+                row
+                for row in rows
+                if query in (row.get("name", "").lower())
+                or query in (row.get("schema", "").lower())
+                or query in (row.get("type", "").lower())
+                or query in (row.get("type_code", "").lower())
+                or query in (row.get("group", "").lower())
+                or query in (row.get("kind", "").lower())
+                or query in (row.get("source", "").lower())
+            ]
+
+        if rows and self.deps_component_sort_key in rows[0]:
+            sort_key = self.deps_component_sort_key
+        else:
+            sort_key = "name"
+        reverse = self.deps_component_sort_dir == "desc"
+        rows.sort(key=lambda r: (r.get(sort_key) or "").lower(), reverse=reverse)
+        return rows
+
+    @rx.var
+    def deps_filtered_relation_rows(self) -> list[dict]:
+        rows = list(self.deps_relation_rows)
+
+        query = (self.deps_relation_query or "").strip().lower()
+        if query:
+            rows = [
+                row
+                for row in rows
+                if query in (row.get("dependent", "").lower())
+                or query in (row.get("dependent_type", "").lower())
+                or query in (row.get("required", "").lower())
+                or query in (row.get("required_type", "").lower())
+                or query in (row.get("source", "").lower())
+            ]
+
+        if rows and self.deps_relation_sort_key in rows[0]:
+            sort_key = self.deps_relation_sort_key
+        else:
+            sort_key = "dependent"
+        reverse = self.deps_relation_sort_dir == "desc"
+        rows.sort(key=lambda r: (r.get(sort_key) or "").lower(), reverse=reverse)
+        return rows
 
     @rx.var
     def has_evals(self) -> bool:
@@ -445,6 +527,16 @@ class State(rx.State):
         self.deps_error = ""
         self.deps_ran = False
         self.deps_segments = []
+        self.deps_relation_rows = []
+        self.deps_component_rows = []
+        self.deps_diagram_mode = "aggregated"
+        self.deps_diagram_zoom_pct = 100
+        self.deps_relation_query = ""
+        self.deps_relation_sort_key = "dependent"
+        self.deps_relation_sort_dir = "asc"
+        self.deps_component_query = ""
+        self.deps_component_sort_key = "name"
+        self.deps_component_sort_dir = "asc"
         self.mcs_section_profile = ""
         self.mcs_section_knowledge_tools = ""
         self.mcs_section_topics = ""
@@ -618,12 +710,23 @@ class State(rx.State):
             self.deps_is_analyzing = True
             yield
             try:
-                self.deps_segments = analyze_deps_zip_bytes(file_bytes)
+                report = analyze_deps_zip_bytes_report(
+                    file_bytes,
+                    detailed_diagram=self.deps_diagram_mode == "detailed",
+                )
+                self.deps_segments = [
+                    {"type": "text", "content": report["summary_markdown"]},
+                    {"type": "mermaid", "content": report["mermaid"]},
+                ]
+                self.deps_relation_rows = report.get("relation_rows", [])
+                self.deps_component_rows = report.get("component_rows", [])
                 self.deps_ran = True
                 self.deps_error = ""
             except Exception as dep_exc:
                 self.deps_error = str(dep_exc)
                 self.deps_segments = []
+                self.deps_relation_rows = []
+                self.deps_component_rows = []
                 self.deps_ran = False
             finally:
                 self.deps_is_analyzing = False
@@ -761,19 +864,7 @@ class State(rx.State):
                     self.mcs_conv_latency_bands = conv_summary.get("latency_bands", [])
                     self.mcs_conv_highlights = conv_summary.get("highlights", [])
                     self.mcs_source = "snapshot"
-                    self.mcs_report_markdown = "\n\n".join(
-                        v
-                        for v in [
-                            self.mcs_section_profile,
-                            self.mcs_section_knowledge_tools,
-                            self.mcs_section_topics,
-                            self.mcs_section_graph,
-                            self.mcs_section_model_comparison,
-                            self.mcs_section_conversation,
-                            self.mcs_section_credits,
-                        ]
-                        if v.strip()
-                    )
+                    self.mcs_report_markdown = self._compose_mcs_report_markdown()
                     self.mcs_upload_error = ""
                 except Exception as e:
                     self.mcs_upload_error = f"Snapshot analysis failed: {e}"
@@ -904,6 +995,12 @@ class State(rx.State):
         self.deps_error = ""
         self.deps_ran = False
         self.deps_segments = []
+        self.deps_relation_rows = []
+        self.deps_component_rows = []
+        self.deps_diagram_mode = "aggregated"
+        self.deps_relation_query = ""
+        self.deps_relation_sort_key = "dependent"
+        self.deps_relation_sort_dir = "asc"
         self.mcs_source = ""
         self.mcs_section_profile = ""
         self.mcs_section_knowledge_tools = ""
@@ -937,6 +1034,80 @@ class State(rx.State):
     @rx.event
     def set_check_active_category(self, category: str):
         self.check_active_category = category
+
+    @rx.event
+    async def set_deps_diagram_mode(self, mode: str):
+        if mode not in ("aggregated", "detailed"):
+            return
+        if self.deps_diagram_mode == mode:
+            return
+        self.deps_diagram_mode = mode
+
+        # Re-render dependency report for the current ZIP without requiring re-upload.
+        if self.zip_type != "solution" or not self.zip_bytes_b64:
+            return
+
+        self.deps_is_analyzing = True
+        self.deps_error = ""
+        yield
+        try:
+            file_bytes = base64.b64decode(self.zip_bytes_b64)
+            report = analyze_deps_zip_bytes_report(file_bytes, detailed_diagram=mode == "detailed")
+            self.deps_segments = [
+                {"type": "text", "content": report["summary_markdown"]},
+                {"type": "mermaid", "content": report["mermaid"]},
+            ]
+            self.deps_relation_rows = report.get("relation_rows", [])
+            self.deps_component_rows = report.get("component_rows", [])
+            self.deps_ran = True
+        except Exception as dep_exc:
+            self.deps_error = str(dep_exc)
+            self.deps_segments = []
+            self.deps_relation_rows = []
+            self.deps_component_rows = []
+            self.deps_ran = False
+        finally:
+            self.deps_is_analyzing = False
+
+    @rx.event
+    def set_deps_relation_query(self, value: str):
+        self.deps_relation_query = value
+
+    @rx.event
+    def set_deps_relation_sort(self, key: str):
+        if key not in ("dependent", "dependent_type", "required", "required_type", "source"):
+            return
+        if self.deps_relation_sort_key == key:
+            self.deps_relation_sort_dir = "desc" if self.deps_relation_sort_dir == "asc" else "asc"
+            return
+        self.deps_relation_sort_key = key
+        self.deps_relation_sort_dir = "asc"
+
+    @rx.event
+    def set_deps_component_query(self, value: str):
+        self.deps_component_query = value
+
+    @rx.event
+    def set_deps_component_sort(self, key: str):
+        if key not in ("name", "schema", "type", "type_code", "group", "kind", "source"):
+            return
+        if self.deps_component_sort_key == key:
+            self.deps_component_sort_dir = "desc" if self.deps_component_sort_dir == "asc" else "asc"
+            return
+        self.deps_component_sort_key = key
+        self.deps_component_sort_dir = "asc"
+
+    @rx.event
+    def deps_zoom_in(self):
+        self.deps_diagram_zoom_pct = min(220, self.deps_diagram_zoom_pct + 10)
+
+    @rx.event
+    def deps_zoom_out(self):
+        self.deps_diagram_zoom_pct = max(50, self.deps_diagram_zoom_pct - 10)
+
+    @rx.event
+    def deps_zoom_reset(self):
+        self.deps_diagram_zoom_pct = 100
 
     # ── Authentication handlers ───────────────────────────────────────────
 
@@ -1082,19 +1253,7 @@ class State(rx.State):
                     self.mcs_section_credits = (
                         existing_credits + "\n\n---\n\n## Uploaded Transcript Credits\n\n" + credit_report
                     )
-                    self.mcs_report_markdown = "\n\n".join(
-                        s
-                        for s in [
-                            self.mcs_section_profile,
-                            self.mcs_section_knowledge_tools,
-                            self.mcs_section_topics,
-                            self.mcs_section_graph,
-                            self.mcs_section_model_comparison,
-                            self.mcs_section_conversation,
-                            self.mcs_section_credits,
-                        ]
-                        if s.strip()
-                    )
+                    self.mcs_report_markdown = self._compose_mcs_report_markdown()
                     self.mcs_analyse_tab = "conversation"
                 else:
                     # No snapshot: populate sections with placeholders + transcript conv
@@ -1112,18 +1271,7 @@ class State(rx.State):
                     self.mcs_section_credits = credit_report
                     self.mcs_report_title = title
                     self.mcs_source = "transcript"
-                    self.mcs_report_markdown = "\n\n".join(
-                        s
-                        for s in [
-                            self.mcs_section_profile,
-                            self.mcs_section_knowledge_tools,
-                            self.mcs_section_topics,
-                            self.mcs_section_graph,
-                            self.mcs_section_credits,
-                            self.mcs_section_conversation,
-                        ]
-                        if s.strip()
-                    )
+                    self.mcs_report_markdown = self._compose_mcs_report_markdown()
                     self.mcs_analyse_tab = "conversation"
                     self.upload_filename = filename
                     self.active_tab = "analyse"
@@ -1178,6 +1326,22 @@ class State(rx.State):
             self.derived_schema = derive_schema_name(self.detected_bot_schema, self.new_agent_name.strip())
         else:
             self.derived_schema = ""
+
+    def _compose_mcs_report_markdown(self) -> str:
+        """Build one consolidated report body from currently available MCS sections."""
+        return "\n\n".join(
+            section
+            for section in [
+                self.mcs_section_profile,
+                self.mcs_section_knowledge_tools,
+                self.mcs_section_topics,
+                self.mcs_section_graph,
+                self.mcs_section_model_comparison,
+                self.mcs_section_conversation,
+                self.mcs_section_credits,
+            ]
+            if section.strip()
+        )
 
     def _update_derived_solution_unique(self):
         if self.new_solution_display_name.strip():

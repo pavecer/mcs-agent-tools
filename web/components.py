@@ -2272,11 +2272,54 @@ def _deps_segment_card(segment: dict) -> rx.Component:
             rx.hstack(
                 rx.icon("git-branch", color=PRIMARY, size=16),
                 rx.text("Dependency Diagram", font_size="13px", font_weight="700", color="#201f1e"),
+                rx.spacer(),
+                rx.button(
+                    "-",
+                    on_click=State.deps_zoom_out,
+                    variant="outline",
+                    size="1",
+                    min_width="30px",
+                    height="24px",
+                    padding="0",
+                ),
+                rx.button(
+                    "+",
+                    on_click=State.deps_zoom_in,
+                    variant="outline",
+                    size="1",
+                    min_width="30px",
+                    height="24px",
+                    padding="0",
+                ),
+                rx.button(
+                    "Reset",
+                    on_click=State.deps_zoom_reset,
+                    variant="outline",
+                    size="1",
+                    height="24px",
+                    padding_x="8px",
+                ),
+                rx.badge(State.deps_diagram_zoom_style, color_scheme="gray", variant="soft", size="1"),
                 spacing="2",
                 align="center",
                 margin_bottom="10px",
             ),
-            render_segment(segment),
+            rx.box(
+                rx.el.pre(
+                    segment["content"],
+                    class_name="mermaid",
+                    width=State.deps_diagram_zoom_style,
+                    min_width=State.deps_diagram_zoom_style,
+                    background="#f7fbff",
+                    border="1px solid #d7e2f2",
+                    border_radius="14px",
+                    box_shadow="inset 0 1px 0 rgba(255,255,255,0.85)",
+                    padding="22px",
+                ),
+                width="100%",
+                overflow_x="auto",
+                overflow_y="auto",
+            ),
             width="100%",
         ),
         card(
@@ -2290,6 +2333,285 @@ def _deps_segment_card(segment: dict) -> rx.Component:
             render_segment(segment),
             width="100%",
         ),
+    )
+
+
+def _deps_mode_btn(mode_id: str, label_text: str) -> rx.Component:
+    active = State.deps_diagram_mode == mode_id
+    return rx.box(
+        rx.text(label_text, font_size="12px", font_weight="700"),
+        on_click=State.set_deps_diagram_mode(mode_id),
+        padding="6px 12px",
+        border_radius="999px",
+        border=rx.cond(active, f"1.5px solid {PRIMARY}", "1.5px solid #d7e2f2"),
+        background=rx.cond(active, "#eaf2ff", "#ffffff"),
+        color=rx.cond(active, PRIMARY, "#51627a"),
+        cursor="pointer",
+        _hover={"border_color": PRIMARY, "color": PRIMARY},
+        transition="all 0.15s ease",
+    )
+
+
+def _deps_relation_row(row: dict) -> rx.Component:
+    return rx.grid(
+        rx.text(row["dependent"], font_size="12px", color="#1f3a63", font_weight="600"),
+        rx.badge(row["dependent_type"], color_scheme="blue", variant="soft", size="1"),
+        rx.text(row["required"], font_size="12px", color="#201f1e", font_weight="600"),
+        rx.badge(row["required_type"], color_scheme="red", variant="soft", size="1"),
+        rx.text(row["source"], font_size="11px", color="#605e5c"),
+        columns="2.2fr 1fr 2.2fr 1fr 1.4fr",
+        gap="10px",
+        align="center",
+        padding_y="8px",
+        padding_x="10px",
+        border_bottom="1px solid #f3f2f1",
+        width="100%",
+    )
+
+
+def _deps_sort_indicator(key: str) -> rx.Component:
+    return rx.cond(
+        State.deps_relation_sort_key == key,
+        rx.icon(
+            rx.cond(State.deps_relation_sort_dir == "asc", "arrow-up", "arrow-down"),
+            size=12,
+            color=PRIMARY,
+        ),
+        rx.icon("arrow-up-down", size=12, color="#9aa8bf"),
+    )
+
+
+def _deps_sortable_header(label: str, key: str) -> rx.Component:
+    return rx.hstack(
+        rx.text(label, font_size="11px", font_weight="700", color="#51627a"),
+        _deps_sort_indicator(key),
+        spacing="1",
+        align="center",
+        cursor="pointer",
+        on_click=State.set_deps_relation_sort(key),
+        _hover={"color": PRIMARY},
+    )
+
+
+def _deps_component_sort_indicator(key: str) -> rx.Component:
+    return rx.cond(
+        State.deps_component_sort_key == key,
+        rx.icon(
+            rx.cond(State.deps_component_sort_dir == "asc", "arrow-up", "arrow-down"),
+            size=12,
+            color=PRIMARY,
+        ),
+        rx.icon("arrow-up-down", size=12, color="#9aa8bf"),
+    )
+
+
+def _deps_component_sortable_header(label: str, key: str) -> rx.Component:
+    return rx.hstack(
+        rx.text(label, font_size="11px", font_weight="700", color="#51627a"),
+        _deps_component_sort_indicator(key),
+        spacing="1",
+        align="center",
+        cursor="pointer",
+        on_click=State.set_deps_component_sort(key),
+        _hover={"color": PRIMARY},
+    )
+
+
+def _deps_component_row(row: dict) -> rx.Component:
+    cols = "1.6fr 2.4fr 1.2fr 0.6fr 1fr 1.2fr 1.2fr"
+
+    def _cell(text: str, size: str = "11px", color: str = "#51627a", weight: str = "500") -> rx.Component:
+        return rx.text(
+            text,
+            font_size=size,
+            color=color,
+            font_weight=weight,
+            white_space="nowrap",
+            overflow="hidden",
+            text_overflow="ellipsis",
+            width="100%",
+            min_width="0",
+            title=text,
+        )
+
+    return rx.grid(
+        rx.box(_cell(row["name"], size="12px", color="#1f3a63", weight="600"), min_width="0"),
+        rx.box(_cell(row["schema"], size="11px", color="#51627a"), min_width="0"),
+        rx.box(
+            rx.badge(
+                row["type"],
+                color_scheme="blue",
+                variant="soft",
+                size="1",
+                white_space="nowrap",
+                overflow="hidden",
+                text_overflow="ellipsis",
+                max_width="100%",
+                title=row["type"],
+            ),
+            min_width="0",
+        ),
+        rx.box(_cell(row["type_code"], size="11px", color="#605e5c"), min_width="0"),
+        rx.box(
+            rx.badge(
+                row["group"],
+                color_scheme="gray",
+                variant="soft",
+                size="1",
+                white_space="nowrap",
+                overflow="hidden",
+                text_overflow="ellipsis",
+                max_width="100%",
+                title=row["group"],
+            ),
+            min_width="0",
+        ),
+        rx.box(_cell(row["kind"], size="11px", color="#51627a"), min_width="0"),
+        rx.box(
+            rx.badge(
+                row["source"],
+                color_scheme="cyan",
+                variant="soft",
+                size="1",
+                white_space="nowrap",
+                overflow="hidden",
+                text_overflow="ellipsis",
+                max_width="100%",
+                title=row["source"],
+            ),
+            min_width="0",
+        ),
+        columns=cols,
+        gap="10px",
+        align="center",
+        padding_y="8px",
+        padding_x="10px",
+        border_bottom="1px solid #f3f2f1",
+        width="100%",
+    )
+
+
+def _deps_components_table() -> rx.Component:
+    cols = "1.6fr 2.4fr 1.2fr 0.6fr 1fr 1.2fr 1.2fr"
+
+    return card(
+        rx.hstack(
+            rx.icon("boxes", color=PRIMARY, size=16),
+            rx.text("Components In Solution", font_size="13px", font_weight="700", color="#201f1e"),
+            rx.spacer(),
+            rx.badge(State.deps_filtered_component_rows.length(), color_scheme="gray", variant="soft", size="1"),
+            spacing="2",
+            align="center",
+            margin_bottom="10px",
+            width="100%",
+        ),
+        rx.hstack(
+            rx.input(
+                placeholder="Filter by name, schema, type, code, group, kind, or source...",
+                value=State.deps_component_query,
+                on_change=State.set_deps_component_query,
+                width="100%",
+                size="2",
+            ),
+            rx.button(
+                "Clear",
+                variant="outline",
+                size="2",
+                on_click=State.set_deps_component_query(""),
+            ),
+            spacing="2",
+            align="center",
+            margin_bottom="10px",
+            width="100%",
+        ),
+        rx.box(
+            rx.grid(
+                _deps_component_sortable_header("Name", "name"),
+                _deps_component_sortable_header("Schema", "schema"),
+                _deps_component_sortable_header("Type", "type"),
+                _deps_component_sortable_header("Code", "type_code"),
+                _deps_component_sortable_header("Group", "group"),
+                _deps_component_sortable_header("Detected Kind", "kind"),
+                _deps_component_sortable_header("Source", "source"),
+                columns=cols,
+                gap="10px",
+                padding_y="8px",
+                padding_x="10px",
+                background="#f7faff",
+                border_bottom="1px solid #e6edf8",
+                width="100%",
+                position="sticky",
+                top="0",
+                z_index="2",
+            ),
+            rx.foreach(State.deps_filtered_component_rows, _deps_component_row),
+            width="100%",
+            max_height="360px",
+            overflow_x="auto",
+            overflow_y="auto",
+            border="1px solid #e6edf8",
+            border_radius="10px",
+            background="#ffffff",
+        ),
+        width="100%",
+    )
+
+
+def _deps_relations_table() -> rx.Component:
+    return card(
+        rx.hstack(
+            rx.icon("table", color=PRIMARY, size=16),
+            rx.text("Dependency Relations Table", font_size="13px", font_weight="700", color="#201f1e"),
+            rx.spacer(),
+            rx.badge(State.deps_filtered_relation_rows.length(), color_scheme="gray", variant="soft", size="1"),
+            spacing="2",
+            align="center",
+            margin_bottom="10px",
+            width="100%",
+        ),
+        rx.hstack(
+            rx.input(
+                placeholder="Filter by dependent, required, type, or source...",
+                value=State.deps_relation_query,
+                on_change=State.set_deps_relation_query,
+                width="100%",
+                size="2",
+            ),
+            rx.button(
+                "Clear",
+                variant="outline",
+                size="2",
+                on_click=State.set_deps_relation_query(""),
+            ),
+            spacing="2",
+            align="center",
+            margin_bottom="10px",
+            width="100%",
+        ),
+        rx.box(
+            rx.grid(
+                _deps_sortable_header("Dependent", "dependent"),
+                _deps_sortable_header("Type", "dependent_type"),
+                _deps_sortable_header("Required", "required"),
+                _deps_sortable_header("Type", "required_type"),
+                _deps_sortable_header("Source", "source"),
+                columns="2.2fr 1fr 2.2fr 1fr 1.4fr",
+                gap="10px",
+                padding_y="8px",
+                padding_x="10px",
+                background="#f7faff",
+                border_bottom="1px solid #e6edf8",
+                width="100%",
+            ),
+            rx.foreach(State.deps_filtered_relation_rows, _deps_relation_row),
+            width="100%",
+            max_height="420px",
+            overflow_y="auto",
+            border="1px solid #e6edf8",
+            border_radius="10px",
+            background="#ffffff",
+        ),
+        width="100%",
     )
 
 
@@ -2335,6 +2657,14 @@ def deps_panel() -> rx.Component:
                             align="center",
                             margin_bottom="8px",
                         ),
+                        rx.hstack(
+                            rx.text("Diagram mode:", font_size="12px", font_weight="700", color="#51627a"),
+                            _deps_mode_btn("aggregated", "Aggregated"),
+                            _deps_mode_btn("detailed", "Detailed"),
+                            spacing="2",
+                            align="center",
+                            margin_bottom="10px",
+                        ),
                         rx.text(
                             "Components declared in this solution export, their types, "
                             "relationships, and any external dependencies that must be present "
@@ -2347,9 +2677,19 @@ def deps_panel() -> rx.Component:
                     ),
                     # ── Segments (markdown summary + Mermaid graph) ───────
                     rx.vstack(
-                        rx.foreach(State.deps_segments, _deps_segment_card),
+                        rx.foreach(State.deps_visible_segments, _deps_segment_card),
                         width="100%",
                         spacing="4",
+                    ),
+                    rx.cond(
+                        (State.deps_diagram_mode != "detailed") & State.has_deps_components,
+                        _deps_components_table(),
+                        rx.box(),
+                    ),
+                    rx.cond(
+                        (State.deps_diagram_mode != "detailed") & State.has_deps_relations,
+                        _deps_relations_table(),
+                        rx.box(),
                     ),
                     width="100%",
                     spacing="4",

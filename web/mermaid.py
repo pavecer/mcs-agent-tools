@@ -23,6 +23,26 @@ def mermaid_script() -> rx.Component:
                         setTimeout(initMermaid, 100);
                         return;
                     }
+
+                    // Keep large graphs readable: render at natural SVG width and let
+                    // the container scroll horizontally instead of shrinking everything.
+                    if (!document.getElementById('pp-mermaid-viewport-style')) {
+                        var style = document.createElement('style');
+                        style.id = 'pp-mermaid-viewport-style';
+                        style.textContent = `
+                            pre.mermaid svg {
+                                max-width: none !important;
+                                width: 100% !important;
+                                height: auto !important;
+                            }
+                            pre.mermaid {
+                                overflow-x: auto;
+                                overflow-y: auto;
+                            }
+                        `;
+                        document.head.appendChild(style);
+                    }
+
                     mermaid.initialize({ startOnLoad: false, theme: 'neutral' });
 
                     function renderUnprocessed() {

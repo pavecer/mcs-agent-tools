@@ -2,6 +2,10 @@
 
 Toolkit for **Power Platform / Copilot Studio** exports with a single Reflex web UI plus a rename-focused CLI.
 
+## Current Version
+
+- **0.3.0**
+
 ## What The Solution Offers
 
 ### 1. Visualize (solution ZIP or snapshot ZIP)
@@ -47,13 +51,31 @@ For snapshot ZIPs (containing `botContent.yml`), the app provides deeper analysi
 - Topic graph
 - Conversation analysis
 
+The Analyse output emphasizes readability and operations-focused reporting:
+
+- Human-readable **Knowledge Sources & External Tools** summaries
+- Human-readable **Topic & Trigger Audit** with overview, conflicts, orphans, and guardrails
+- Cleaner naming that removes noisy schema prefixes where possible
+
 You can also upload transcript JSON and render a detailed conversation report with:
 
 - Sequence diagram
 - Execution timeline/gantt-style sections
 - Event log and error highlights
 
-### 5. Rename (solution ZIP only)
+### 5. Dependencies (solution ZIP)
+
+Analyze dependency health and component inventory for both agent and non-agent solution exports.
+
+Includes:
+
+- Aggregated and detailed dependency diagram modes
+- Diagram zoom controls (`-`, `+`, reset) with scroll support
+- Relations table with sorting and filtering
+- Components table with sorting, filtering, sticky header, and truncation/hover details
+- Discovery merged from `solution.xml` and artefact folders (`botcomponents/`, `bots/`, `Assets/*set.xml`, `Workflows/`)
+
+### 6. Rename (solution ZIP only)
 
 Create a safe copy of an exported solution by rewriting bot and solution identifiers so import does not overwrite the original.
 
@@ -92,7 +114,7 @@ Bottom-right footer includes:
 Typical flow:
 
 1. Upload a `.zip` export.
-2. For solution ZIPs, start with **Visualize** to explore the agent structure, then use **Validate** and **Check** tabs for quality and security insights.
+2. For solution ZIPs, use **Dependencies** first for component/dependency health, then **Visualize**, **Validate**, and **Check**.
 3. For snapshot ZIPs, use **Analyse**, **Visualize**, and **Validate** tabs.
 4. Optionally upload transcript `.json` in Analyse to enrich conversation reporting.
 5. Use the **Rename** tab (solution ZIPs only) last to create a renamed copy for safe import.
@@ -176,16 +198,15 @@ yaml_utils.py        Shared YAML preprocessing helper
 renamer.py           Rename engine + safe ZIP handling
 models.py            Pydantic models for rename config/results
 visualizer.py        Solution ZIP parser to markdown/mermaid segments
+deps_analyzer.py     Dependency analysis + diagram + relations/component tables
 validator.py         Model-aware instruction validation
-mcs_parser.py        Snapshot YAML + dialog parser
-mcs_timeline.py      Conversation timeline builder
-mcs_renderer.py      Markdown + Mermaid report rendering
-mcs_transcript.py    Transcript JSON normalization/parsing
+toolkit/mcs/         Canonical snapshot analysis package
 web/state.py         Reflex app state and workflows
 web/components.py    UI components
+web/mermaid.py       Mermaid runtime support + diagram viewport behavior
 web/web.py           App pages and tab routing
 best_practices/      Validation rule reference docs per model family
-tests/               Unit tests (currently focused on renamer/utils)
+tests/               Unit tests
 ```
 
 ## Caveats
