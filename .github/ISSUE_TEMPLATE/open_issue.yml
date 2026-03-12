@@ -1,0 +1,14 @@
+name: Open issue
+description: Quick issue with a short one-line description.
+title: "[Open]: "
+labels:
+  - triage
+body:
+  - type: input
+    id: issue
+    attributes:
+      label: Issue
+      description: One-line description of the issue or request.
+      placeholder: Add version number to navbar too
+    validations:
+      required: true

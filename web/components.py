@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import reflex as rx
 
-from app_meta import FEATURE_URL, ISSUE_URL, LICENSE_NAME, get_app_version
+from app_meta import FEATURE_URL, ISSUE_URL, LICENSE_NAME, OPEN_ISSUE_URL, get_app_version
 from web.mermaid import render_segment
 from web.state import State
 
@@ -518,6 +518,21 @@ def feedback_footer() -> rx.Component:
                 target="_blank",
                 rel="noopener noreferrer",
                 color="#a4262c",
+                text_decoration="none",
+                _hover={"text_decoration": "underline"},
+            ),
+            rx.text("·", font_size="12px", color="#a19f9d"),
+            rx.link(
+                rx.hstack(
+                    rx.icon("square-pen", size=13),
+                    rx.text("Open Issue", font_size="12px", font_weight="600"),
+                    spacing="1",
+                    align="center",
+                ),
+                href=OPEN_ISSUE_URL,
+                target="_blank",
+                rel="noopener noreferrer",
+                color="#605e5c",
                 text_decoration="none",
                 _hover={"text_decoration": "underline"},
             ),

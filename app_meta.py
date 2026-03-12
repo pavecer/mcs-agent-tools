@@ -10,6 +10,7 @@ import tomllib
 PACKAGE_NAME = "pp-agent-toolkit"
 REPO_URL = "https://github.com/pavecer/mcs-agent-tools"
 ISSUE_URL = f"{REPO_URL}/issues/new?template=bug_report.yml"
+OPEN_ISSUE_URL = f"{REPO_URL}/issues/new?template=open_issue.yml"
 FEATURE_URL = f"{REPO_URL}/issues/new?template=feature_request.yml"
 LICENSE_NAME = "MIT"
 
