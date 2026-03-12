@@ -263,6 +263,17 @@ def _ms_between_iso(start: str | None, end: str | None) -> float:
         return 0.0
 
 
+def _format_clock(ts: str | None) -> str:
+    """Format an ISO timestamp into HH:MM:SS (best effort)."""
+    if not ts:
+        return ""
+    try:
+        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        return dt.strftime("%H:%M:%S")
+    except Exception:
+        return ""
+
+
 def _pair_message_turns(timeline: MCSConversationTimeline) -> list[dict]:
     """Pair user messages with the next bot message to form chat turns."""
     turns: list[dict] = []
@@ -290,6 +301,194 @@ def _pair_message_turns(timeline: MCSConversationTimeline) -> list[dict]:
             pending_user = None
 
     return turns
+
+
+def build_conversation_flow_items(timeline: MCSConversationTimeline) -> list[dict]:
+    """Build chat-style flow items from timeline events for UI rendering.
+
+    Output item format:
+    - message: {kind, role, actor, text, timestamp}
+    - event: {kind, event_type, title, summary, timestamp, tone}
+    """
+    items: list[dict] = []
+
+    def _strip_prefix(text: str, prefix: str) -> str:
+        if text.startswith(prefix):
+            return text[len(prefix) :].strip()
+        return text
+
+    for ev in timeline.events:
+        summary = (ev.summary or "").strip()
+        timestamp = _format_clock(ev.timestamp)
+
+        if ev.event_type == MCSEventType.USER_MESSAGE:
+            items.append(
+                {
+                    "kind": "message",
+                    "role": "user",
+                    "actor": ACTOR_NAMES["user"],
+                    "text": _strip_prefix(summary, "User:"),
+                    "timestamp": timestamp,
+                }
+            )
+            continue
+
+        if ev.event_type == MCSEventType.BOT_MESSAGE:
+            items.append(
+                {
+                    "kind": "message",
+                    "role": "bot",
+                    "actor": ACTOR_NAMES["bot"],
+                    "text": _strip_prefix(summary, "Bot:"),
+                    "timestamp": timestamp,
+                }
+            )
+            continue
+
+        # Keep high-value telemetry items as system cards between chat turns.
+        if ev.event_type in {
+            MCSEventType.PLAN_RECEIVED,
+            MCSEventType.PLAN_FINISHED,
+            MCSEventType.STEP_TRIGGERED,
+            MCSEventType.STEP_FINISHED,
+            MCSEventType.KNOWLEDGE_SEARCH,
+            MCSEventType.DIALOG_TRACING,
+            MCSEventType.DIALOG_REDIRECT,
+            MCSEventType.ERROR,
+        }:
+            title_map = {
+                MCSEventType.PLAN_RECEIVED: "Plan Received",
+                MCSEventType.PLAN_FINISHED: "Plan Finished",
+                MCSEventType.STEP_TRIGGERED: "Action Started",
+                MCSEventType.STEP_FINISHED: "Action Finished",
+                MCSEventType.KNOWLEDGE_SEARCH: "Knowledge Search",
+                MCSEventType.DIALOG_TRACING: "Topic Trace",
+                MCSEventType.DIALOG_REDIRECT: "Topic Redirect",
+                MCSEventType.ERROR: "Error",
+            }
+            tone = "error" if ev.event_type == MCSEventType.ERROR else "info"
+            detail = summary
+            if ev.event_type == MCSEventType.KNOWLEDGE_SEARCH and ev.search_query:
+                detail = f'Query: "{ev.search_query}"'
+
+            items.append(
+                {
+                    "kind": "event",
+                    "event_type": ev.event_type.value,
+                    "title": title_map.get(ev.event_type, ev.event_type.value),
+                    "summary": detail,
+                    "timestamp": timestamp,
+                    "tone": tone,
+                }
+            )
+
+    return items
+
+
+def build_conversation_visual_summary(timeline: MCSConversationTimeline) -> dict[str, list[dict]]:
+    """Build visual-friendly conversation summary structures for the UI."""
+    user_msgs = sum(1 for e in timeline.events if e.event_type == MCSEventType.USER_MESSAGE)
+    bot_msgs = sum(1 for e in timeline.events if e.event_type == MCSEventType.BOT_MESSAGE)
+    searches = sum(1 for e in timeline.events if e.event_type == MCSEventType.KNOWLEDGE_SEARCH)
+    errors = sum(1 for e in timeline.events if e.event_type == MCSEventType.ERROR)
+
+    turns = _pair_message_turns(timeline)
+    avg_latency = (sum(t["latency_ms"] for t in turns) / len(turns)) if turns else 0.0
+    p95_latency = 0.0
+    if turns:
+        sorted_lat = sorted(t["latency_ms"] for t in turns)
+        idx = int(max(0, min(len(sorted_lat) - 1, round(0.95 * (len(sorted_lat) - 1)))))
+        p95_latency = sorted_lat[idx]
+
+    started_steps = [e for e in timeline.events if e.event_type == MCSEventType.STEP_TRIGGERED and e.step_id]
+    finished_step_ids = {e.step_id for e in timeline.events if e.event_type == MCSEventType.STEP_FINISHED and e.step_id}
+    orphaned_steps = sum(1 for e in started_steps if e.step_id not in finished_step_ids)
+
+    kpis = [
+        {
+            "label": "User Messages",
+            "value": str(user_msgs),
+            "hint": "Incoming requests",
+            "tone": "neutral",
+        },
+        {
+            "label": "Bot Responses",
+            "value": str(bot_msgs),
+            "hint": "Delivered answers",
+            "tone": "neutral",
+        },
+        {
+            "label": "Avg Turn Latency",
+            "value": f"{avg_latency:.0f} ms",
+            "hint": "User -> bot response",
+            "tone": "neutral" if avg_latency < 4000 else "warn",
+        },
+        {
+            "label": "P95 Turn Latency",
+            "value": f"{p95_latency:.0f} ms",
+            "hint": "Worst typical latency",
+            "tone": "warn" if p95_latency >= 6000 else "neutral",
+        },
+    ]
+
+    mix_raw = [
+        ("Messages", user_msgs + bot_msgs, "#0a66ff"),
+        ("Steps", len(started_steps), "#0f8c76"),
+        ("Search", searches, "#c17c00"),
+        ("Errors", errors, "#b4232a"),
+    ]
+    mix_total = sum(v for _, v, _ in mix_raw) or 1
+    event_mix = [
+        {
+            "label": label,
+            "count": str(count),
+            "color": color,
+            "pct": f"{(count / mix_total) * 100:.1f}%",
+        }
+        for label, count, color in mix_raw
+    ]
+
+    bands = [
+        ("< 1s", sum(1 for t in turns if t["latency_ms"] < 1000), "#107c10"),
+        ("1-3s", sum(1 for t in turns if 1000 <= t["latency_ms"] < 3000), "#0a66ff"),
+        ("3-8s", sum(1 for t in turns if 3000 <= t["latency_ms"] < 8000), "#c7921e"),
+        (">= 8s", sum(1 for t in turns if t["latency_ms"] >= 8000), "#a4262c"),
+    ]
+    turns_total = len(turns) or 1
+    latency_bands = [
+        {
+            "label": label,
+            "count": str(count),
+            "color": color,
+            "pct": f"{(count / turns_total) * 100:.1f}%",
+        }
+        for label, count, color in bands
+    ]
+
+    highlights = [
+        {
+            "title": "Errors",
+            "value": str(errors),
+            "tone": "bad" if errors > 0 else "good",
+        },
+        {
+            "title": "Open Steps",
+            "value": str(orphaned_steps),
+            "tone": "bad" if orphaned_steps > 0 else "good",
+        },
+        {
+            "title": "Search Calls",
+            "value": str(searches),
+            "tone": "info",
+        },
+    ]
+
+    return {
+        "kpis": kpis,
+        "event_mix": event_mix,
+        "latency_bands": latency_bands,
+        "highlights": highlights,
+    }
 
 
 def render_conversation_overview(timeline: MCSConversationTimeline) -> str:

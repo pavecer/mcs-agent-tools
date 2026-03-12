@@ -1126,6 +1126,304 @@ def _mcs_credits_panel() -> rx.Component:
     )
 
 
+def _mcs_flow_message(item: dict) -> rx.Component:
+    """Render a single message bubble in transcript flow view."""
+    is_user = item["role"] == "user"
+    return rx.vstack(
+        rx.hstack(
+            rx.cond(
+                is_user,
+                rx.box(),
+                rx.hstack(
+                    rx.icon("bot", size=14, color="#0a66ff"),
+                    rx.text(item["actor"], font_size="12px", font_weight="700", color="#1f3a63"),
+                    rx.cond(
+                        item["timestamp"] != "",
+                        rx.text(item["timestamp"], font_size="11px", color="#8a8886"),
+                        rx.box(),
+                    ),
+                    spacing="2",
+                    align="center",
+                ),
+            ),
+            rx.cond(
+                is_user,
+                rx.hstack(
+                    rx.cond(
+                        item["timestamp"] != "",
+                        rx.text(item["timestamp"], font_size="11px", color="#8a8886"),
+                        rx.box(),
+                    ),
+                    rx.text(item["actor"], font_size="12px", font_weight="700", color="#1f3a63"),
+                    rx.icon("user-round", size=14, color="#0a66ff"),
+                    spacing="2",
+                    align="center",
+                ),
+                rx.box(),
+            ),
+            width="100%",
+            justify=rx.cond(is_user, "end", "start"),
+        ),
+        rx.hstack(
+            rx.box(
+                rx.text(item["text"], font_size="15px", color="#222", line_height="1.55"),
+                max_width=["100%", "100%", "72%"],
+                background=rx.cond(is_user, "#cae8f5", "#ffffff"),
+                border=rx.cond(is_user, "1px solid #9fd0e8", "1px solid #d9d8d7"),
+                border_radius=rx.cond(is_user, "14px 14px 4px 14px", "14px 14px 14px 4px"),
+                padding="14px 16px",
+                box_shadow="0 6px 18px rgba(0,0,0,0.06)",
+            ),
+            width="100%",
+            justify=rx.cond(is_user, "end", "start"),
+        ),
+        spacing="2",
+        width="100%",
+        align="stretch",
+    )
+
+
+def _mcs_flow_event(item: dict) -> rx.Component:
+    """Render a system/tool event card between messages."""
+    is_error = item["tone"] == "error"
+    return rx.center(
+        rx.box(
+            rx.hstack(
+                rx.icon(
+                    rx.cond(is_error, "triangle-alert", "workflow"),
+                    size=16,
+                    color=rx.cond(is_error, "#a4262c", "#0a66ff"),
+                ),
+                rx.vstack(
+                    rx.hstack(
+                        rx.text(item["title"], font_size="12px", font_weight="700", color="#1f3a63"),
+                        rx.cond(
+                            item["timestamp"] != "",
+                            rx.text(item["timestamp"], font_size="11px", color="#8a8886"),
+                            rx.box(),
+                        ),
+                        spacing="2",
+                        align="center",
+                        flex_wrap="wrap",
+                    ),
+                    rx.text(item["summary"], font_size="12px", color="#5f5b56", line_height="1.45"),
+                    align="start",
+                    spacing="1",
+                ),
+                spacing="2",
+                align="start",
+                width="100%",
+            ),
+            width=["100%", "100%", "78%"],
+            background=rx.cond(is_error, "#fff3f3", "#f5f9ff"),
+            border=rx.cond(is_error, "1px solid #e6b3b3", "1px solid #cde0ff"),
+            border_radius="12px",
+            padding="10px 12px",
+        ),
+        width="100%",
+    )
+
+
+def _mcs_flow_item(item: dict) -> rx.Component:
+    return rx.cond(item["kind"] == "message", _mcs_flow_message(item), _mcs_flow_event(item))
+
+
+def _mcs_kpi_card(item: dict) -> rx.Component:
+    border_color = rx.match(
+        item["tone"],
+        ("warn", "#d29a1f"),
+        "#d7e2f2",
+    )
+    return rx.box(
+        rx.text(item["label"], font_size="12px", color="#5d6f8f", font_weight="700"),
+        rx.text(item["value"], font_size="26px", color="#14345c", font_weight="800", line_height="1.1"),
+        rx.text(item["hint"], font_size="11px", color="#7d879a"),
+        border=f"1px solid {border_color}",
+        border_radius="12px",
+        background="#ffffff",
+        padding="12px 14px",
+        width="100%",
+    )
+
+
+def _mcs_mix_row(item: dict) -> rx.Component:
+    return rx.vstack(
+        rx.hstack(
+            rx.hstack(
+                rx.box(width="10px", height="10px", border_radius="999px", background=item["color"]),
+                rx.text(item["label"], font_size="12px", color="#30486d", font_weight="600"),
+                spacing="2",
+                align="center",
+            ),
+            rx.spacer(),
+            rx.text(item["count"], font_size="12px", color="#30486d", font_weight="700"),
+            spacing="2",
+            width="100%",
+            align="center",
+        ),
+        rx.box(
+            rx.box(
+                height="8px",
+                border_radius="999px",
+                background=item["color"],
+                width=item["pct"],
+                min_width="6px",
+            ),
+            height="8px",
+            border_radius="999px",
+            background="#e8eef8",
+            width="100%",
+        ),
+        spacing="1",
+        width="100%",
+        align="start",
+    )
+
+
+def _mcs_highlight_chip(item: dict) -> rx.Component:
+    tone_color = rx.match(
+        item["tone"],
+        ("good", "#107c10"),
+        ("bad", "#a4262c"),
+        "#0a66ff",
+    )
+    tone_bg = rx.match(
+        item["tone"],
+        ("good", "#f4fbf4"),
+        ("bad", "#fff5f5"),
+        "#f4f8ff",
+    )
+    return rx.box(
+        rx.text(item["title"], font_size="11px", color="#5d6f8f", font_weight="700"),
+        rx.text(item["value"], font_size="20px", color=tone_color, font_weight="800", line_height="1.1"),
+        padding="10px 12px",
+        border_radius="10px",
+        background=tone_bg,
+        border=f"1px solid {tone_color}33",
+        min_width="120px",
+    )
+
+
+def _mcs_conversation_visual_dashboard() -> rx.Component:
+    return card(
+        rx.vstack(
+            rx.hstack(
+                rx.hstack(
+                    rx.icon("chart-column", size=16, color=PRIMARY),
+                    rx.text("Conversation Analytics", font_size="14px", font_weight="700", color="#1f3a63"),
+                    spacing="2",
+                    align="center",
+                ),
+                rx.spacer(),
+                rx.badge("Visual Summary", color_scheme="cyan", variant="soft", size="1"),
+                width="100%",
+                align="center",
+            ),
+            rx.grid(
+                rx.foreach(State.mcs_conv_kpis, _mcs_kpi_card),
+                columns="4",
+                gap="10px",
+                width="100%",
+            ),
+            rx.grid(
+                rx.box(
+                    rx.text("Event Mix", font_size="13px", color="#1f3a63", font_weight="700", margin_bottom="8px"),
+                    rx.vstack(rx.foreach(State.mcs_conv_event_mix, _mcs_mix_row), spacing="2", width="100%"),
+                    border="1px solid #dbe5f5",
+                    border_radius="12px",
+                    background="#fbfdff",
+                    padding="12px",
+                ),
+                rx.box(
+                    rx.text(
+                        "Turn Latency Distribution",
+                        font_size="13px",
+                        color="#1f3a63",
+                        font_weight="700",
+                        margin_bottom="8px",
+                    ),
+                    rx.vstack(rx.foreach(State.mcs_conv_latency_bands, _mcs_mix_row), spacing="2", width="100%"),
+                    border="1px solid #dbe5f5",
+                    border_radius="12px",
+                    background="#fbfdff",
+                    padding="12px",
+                ),
+                columns="2",
+                gap="10px",
+                width="100%",
+            ),
+            rx.hstack(
+                rx.foreach(State.mcs_conv_highlights, _mcs_highlight_chip),
+                spacing="2",
+                width="100%",
+                flex_wrap="wrap",
+            ),
+            spacing="3",
+            width="100%",
+            align="start",
+        ),
+        width="100%",
+        background="linear-gradient(130deg, #f8fbff 0%, #f6fbf8 100%)",
+        border="1px solid #d4e4f9",
+    )
+
+
+def _mcs_conversation_flow_panel() -> rx.Component:
+    return card(
+        rx.hstack(
+            rx.hstack(
+                rx.icon("message-square", size=16, color=PRIMARY),
+                rx.text("Conversation Flow", font_size="14px", font_weight="700", color="#1f3a63"),
+                spacing="2",
+                align="center",
+            ),
+            rx.spacer(),
+            rx.badge(
+                rx.cond(
+                    State.mcs_conversation_flow_source == "snapshot",
+                    "Snapshot Dialog View",
+                    "Transcript View",
+                ),
+                color_scheme="blue",
+                variant="soft",
+                size="1",
+            ),
+            align="center",
+            width="100%",
+            margin_bottom="10px",
+        ),
+        rx.box(
+            rx.vstack(
+                rx.foreach(State.mcs_conversation_flow, _mcs_flow_item),
+                spacing="4",
+                width="100%",
+                align="stretch",
+            ),
+            width="100%",
+            background="linear-gradient(180deg, #f9fcff 0%, #f7f7f8 100%)",
+            border="1px solid #dce6f5",
+            border_radius="12px",
+            padding=["10px", "12px", "14px"],
+            max_height="720px",
+            overflow_y="auto",
+        ),
+        width="100%",
+    )
+
+
+def _mcs_segment_block(segment: dict) -> rx.Component:
+    """Render section segments as separated visual blocks for better readability."""
+    return rx.box(
+        render_segment(segment),
+        width="100%",
+        border="1px solid #e2e9f5",
+        border_radius="12px",
+        background="#ffffff",
+        padding="14px",
+        box_shadow="0 6px 18px rgba(9, 30, 66, 0.05)",
+    )
+
+
 # ── Solution Check panel ──────────────────────────────────────────────────────
 
 _CHECK_CATEGORIES: list[str] = ["Solution", "Agent", "Topics", "Knowledge", "Security"]
@@ -1496,7 +1794,32 @@ def mcs_analyse_panel() -> rx.Component:
                         rx.cond(
                             State.mcs_analyse_tab == "credits",
                             _mcs_credits_panel(),
-                            rx.foreach(State.mcs_current_section_segments, render_segment),
+                            rx.cond(
+                                (State.mcs_analyse_tab == "conversation") & State.has_mcs_conversation_flow,
+                                rx.vstack(
+                                    rx.cond(
+                                        State.has_mcs_conv_visual_summary,
+                                        _mcs_conversation_visual_dashboard(),
+                                        rx.box(),
+                                    ),
+                                    _mcs_conversation_flow_panel(),
+                                    rx.vstack(
+                                        rx.foreach(State.mcs_current_section_segments, _mcs_segment_block),
+                                        width="100%",
+                                        spacing="3",
+                                        align="start",
+                                    ),
+                                    width="100%",
+                                    spacing="4",
+                                    align="start",
+                                ),
+                                rx.vstack(
+                                    rx.foreach(State.mcs_current_section_segments, _mcs_segment_block),
+                                    width="100%",
+                                    spacing="3",
+                                    align="start",
+                                ),
+                            ),
                         ),
                         spacing="4",
                         width="100%",
