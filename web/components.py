@@ -211,6 +211,384 @@ def json_upload_area() -> rx.Component:
     )
 
 
+def _mcs_dataverse_fetch_block() -> rx.Component:
+    """Shared Dataverse transcript fetch UI block."""
+    return rx.vstack(
+        sub_heading("FETCH FROM DATAVERSE"),
+        rx.text(
+            "Alternative to JSON upload: authenticate and fetch a transcript directly by transcript ID.",
+            font_size="12px",
+            color="#605e5c",
+        ),
+        rx.text(
+            "Tip: environment IDs such as Default-... are best-effort resolved; Dataverse URL is always reliable.",
+            font_size="11px",
+            color="#605e5c",
+        ),
+        rx.text("Environment ID or URL", font_size="11px", font_weight="600", color="#334a6d"),
+        rx.hstack(
+            rx.input(
+                placeholder="e.g. Default-1234... or https://org.crm.dynamics.com",
+                value=State.mcs_dv_environment,
+                on_change=State.set_mcs_dv_environment,
+                size="2",
+                width="50%",
+            ),
+            rx.input(
+                placeholder="Dataverse URL override (optional)",
+                value=State.mcs_dv_dataverse_url,
+                on_change=State.set_mcs_dv_dataverse_url,
+                size="2",
+                width="50%",
+            ),
+            spacing="2",
+            width="100%",
+            flex_wrap="wrap",
+        ),
+        rx.text("Transcript ID", font_size="11px", font_weight="600", color="#334a6d"),
+        rx.input(
+            placeholder="Transcript ID",
+            value=State.mcs_dv_transcript_id,
+            on_change=State.set_mcs_dv_transcript_id,
+            size="2",
+            width="100%",
+        ),
+        rx.text("Authentication mode", font_size="11px", font_weight="600", color="#334a6d"),
+        rx.hstack(
+            rx.button(
+                "Use Env Auth",
+                on_click=State.set_mcs_dv_use_env_auth(True),
+                size="1",
+                variant=rx.cond(State.mcs_dv_use_env_auth, "solid", "outline"),
+                color_scheme=rx.cond(State.mcs_dv_use_env_auth, "blue", "gray"),
+                cursor="pointer",
+            ),
+            rx.button(
+                "Manual Auth",
+                on_click=State.set_mcs_dv_use_env_auth(False),
+                size="1",
+                variant=rx.cond(State.mcs_dv_use_env_auth, "outline", "solid"),
+                color_scheme=rx.cond(State.mcs_dv_use_env_auth, "gray", "blue"),
+                cursor="pointer",
+            ),
+            spacing="2",
+            width="100%",
+        ),
+        rx.text(
+            rx.cond(State.mcs_dv_use_env_auth, "Current mode: Environment credentials", "Current mode: Manual credentials"),
+            font_size="11px",
+            color="#605e5c",
+        ),
+        rx.cond(
+            State.mcs_dv_use_env_auth,
+            rx.callout(
+                "Using environment credentials. If none are configured, the app will automatically switch to Manual Auth.",
+                icon="shield-check",
+                color_scheme="blue",
+            ),
+            rx.vstack(
+                rx.text("OAuth Device Code (recommended)", font_size="11px", font_weight="700", color="#334a6d"),
+                rx.hstack(
+                    rx.input(
+                        placeholder="Tenant ID",
+                        value=State.mcs_dv_oauth_tenant_id,
+                        on_change=State.set_mcs_dv_oauth_tenant_id,
+                        size="2",
+                        width="50%",
+                    ),
+                    rx.input(
+                        placeholder="Client ID (public app)",
+                        value=State.mcs_dv_oauth_client_id,
+                        on_change=State.set_mcs_dv_oauth_client_id,
+                        size="2",
+                        width="50%",
+                    ),
+                    spacing="2",
+                    width="100%",
+                    flex_wrap="wrap",
+                ),
+                rx.hstack(
+                    rx.button(
+                        "Use Default Public Client ID",
+                        on_click=State.use_mcs_dv_default_oauth_client_id,
+                        size="1",
+                        variant="ghost",
+                        color_scheme="blue",
+                        cursor="pointer",
+                    ),
+                    rx.text(
+                        "Convenience preset; tenant policy may require your own app registration.",
+                        font_size="11px",
+                        color="#605e5c",
+                    ),
+                    spacing="2",
+                    align="center",
+                    flex_wrap="wrap",
+                    width="100%",
+                ),
+                rx.hstack(
+                    rx.button(
+                        "Start Device Login",
+                        on_click=State.start_mcs_dataverse_device_login,
+                        size="1",
+                        variant="outline",
+                        color_scheme="blue",
+                        is_disabled=State.mcs_is_processing,
+                        _disabled={"opacity": "0.5", "cursor": "not-allowed"},
+                    ),
+                    rx.button(
+                        "Complete Device Login",
+                        on_click=State.complete_mcs_dataverse_device_login,
+                        size="1",
+                        variant="outline",
+                        color_scheme="blue",
+                        is_disabled=State.mcs_is_processing | (State.mcs_dv_oauth_device_code == ""),
+                        _disabled={"opacity": "0.5", "cursor": "not-allowed"},
+                    ),
+                    spacing="2",
+                    flex_wrap="wrap",
+                ),
+                rx.cond(
+                    State.mcs_dv_oauth_user_code != "",
+                    rx.box(
+                        rx.text("User code", font_size="11px", font_weight="700", color="#334a6d"),
+                        rx.code(State.mcs_dv_oauth_user_code),
+                        rx.cond(
+                            State.mcs_dv_oauth_verify_uri != "",
+                            rx.link(
+                                "Open verification URL",
+                                href=State.mcs_dv_oauth_verify_uri,
+                                is_external=True,
+                                color=PRIMARY,
+                                font_size="12px",
+                            ),
+                            rx.box(),
+                        ),
+                        width="100%",
+                    ),
+                    rx.box(),
+                ),
+                rx.cond(
+                    State.mcs_dv_oauth_message != "",
+                    rx.callout(
+                        State.mcs_dv_oauth_message,
+                        icon="info",
+                        color_scheme="blue",
+                    ),
+                    rx.box(),
+                ),
+                rx.divider(),
+                rx.text("Manual token / app credentials", font_size="11px", font_weight="700", color="#334a6d"),
+                rx.input(
+                    placeholder="Bearer token (optional if using app credentials below)",
+                    value=State.mcs_dv_token,
+                    on_change=State.set_mcs_dv_token,
+                    size="2",
+                    width="100%",
+                ),
+                rx.hstack(
+                    rx.input(
+                        placeholder="Tenant ID",
+                        value=State.mcs_dv_tenant_id,
+                        on_change=State.set_mcs_dv_tenant_id,
+                        size="2",
+                        width="33%",
+                    ),
+                    rx.input(
+                        placeholder="Client ID",
+                        value=State.mcs_dv_client_id,
+                        on_change=State.set_mcs_dv_client_id,
+                        size="2",
+                        width="33%",
+                    ),
+                    rx.input(
+                        placeholder="Client Secret",
+                        value=State.mcs_dv_client_secret,
+                        on_change=State.set_mcs_dv_client_secret,
+                        size="2",
+                        type="password",
+                        width="33%",
+                    ),
+                    spacing="2",
+                    width="100%",
+                    flex_wrap="wrap",
+                ),
+                rx.text(
+                    "Secrets are only used for this request and client secret is cleared after fetch.",
+                    font_size="11px",
+                    color="#605e5c",
+                ),
+                spacing="2",
+                width="100%",
+                align="start",
+            ),
+        ),
+        rx.button(
+            rx.hstack(
+                rx.icon("key-round", size=14),
+                rx.text("Authenticate", font_size="13px"),
+                spacing="2",
+                align="center",
+            ),
+            on_click=State.authenticate_mcs_dataverse,
+            is_disabled=State.mcs_is_processing,
+            size="2",
+            variant="outline",
+            color_scheme="blue",
+            cursor="pointer",
+            _disabled={"opacity": "0.5", "cursor": "not-allowed"},
+            width="100%",
+        ),
+        rx.button(
+            rx.hstack(
+                rx.icon("database", size=14),
+                rx.text("Fetch Transcript by ID", font_size="13px"),
+                spacing="2",
+                align="center",
+            ),
+            on_click=State.fetch_mcs_transcript_from_dataverse,
+            is_disabled=State.mcs_dv_actions_locked | State.mcs_is_processing,
+            size="2",
+            color_scheme="blue",
+            cursor="pointer",
+            _disabled={"opacity": "0.5", "cursor": "not-allowed"},
+            width="100%",
+        ),
+        rx.button(
+            rx.hstack(
+                rx.icon("shield-check", size=14),
+                rx.text("Test Connection", font_size="13px"),
+                spacing="2",
+                align="center",
+            ),
+            on_click=State.test_mcs_dataverse_connection,
+            is_disabled=State.mcs_dv_actions_locked | State.mcs_is_processing,
+            size="2",
+            variant="outline",
+            color_scheme="blue",
+            cursor="pointer",
+            _disabled={"opacity": "0.5", "cursor": "not-allowed"},
+            width="100%",
+        ),
+        rx.cond(
+            State.mcs_is_processing,
+            rx.hstack(
+                rx.spinner(size="2", color=PRIMARY),
+                rx.text("Working on Dataverse request...", font_size="12px", color="#605e5c"),
+                spacing="2",
+                align="center",
+            ),
+            rx.box(),
+        ),
+        rx.cond(
+            State.mcs_dv_actions_locked,
+            rx.callout(
+                "Manual Auth mode is locked. Click Authenticate first, then run Test Connection or Fetch.",
+                icon="lock",
+                color_scheme="amber",
+            ),
+            rx.box(),
+        ),
+        rx.cond(
+            State.mcs_upload_error != "",
+            rx.callout(
+                State.mcs_upload_error,
+                icon="triangle-alert",
+                color_scheme="red",
+            ),
+            rx.box(),
+        ),
+        rx.cond(
+            State.mcs_dv_auth_message != "",
+            rx.callout(
+                State.mcs_dv_auth_message,
+                icon=rx.cond(State.mcs_dv_auth_ok, "badge-check", "triangle-alert"),
+                color_scheme=rx.cond(State.mcs_dv_auth_ok, "green", "red"),
+            ),
+            rx.box(),
+        ),
+        rx.cond(
+            State.mcs_dv_connection_message != "",
+            rx.callout(
+                State.mcs_dv_connection_message,
+                icon=rx.cond(State.mcs_dv_connection_ok, "badge-check", "triangle-alert"),
+                color_scheme=rx.cond(State.mcs_dv_connection_ok, "green", "red"),
+            ),
+            rx.box(),
+        ),
+        rx.cond(
+            State.mcs_dv_last_transcript_id != "",
+            rx.box(
+                rx.text("Last fetched transcript", font_size="12px", font_weight="700", color="#334a6d"),
+                rx.grid(
+                    rx.text("Source", font_size="12px", color="#605e5c"),
+                    rx.text(State.mcs_dv_last_source, font_size="12px", color="#201f1e"),
+                    rx.text("Table", font_size="12px", color="#605e5c"),
+                    rx.text(State.mcs_dv_last_table, font_size="12px", color="#201f1e"),
+                    rx.text("Transcript ID", font_size="12px", color="#605e5c"),
+                    rx.text(State.mcs_dv_last_transcript_id, font_size="12px", color="#201f1e"),
+                    rx.text("Created", font_size="12px", color="#605e5c"),
+                    rx.text(State.mcs_dv_last_created_at, font_size="12px", color="#201f1e"),
+                    rx.text("Conversation ID", font_size="12px", color="#605e5c"),
+                    rx.text(State.mcs_dv_last_conversation_id, font_size="12px", color="#201f1e"),
+                    columns="2",
+                    row_gap="6px",
+                    column_gap="12px",
+                    width="100%",
+                ),
+                border="1px solid #e1dfdd",
+                border_radius="8px",
+                padding="10px",
+                width="100%",
+            ),
+            rx.box(),
+        ),
+        spacing="2",
+        width="100%",
+        align="start",
+    )
+
+
+def transcript_input_choice_area() -> rx.Component:
+    """Landing first-step choice: upload JSON or fetch from Dataverse."""
+    return rx.vstack(
+        rx.text(
+            "Step 1: Choose transcript input method",
+            font_size="13px",
+            font_weight="700",
+            color="#201f1e",
+        ),
+        rx.hstack(
+            rx.button(
+                "Upload JSON",
+                on_click=State.set_mcs_landing_transcript_mode("upload"),
+                size="2",
+                variant=rx.cond(State.mcs_landing_transcript_mode == "upload", "solid", "outline"),
+                color_scheme=rx.cond(State.mcs_landing_transcript_mode == "upload", "blue", "gray"),
+                cursor="pointer",
+            ),
+            rx.button(
+                "Fetch from Dataverse",
+                on_click=State.set_mcs_landing_transcript_mode("dataverse"),
+                size="2",
+                variant=rx.cond(State.mcs_landing_transcript_mode == "dataverse", "solid", "outline"),
+                color_scheme=rx.cond(State.mcs_landing_transcript_mode == "dataverse", "blue", "gray"),
+                cursor="pointer",
+            ),
+            spacing="2",
+            flex_wrap="wrap",
+        ),
+        rx.cond(
+            State.mcs_landing_transcript_mode == "dataverse",
+            _mcs_dataverse_fetch_block(),
+            json_upload_area(),
+        ),
+        width="100%",
+        spacing="3",
+        align="start",
+    )
+
+
 # ── Detected info panel (read-only summary) ────────────────────────────────────
 
 
@@ -1066,6 +1444,8 @@ def _mcs_upload_form() -> rx.Component:
             ),
             rx.box(),
         ),
+        rx.divider(margin_y="4px"),
+        _mcs_dataverse_fetch_block(),
         spacing="3",
         width="100%",
         align="start",
