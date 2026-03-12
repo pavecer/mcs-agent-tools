@@ -27,6 +27,7 @@ class MCSComponentSummary(BaseModel):
     schema_name: str
     state: str = "Active"
     trigger_kind: str | None = None
+    trigger_queries: list[str] = Field(default_factory=list)
     dialog_kind: str | None = None
     action_kind: str | None = None
     description: str | None = None
@@ -57,6 +58,7 @@ class MCSBotProfile(BaseModel):
     channels: list[str] = Field(default_factory=list)
     ai_settings: MCSAISettings = Field(default_factory=MCSAISettings)
     recognizer_kind: str = "Unknown"
+    recognizer_id: str = ""
     components: list[MCSComponentSummary] = Field(default_factory=list)
     is_orchestrator: bool = False
     gpt_info: MCSGptInfo | None = None

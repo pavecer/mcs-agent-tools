@@ -139,7 +139,129 @@ def render_topic_graph(profile: MCSBotProfile) -> str:
     return "\n".join(lines)
 
 
-def render_mermaid_sequence(timeline: MCSConversationTimeline) -> str:
+_SYSTEM_TRIGGER_KINDS: frozenset[str] = frozenset(
+    {
+        "OnConversationStart",
+        "OnUnknownIntent",
+        "OnEscalate",
+        "OnError",
+        "OnSignIn",
+        "OnEndConversation",
+        "OnActivity",
+    }
+)
+
+# Guardrail topics that every production agent should have (trigger_kind → label)
+_GUARDRAIL_TOPICS: dict[str, str] = {
+    "OnUnknownIntent": "Fallback (Unknown Intent)",
+    "OnEscalate": "Escalate",
+    "OnEndConversation": "End Conversation",
+}
+
+
+def render_topic_trigger_audit(profile: MCSBotProfile) -> str:
+    """Render the Topic & Trigger Audit section of the report."""
+    lines: list[str] = ["## Topic & Trigger Audit", ""]
+
+    dialog_topics = [c for c in profile.components if c.kind == "DialogComponent"]
+
+    if not dialog_topics:
+        lines += ["_No topics found in this snapshot._", ""]
+        return "\n".join(lines)
+
+    # ── Orchestration Mode ─────────────────────────────────────────────────────
+    lines += ["### Orchestration Mode", ""]
+    if profile.gpt_info:
+        model_name = profile.gpt_info.model_hint or "GPT"
+        lines += [
+            f"Orchestration: **Generative AI ({model_name})**  ",
+            "_Triggers are suggestions — the LLM decides when to invoke each topic._",
+            "",
+        ]
+    elif profile.recognizer_kind and profile.recognizer_kind.lower() not in ("unknown", ""):
+        recognizer_label = profile.recognizer_kind
+        if profile.recognizer_id:
+            recognizer_label += f" (`{profile.recognizer_id}`)"
+        lines += [
+            f"Orchestration: **Classic ({recognizer_label})**  ",
+            "_Ensure each intent-based topic has sufficient trigger phrase coverage._",
+            "",
+        ]
+    else:
+        lines += ["_Orchestration mode could not be determined._", ""]
+
+    # ── Conflicting Triggers ───────────────────────────────────────────────────
+    lines += ["### Conflicting Triggers", ""]
+
+    phrase_to_topics: dict[str, list[str]] = {}
+    for comp in dialog_topics:
+        if not comp.trigger_queries:
+            continue
+        name = comp.display_name or comp.schema_name or "Unknown"
+        for phrase in comp.trigger_queries:
+            key = phrase.strip().lower()
+            if key:
+                phrase_to_topics.setdefault(key, []).append(name)
+
+    conflicts = {phrase: topics for phrase, topics in phrase_to_topics.items() if len(topics) > 1}
+    if conflicts:
+        for phrase, topics in sorted(conflicts.items()):
+            topic_list = " and ".join(f"*{t}*" for t in topics)
+            lines.append(f'- ⚠️ Topics {topic_list} share trigger phrase **"{phrase}"**')
+        lines.append("")
+    else:
+        lines += ["_No overlapping trigger phrases detected._", ""]
+
+    # ── Orphan Topics ──────────────────────────────────────────────────────────
+    lines += ["### Orphan Topics", ""]
+
+    called_targets: set[str] = {c.target_schema for c in profile.topic_connections}
+    called_targets |= {c.target_display for c in profile.topic_connections}
+
+    orphans: list[str] = []
+    for comp in dialog_topics:
+        if comp.trigger_kind in _SYSTEM_TRIGGER_KINDS:
+            continue
+        has_triggers = bool(comp.trigger_queries)
+        is_called = comp.schema_name in called_targets or comp.display_name in called_targets
+        if not has_triggers and not is_called:
+            name = comp.display_name or comp.schema_name or "Unknown"
+            state_note = f" _(state: {comp.state})_" if comp.state and comp.state.lower() != "active" else ""
+            orphans.append(f"- ⚠️ **{name}**{state_note} — no trigger phrases and not called by any other topic")
+
+    if orphans:
+        lines += orphans + [""]
+    else:
+        lines += ["_No orphaned topics detected._", ""]
+
+    # ── Missing Guardrails ─────────────────────────────────────────────────────
+    lines += ["### Missing Guardrails", ""]
+
+    active_trigger_kinds: set[str] = {
+        c.trigger_kind
+        for c in dialog_topics
+        if c.trigger_kind and c.state.lower() == "active"
+    }
+    all_trigger_kinds: set[str] = {c.trigger_kind for c in dialog_topics if c.trigger_kind}
+
+    guardrail_issues: list[str] = []
+    for trigger_kind, label in _GUARDRAIL_TOPICS.items():
+        if trigger_kind not in all_trigger_kinds:
+            guardrail_issues.append(f"- 🚨 **{label}** (`{trigger_kind}`) — topic is **missing**")
+        elif trigger_kind not in active_trigger_kinds:
+            guardrail_issues.append(
+                f"- ⚠️ **{label}** (`{trigger_kind}`) — topic exists but is **inactive/disabled**"
+            )
+
+    if guardrail_issues:
+        lines += guardrail_issues + [""]
+    else:
+        lines += ["_All essential guardrail topics are present and active. ✅_", ""]
+
+    return "\n".join(lines)
+
+
+
     lines: list[str] = [
         "## Conversation Sequence Diagram",
         "",
@@ -683,6 +805,7 @@ def render_report(profile: MCSBotProfile, timeline: MCSConversationTimeline) -> 
         render_bot_metadata(profile),
         render_components(profile),
         render_topic_graph(profile),
+        render_topic_trigger_audit(profile),
     ]
 
     if timeline.events:
@@ -704,7 +827,7 @@ def render_report(profile: MCSBotProfile, timeline: MCSConversationTimeline) -> 
 def render_report_sections(profile: MCSBotProfile, timeline: MCSConversationTimeline) -> dict[str, str]:
     """Return the report split into named sections for tabbed display.
 
-    Keys: ``"profile"``, ``"topics"``, ``"graph"``, ``"conversation"``.
+    Keys: ``"profile"``, ``"topics"``, ``"graph"``, ``"audit"``, ``"conversation"``.
     """
     bot_name = profile.display_name or "Unknown Bot"
 
@@ -731,6 +854,8 @@ def render_report_sections(profile: MCSBotProfile, timeline: MCSConversationTime
         else "## Topic Redirect Graph\n\n_No topic connections found in this snapshot._\n"
     )
 
+    audit_md = render_topic_trigger_audit(profile)
+
     if timeline.events:
         conv_parts = [
             render_conversation_overview(timeline),
@@ -755,6 +880,7 @@ def render_report_sections(profile: MCSBotProfile, timeline: MCSConversationTime
         "profile": profile_md,
         "topics": topics_md,
         "graph": graph_md,
+        "audit": audit_md,
         "conversation": conversation_md,
     }
 
