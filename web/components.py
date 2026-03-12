@@ -525,7 +525,7 @@ def feedback_footer() -> rx.Component:
             rx.link(
                 rx.hstack(
                     rx.icon("square-pen", size=13),
-                    rx.text("Open Issue", font_size="12px", font_weight="600"),
+                    rx.text("Feature Ask Simple", font_size="12px", font_weight="600"),
                     spacing="1",
                     align="center",
                 ),

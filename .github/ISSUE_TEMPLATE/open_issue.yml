@@ -1,14 +1,16 @@
-name: Open issue
-description: Quick issue with a short one-line description.
-title: "[Open]: "
+name: Feature Ask Simple
+description: Quick feature ask with a single description field.
+title: "[Feature Ask]: "
 labels:
   - triage
 body:
-  - type: input
-    id: issue
+  - type: textarea
+    id: issue_description
     attributes:
-      label: Issue
-      description: One-line description of the issue or request.
-      placeholder: Add version number to navbar too
+      label: Issue Description
+      description: Describe the issue or feature ask in a few lines.
+      placeholder: |
+        Please add version number in the navbar as well.
+        It would help when sharing screenshots with the team.
     validations:
       required: true
