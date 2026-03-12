@@ -389,11 +389,7 @@ def render_topic_trigger_audit(profile: MCSBotProfile) -> str:
     if conflicts:
         for phrase, topics in sorted(conflicts.items()):
             topic_names = ", ".join(f"`{_compact_component_name(t)}`" for t in topics)
-            lines.append(
-                "- ⚠️ Trigger phrase conflict"
-                f"\n  Phrase: **\"{phrase}\"**"
-                f"\n  Topics: {topic_names}"
-            )
+            lines.append(f'- ⚠️ Trigger phrase conflict\n  Phrase: **"{phrase}"**\n  Topics: {topic_names}')
         lines.append("")
     else:
         lines += ["_No overlapping trigger phrases detected._", ""]
@@ -436,9 +432,7 @@ def render_topic_trigger_audit(profile: MCSBotProfile) -> str:
     for trigger_kind, label in _GUARDRAIL_TOPICS.items():
         if trigger_kind not in all_trigger_kinds:
             guardrail_issues.append(
-                "- 🚨 Missing guardrail"
-                f"\n  Topic: **{label}** (`{trigger_kind}`)"
-                "\n  Status: **missing**"
+                f"- 🚨 Missing guardrail\n  Topic: **{label}** (`{trigger_kind}`)\n  Status: **missing**"
             )
         elif trigger_kind not in active_trigger_kinds:
             guardrail_issues.append(

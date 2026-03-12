@@ -1480,13 +1480,9 @@ def _build_relation_rows(missing: list[_MissingDep]) -> list[dict]:
         req_type = _friendly_botcomponent_type(m.req_schema or m.req_name, req_type)
         rows.append(
             {
-                "dependent": _truncate_middle(
-                    _friendly_component_name(m.dep_name, m.dep_schema, m.dep_identifier), 64
-                ),
+                "dependent": _truncate_middle(_friendly_component_name(m.dep_name, m.dep_schema, m.dep_identifier), 64),
                 "dependent_type": dep_type,
-                "required": _truncate_middle(
-                    _friendly_component_name(m.req_name, m.req_schema, m.req_identifier), 64
-                ),
+                "required": _truncate_middle(_friendly_component_name(m.req_name, m.req_schema, m.req_identifier), 64),
                 "required_type": req_type,
                 "source": m.req_solution or m.req_package or "Active",
             }
@@ -1547,8 +1543,7 @@ def analyze_deps_zip_bytes_report(zip_bytes: bytes, detailed_diagram: bool = Fal
 
         if not components and not missing:
             raise ValueError(
-                "No components were discovered from solution.xml or artifact folders "
-                "(e.g., bots/, botcomponents/)."
+                "No components were discovered from solution.xml or artifact folders (e.g., bots/, botcomponents/)."
             )
 
         return {
