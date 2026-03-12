@@ -16,10 +16,37 @@ from mcs_models import (
 
 
 def _extract_strings(obj, key_hints: tuple[str, ...], out: list[str], max_items: int = 6) -> None:
-    """Recursively collect string values whose keys match provided hints."""
+    """Recursively collect string values from nested mappings and lists.
+
+    This helper walks ``obj`` depth‑first. When it encounters a dictionary,
+    it compares each key (lower‑cased string form) against the provided
+    ``key_hints`` and, for keys that contain any hint as a substring, it
+    extracts the associated value if it is a string. Extracted strings are
+    stripped of leading and trailing whitespace, deduplicated, and appended
+    to ``out`` until ``max_items`` unique strings have been collected.
+
+    The ``out`` list is mutated in place and used to accumulate results
+    across recursive calls. Non‑mapping, non‑list objects are ignored.
+
+    Args:
+        obj: The current object to inspect; typically a nested combination
+            of dictionaries and lists originating from an activity payload.
+        key_hints: A tuple of lowercase substrings to search for within
+            dictionary keys when deciding which string values to extract.
+        out: A list that will be populated with matching string values.
+        max_items: The maximum number of strings to collect before the
+            traversal short‑circuits.
+    """
     if len(out) >= max_items:
         return
-    if isinstance(obj, dict):
+    """Return the length of the first list found under matching keys.
+
+    The function first looks for keys in ``candidate_keys`` at the top level
+    of ``value`` whose associated value is a list. If no such key is found,
+    it falls back to searching nested dictionaries one level deep for the
+    same keys. If no matching list is found at either level, ``0`` is
+    returned.
+    """
         for k, v in obj.items():
             k_low = str(k).lower()
             if isinstance(v, str) and any(h in k_low for h in key_hints):
