@@ -136,10 +136,10 @@ def test_render_knowledge_sources_and_tools_marks_access_and_auth(monkeypatch):
 
 def test_render_report_sections_exposes_dedicated_knowledge_tools_section():
     profile = MCSBotProfile(
-      display_name="Test Agent",
-      knowledge_sources=[
-        MCSKnowledgeSource(name="Contoso FAQ", source_type="Website", location="https://www.contoso.com/faq")
-      ],
+        display_name="Test Agent",
+        knowledge_sources=[
+            MCSKnowledgeSource(name="Contoso FAQ", source_type="Website", location="https://www.contoso.com/faq")
+        ],
     )
 
     sections = render_report_sections(profile, timeline=MCSConversationTimeline())

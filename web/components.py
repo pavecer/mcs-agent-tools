@@ -1018,6 +1018,7 @@ def _mcs_section_tab_bar() -> rx.Component:
             _btn("knowledge_tools", "database", "Knowledge & Tools"),
             _btn("topics", "list", "Topics"),
             _btn("graph", "git-branch", "Topic Graph"),
+            _btn("model_comparison", "bar-chart-2", "Model"),
             _btn("credits", "coins", "Credits"),
             _btn("conversation", "message-square", "Conversation"),
             spacing="0",

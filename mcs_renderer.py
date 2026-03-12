@@ -64,11 +64,14 @@ def render_bot_profile(profile: MCSBotProfile) -> str:
 
 def render_bot_metadata(profile: MCSBotProfile) -> str:
     ai = profile.ai_settings
+    model_hint = profile.gpt_info.model_hint if profile.gpt_info else None
+    model_display = model_hint or "—"
     lines: list[str] = [
         "## AI Settings",
         "",
         "| Setting | Value |",
         "| --- | --- |",
+        f"| **Foundation Model** | {model_display} |",
         f"| **Use Model Knowledge** | {ai.use_model_knowledge} |",
         f"| **File Analysis** | {ai.file_analysis} |",
         f"| **Semantic Search** | {ai.semantic_search} |",
@@ -360,9 +363,7 @@ def render_topic_trigger_audit(profile: MCSBotProfile) -> str:
     lines += ["### Missing Guardrails", ""]
 
     active_trigger_kinds: set[str] = {
-        c.trigger_kind
-        for c in dialog_topics
-        if c.trigger_kind and c.state.lower() == "active"
+        c.trigger_kind for c in dialog_topics if c.trigger_kind and c.state.lower() == "active"
     }
     all_trigger_kinds: set[str] = {c.trigger_kind for c in dialog_topics if c.trigger_kind}
 
@@ -371,9 +372,7 @@ def render_topic_trigger_audit(profile: MCSBotProfile) -> str:
         if trigger_kind not in all_trigger_kinds:
             guardrail_issues.append(f"- 🚨 **{label}** (`{trigger_kind}`) — topic is **missing**")
         elif trigger_kind not in active_trigger_kinds:
-            guardrail_issues.append(
-                f"- ⚠️ **{label}** (`{trigger_kind}`) — topic exists but is **inactive/disabled**"
-            )
+            guardrail_issues.append(f"- ⚠️ **{label}** (`{trigger_kind}`) — topic exists but is **inactive/disabled**")
 
     if guardrail_issues:
         lines += guardrail_issues + [""]
@@ -381,6 +380,13 @@ def render_topic_trigger_audit(profile: MCSBotProfile) -> str:
         lines += ["_All essential guardrail topics are present and active. ✅_", ""]
 
     return "\n".join(lines)
+
+
+def render_model_comparison(profile: MCSBotProfile) -> str:
+    """Render the Model Performance Comparison section for a bot profile."""
+    from model_comparison import build_comparison_markdown
+
+    return build_comparison_markdown(profile)
 
 
 def render_mermaid_sequence(timeline: MCSConversationTimeline) -> str:
@@ -932,6 +938,7 @@ def render_report(profile: MCSBotProfile, timeline: MCSConversationTimeline) -> 
         render_components(profile),
         render_topic_graph(profile),
         render_topic_trigger_audit(profile),
+        render_model_comparison(profile),
     ]
 
     if timeline.events:
@@ -1010,6 +1017,7 @@ def render_report_sections(profile: MCSBotProfile, timeline: MCSConversationTime
         "topics": topics_md,
         "graph": graph_md,
         "audit": audit_md,
+        "model_comparison": render_model_comparison(profile),
         "conversation": conversation_md,
     }
 
