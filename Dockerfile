@@ -1,8 +1,8 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # PP Agent Toolkit — Production Docker image
 #
-# Single-stage build (Node.js required both at build time to compile the
-# Reflex/Next.js frontend and at runtime if Reflex needs to hot-patch assets).
+# Single-stage build. Node.js is required at build time to compile the frontend
+# with reflex export; runtime serves static assets via nginx.
 # Image size is ~700 MB; the trade-off is a reliable, no-fuss container.
 # ─────────────────────────────────────────────────────────────────────────────
 FROM python:3.12-slim
@@ -63,5 +63,5 @@ EXPOSE 2009
 
 # USERS env var is injected at runtime via Azure Container App secrets —
 # never bake credentials into the image.
-# Topology: nginx:2009 (external) → Next.js:3100 (frontend) + granian:8000 (backend)
+# Topology: nginx:2009 (external) → static frontend + granian:8000 (backend)
 CMD ["/app/docker-entrypoint.sh"]

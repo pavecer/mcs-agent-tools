@@ -1,26 +1,24 @@
 #!/bin/sh
 # Production container entrypoint.
-# Starts Reflex first, waits for internal ports, then starts nginx
-# (external reverse proxy on PORT).
+# Starts Reflex backend only, waits for backend port, then starts nginx
+# to serve exported static frontend and proxy backend endpoints.
 set -e
 
-FRONTEND_PORT="${FRONTEND_PORT:-3100}"
 BACKEND_PORT="${BACKEND_PORT:-8000}"
 PORT="${PORT:-2009}"
-export FRONTEND_PORT BACKEND_PORT PORT
+export BACKEND_PORT PORT
 
-echo "--- Starting Reflex (frontend :${FRONTEND_PORT}, backend :${BACKEND_PORT}) ---"
-uv run reflex run --env prod --loglevel info &
+echo "--- Starting Reflex backend (:${BACKEND_PORT}) ---"
+uv run reflex run --env prod --backend-only --loglevel info &
 REFLEX_PID=$!
 
-# Wait for Reflex sockets; fail fast if process exits.
+# Wait for backend socket; fail fast if process exits.
 python3 - <<'PY'
 import os
 import socket
 import sys
 import time
 
-frontend = int(os.environ.get("FRONTEND_PORT", "3100"))
 backend = int(os.environ.get("BACKEND_PORT", "8000"))
 deadline = time.time() + 90
 
@@ -39,13 +37,13 @@ def is_open(port: int) -> bool:
 	return False
 
 while time.time() < deadline:
-	if is_open(frontend) and is_open(backend):
-		print(f"Reflex is ready on frontend:{frontend} backend:{backend}")
+	if is_open(backend):
+		print(f"Reflex backend is ready on port:{backend}")
 		sys.exit(0)
 	time.sleep(1)
 
 print(
-	f"Timed out waiting for Reflex ports frontend:{frontend} backend:{backend}",
+	f"Timed out waiting for Reflex backend port:{backend}",
 	file=sys.stderr,
 )
 sys.exit(1)
