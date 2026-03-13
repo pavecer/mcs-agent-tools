@@ -1,0 +1,194 @@
+name: Deploy Nightly
+
+on:
+  schedule:
+    # Run hourly and gate to local 03:00 Europe/Prague to handle CET/CEST.
+    - cron: "7 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-prod-main
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Preflight Checks
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: prod
+    outputs:
+      deploy: ${{ steps.time_gate.outputs.deploy }}
+    steps:
+      - name: Gate schedule to 03:00 Europe/Prague
+        id: time_gate
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            echo "Manual run detected; deployment enabled."
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          LOCAL_HOUR=$(TZ=Europe/Prague date +%H)
+          echo "Europe/Prague local hour is: ${LOCAL_HOUR}"
+
+          if [[ "${LOCAL_HOUR}" == "03" ]]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+            echo "Not deployment hour; skipping deployment."
+          fi
+
+      - name: Validate required prod secrets
+        if: steps.time_gate.outputs.deploy == 'true'
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          AZURE_CONTAINER_APP_NAME: ${{ secrets.AZURE_CONTAINER_APP_NAME }}
+          AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+          ACR_NAME: ${{ secrets.ACR_NAME }}
+        run: |
+          set -euo pipefail
+
+          missing=0
+          for key in \
+            AZURE_CLIENT_ID \
+            AZURE_TENANT_ID \
+            AZURE_SUBSCRIPTION_ID \
+            AZURE_CONTAINER_APP_NAME \
+            AZURE_RESOURCE_GROUP \
+            ACR_NAME; do
+            if [[ -z "${!key:-}" ]]; then
+              echo "ERROR: Missing required prod environment secret: ${key}"
+              missing=1
+            fi
+          done
+
+          if [[ "$missing" -ne 0 ]]; then
+            echo "Preflight failed. Configure missing secrets in GitHub Environment 'prod'."
+            exit 1
+          fi
+
+          echo "Preflight passed: all required prod secrets are present."
+
+  deploy:
+    name: Build & Deploy to Azure Container App
+    if: github.ref == 'refs/heads/main' && needs.preflight.outputs.deploy == 'true'
+    needs: preflight
+    runs-on: ubuntu-latest
+    environment:
+      name: prod
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Ensure Azure CLI containerapp extension
+        run: |
+          az config set extension.use_dynamic_install=yes_without_prompt
+          az extension add --name containerapp --upgrade
+
+      - name: Resolve app FQDN
+        id: app
+        run: |
+          set -euo pipefail
+          FQDN=$(az containerapp show \
+            --name "${{ secrets.AZURE_CONTAINER_APP_NAME }}" \
+            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
+            --query "properties.configuration.ingress.fqdn" -o tsv)
+
+          if [[ -z "${FQDN}" ]]; then
+            echo "ERROR: Container App ingress FQDN is empty. Ensure ingress is enabled."
+            exit 1
+          fi
+
+          echo "fqdn=${FQDN}" >> "$GITHUB_OUTPUT"
+          echo "Container App FQDN: ${FQDN}"
+
+      - name: Build & push image to ACR
+        run: |
+          set -euo pipefail
+          az acr build \
+            --registry "${{ secrets.ACR_NAME }}" \
+            --image "pp-agent-toolkit:${{ github.sha }}" \
+            --image "pp-agent-toolkit:latest" \
+            --build-arg "API_URL=https://${{ steps.app.outputs.fqdn }}" \
+            .
+
+      # Prerequisite: Container App managed identity must already have AcrPull on ACR.
+      - name: Deploy image to Azure Container App
+        run: |
+          set -euo pipefail
+          APP="${{ secrets.AZURE_CONTAINER_APP_NAME }}"
+          RG="${{ secrets.AZURE_RESOURCE_GROUP }}"
+          ACR_SERVER="${{ secrets.ACR_NAME }}.azurecr.io"
+          IMAGE="${ACR_SERVER}/pp-agent-toolkit:${{ github.sha }}"
+
+          az containerapp update \
+            --name "$APP" \
+            --resource-group "$RG" \
+            --image "$IMAGE"
+
+      - name: Wait for healthy revision
+        run: |
+          set -euo pipefail
+          APP="${{ secrets.AZURE_CONTAINER_APP_NAME }}"
+          RG="${{ secrets.AZURE_RESOURCE_GROUP }}"
+
+          REVISION=$(az containerapp show \
+            --name "$APP" \
+            --resource-group "$RG" \
+            --query "properties.latestRevisionName" -o tsv)
+
+          echo "Polling revision health: ${REVISION}"
+          for i in $(seq 1 24); do
+            HEALTH=$(az containerapp revision show \
+              --name "$APP" \
+              --resource-group "$RG" \
+              --revision "$REVISION" \
+              --query "properties.healthState" -o tsv 2>/dev/null || echo "Unknown")
+            RUNNING=$(az containerapp revision show \
+              --name "$APP" \
+              --resource-group "$RG" \
+              --revision "$REVISION" \
+              --query "properties.runningState" -o tsv 2>/dev/null || echo "Unknown")
+
+            echo "[${i}/24] healthState=${HEALTH} runningState=${RUNNING}"
+            if [[ "$HEALTH" == "Healthy" ]]; then
+              echo "Revision is healthy."
+              exit 0
+            fi
+
+            sleep 15
+          done
+
+          echo "ERROR: Revision did not become healthy after 6 minutes."
+          az containerapp logs show \
+            --name "$APP" \
+            --resource-group "$RG" \
+            --tail 100 --follow false || true
+          exit 1
+
+      - name: Show revisions
+        if: always()
+        run: |
+          az containerapp revision list \
+            --name "${{ secrets.AZURE_CONTAINER_APP_NAME }}" \
+            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
+            --query "[].{revision:name, health:properties.healthState, running:properties.runningState, created:properties.createdTime}" \
+            --output table
