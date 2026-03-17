@@ -4,7 +4,12 @@ Toolkit for **Power Platform / Copilot Studio** exports with a single Reflex web
 
 ## Current Version
 
-- **0.3.0**
+- **0.4.0**
+
+Release notes:
+
+- [Root release notes](/Users/pavelvecer/GitHubRepos/pp-agent-renamer/RELEASE_NOTES_v0.4.0.md)
+- [Wiki release notes](/Users/pavelvecer/GitHubRepos/pp-agent-renamer/docs/wiki/Release-Notes-v0.4.0.md)
 
 ## What The Solution Offers
 
