@@ -3826,7 +3826,7 @@ def _tut_step_transcript() -> rx.Component:
         ("message-circle", "16", "conversation turns"),
         ("clock", "1.8 s", "avg. latency"),
         ("zap", "142", "Azure credits"),
-        ("check-circle", "3", "topic completions"),
+        ("circle-check", "3", "topic completions"),
     ]
     return rx.vstack(
         rx.hstack(
@@ -3953,7 +3953,7 @@ def _tut_step_analyse() -> rx.Component:
         ("share-2", "Topic Graph", "Mermaid diagram of BeginDialog connections between topics."),
         ("cpu", "Model", "Side-by-side comparison of AI models configured across the agent's model slots."),
         ("zap", "Credits", "Azure Copilot credit usage estimate with per-activity type breakdown."),
-        ("play-circle", "Conversation", "Conversation flow sequence diagram and full event execution timeline."),
+        ("circle-play", "Conversation", "Conversation flow sequence diagram and full event execution timeline."),
     ]
     return rx.vstack(
         rx.hstack(
@@ -4084,13 +4084,13 @@ def _tut_step_visualize() -> rx.Component:
 def _tut_step_validate() -> rx.Component:
     """Step 5 – Validate Tab with sample validation results."""
     results = [
-        ("check-circle", SUCCESS, "#f0fff0", "#107c1044",
+        ("circle-check", SUCCESS, "#f0fff0", "#107c1044",
          "Instructions length is within the recommended range for GPT-4o-mini (3,200 tokens).", "PASS", "green"),
-        ("alert-triangle", WARNING_AMBER, "#fffbf0", "#c7921e44",
+        ("triangle-alert", WARNING_AMBER, "#fffbf0", "#c7921e44",
          "Avoid exact phrases from training data in agent instructions to reduce hallucination risk.", "WARN", "yellow"),
-        ("alert-triangle", WARNING_AMBER, "#fffbf0", "#c7921e44",
+        ("triangle-alert", WARNING_AMBER, "#fffbf0", "#c7921e44",
          "Consider adding citation requirements to knowledge source instructions.", "WARN", "yellow"),
-        ("x-circle", ERROR_COLOR, "#fff0f0", "#a4262c44",
+        ("circle-x", ERROR_COLOR, "#fff0f0", "#a4262c44",
          "Instructions exceed the safe token limit for the o1 model (1,200 tokens).", "FAIL", "red"),
     ]
     return rx.vstack(
@@ -4143,11 +4143,11 @@ def _tut_step_check() -> rx.Component:
         ("1", ERROR_COLOR, "#fff0f0", "#a4262c44", "FAIL"),
     ]
     findings = [
-        ("check-circle", SUCCESS, "Agent has a valid system topic for Unknown Intent"),
-        ("check-circle", SUCCESS, "Conversation Start topic is properly configured"),
-        ("alert-triangle", WARNING_AMBER, "3 topics have no test utterances in the solution"),
-        ("alert-triangle", WARNING_AMBER, "Custom connector lacks an error-handling branch"),
-        ("x-circle", ERROR_COLOR, "Agent instructions are missing required safety guidelines"),
+        ("circle-check", SUCCESS, "Agent has a valid system topic for Unknown Intent"),
+        ("circle-check", SUCCESS, "Conversation Start topic is properly configured"),
+        ("triangle-alert", WARNING_AMBER, "3 topics have no test utterances in the solution"),
+        ("triangle-alert", WARNING_AMBER, "Custom connector lacks an error-handling branch"),
+        ("circle-x", ERROR_COLOR, "Agent instructions are missing required safety guidelines"),
     ]
     return rx.vstack(
         rx.hstack(

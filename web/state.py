@@ -295,6 +295,14 @@ class State(rx.State):
         if self.tutorial_step > 0:
             self.tutorial_step -= 1
 
+    def set_tutorial_step(self, step: int) -> None:
+        """Jump directly to a tutorial step (used by step-label clicks)."""
+        self.tutorial_step = step
+
+    def set_tutorial_open(self, open: bool) -> None:
+        """Set tutorial dialog open state (used by dialog on_open_change)."""
+        self.tutorial_open = open
+
     # ── ZIP type detection ────────────────────────────────────────────────────
     zip_type: str = ""  # "solution" | "snapshot"
     solution_has_agent_assets: bool = False
