@@ -6,7 +6,7 @@ import reflex as rx
 
 from app_meta import FEATURE_URL, ISSUE_URL, LICENSE_NAME, OPEN_ISSUE_URL, get_app_version
 from web.mermaid import render_segment
-from web.state import State
+from web.state import State, TUTORIAL_TOTAL_STEPS
 
 
 # ── Colour palette ────────────────────────────────────────────────────────────
@@ -837,6 +837,19 @@ def navbar() -> rx.Component:
                     size="5",
                     color="white",
                     font_weight="600",
+                ),
+                rx.tooltip(
+                    rx.icon_button(
+                        rx.icon("graduation-cap", size=16),
+                        on_click=State.open_tutorial,
+                        variant="ghost",
+                        color_scheme="gray",
+                        size="2",
+                        cursor="pointer",
+                        color="rgba(255,255,255,0.85)",
+                        _hover={"color": "white", "background": "rgba(255,255,255,0.18)"},
+                    ),
+                    content="Open interactive tutorial",
                 ),
                 spacing="3",
                 align="center",
@@ -3748,4 +3761,668 @@ def deps_panel() -> rx.Component:
                 ),
             ),
         ),
+    )
+
+
+# ── Tutorial dialog ───────────────────────────────────────────────────────────
+
+_TUTORIAL_TOTAL = TUTORIAL_TOTAL_STEPS  # kept as a local alias for readability
+
+
+def _tut_step_welcome() -> rx.Component:
+    """Step 0 – Welcome overview of all toolkit capabilities."""
+    features = [
+        ("file-json", "JSON Transcript Analyser", "Analyse conversation transcripts for KPIs, latency, and credit usage"),
+        ("search", "Analyse", "Deep-dive into agent profile, topics, knowledge sources, and conversation flow"),
+        ("git-branch", "Visualize", "Generate Mermaid diagrams of agent structure and topic relationships"),
+        ("shield-check", "Validate", "Check agent instructions against AI model best practices"),
+        ("scan-search", "Check", "Run 40+ quality checks on your solution export"),
+        ("flask-conical", "Evals", "Audit test coverage and evaluation fitness score"),
+        ("network", "Dependencies", "Map component dependencies across your solution"),
+        ("refresh-cw", "Rename", "Safely rename agents and solutions across all solution files"),
+    ]
+    return rx.vstack(
+        rx.hstack(
+            rx.icon("bot", color=PRIMARY, size=36),
+            rx.vstack(
+                rx.heading("Welcome to Power Platform Agent Toolkit", size="4", color="#102548"),
+                rx.text(
+                    "A comprehensive analysis toolkit for Copilot Studio agent solutions. "
+                    "This walkthrough covers all major capabilities with example outputs.",
+                    font_size="13px",
+                    color="#605e5c",
+                ),
+                spacing="1",
+                align="start",
+            ),
+            spacing="3",
+            align="start",
+        ),
+        rx.divider(margin_y="2px"),
+        rx.vstack(
+            *[
+                rx.hstack(
+                    rx.icon(icon, color=PRIMARY, size=16),
+                    rx.vstack(
+                        rx.text(feat, font_size="13px", font_weight="600", color="#201f1e"),
+                        rx.text(desc, font_size="12px", color="#605e5c"),
+                        spacing="0",
+                    ),
+                    spacing="3",
+                    align="start",
+                )
+                for icon, feat, desc in features
+            ],
+            spacing="3",
+        ),
+        spacing="4",
+        width="100%",
+    )
+
+
+def _tut_step_transcript() -> rx.Component:
+    """Step 1 – JSON Transcript Analyser and Dataverse fetch."""
+    kpis = [
+        ("message-circle", "16", "conversation turns"),
+        ("clock", "1.8 s", "avg. latency"),
+        ("zap", "142", "Azure credits"),
+        ("check-circle", "3", "topic completions"),
+    ]
+    return rx.vstack(
+        rx.hstack(
+            rx.icon("file-json", color=PRIMARY, size=32),
+            rx.vstack(
+                rx.heading("JSON Transcript Analyser", size="4", color="#102548"),
+                rx.text(
+                    "Upload a conversation transcript exported from Copilot Studio, "
+                    "or fetch one directly from Dataverse, to analyse agent behaviour, "
+                    "latency, and Azure credit consumption.",
+                    font_size="13px",
+                    color="#605e5c",
+                ),
+                spacing="1",
+            ),
+            spacing="3",
+            align="start",
+        ),
+        rx.divider(margin_y="2px"),
+        rx.text("Sample KPI output", font_size="11px", font_weight="700", color=PRIMARY_DARK, letter_spacing="0.06em"),
+        rx.hstack(
+            *[
+                rx.box(
+                    rx.vstack(
+                        rx.icon(icon, color=PRIMARY, size=20),
+                        rx.text(val, font_size="22px", font_weight="700", color="#102548"),
+                        rx.text(hint, font_size="11px", color="#605e5c"),
+                        spacing="1",
+                        align="center",
+                    ),
+                    background="#f8fbff",
+                    border="1px solid #d7e2f2",
+                    border_radius="12px",
+                    padding="14px",
+                    flex="1",
+                )
+                for icon, val, hint in kpis
+            ],
+            spacing="3",
+            width="100%",
+        ),
+        rx.box(
+            rx.hstack(
+                rx.icon("database", color="#605e5c", size=14),
+                rx.text(
+                    "Tip: Use 'Fetch from Dataverse' on the landing page to load transcripts "
+                    "directly from your Power Platform environment without manual export.",
+                    font_size="12px",
+                    color="#605e5c",
+                ),
+                spacing="2",
+                align="start",
+            ),
+            background="#f0f7ff",
+            border="1px solid #c7deff",
+            border_radius="8px",
+            padding="10px 14px",
+        ),
+        spacing="4",
+        width="100%",
+    )
+
+
+def _tut_step_zip_upload() -> rx.Component:
+    """Step 2 – Solution & Snapshot ZIP upload options."""
+    zip_types = [
+        ("file-archive", "Any Solution ZIP", "#eaf4ea", SUCCESS, "#107c10",
+         "Unlocks the Dependencies tab — full component inventory and relation graph."),
+        ("file-archive", "Agent Solution ZIP", "#fff8ec", WARNING_AMBER, "#c7921e",
+         "Unlocks Visualize · Validate · Check · Evals · Rename workflows."),
+        ("file-archive", "Snapshot ZIP", "#eef4ff", PRIMARY, PRIMARY,
+         "Unlocks the full Analyse tab: Profile · Topics · Knowledge · Conversation · Credits."),
+    ]
+    return rx.vstack(
+        rx.hstack(
+            rx.icon("file-archive", color=PRIMARY, size=32),
+            rx.vstack(
+                rx.heading("Uploading Solution & Snapshot ZIPs", size="4", color="#102548"),
+                rx.text(
+                    "Drag-and-drop or browse to upload a Copilot Studio solution export. "
+                    "Different ZIP types unlock different analysis workflows.",
+                    font_size="13px",
+                    color="#605e5c",
+                ),
+                spacing="1",
+            ),
+            spacing="3",
+            align="start",
+        ),
+        rx.divider(margin_y="2px"),
+        rx.vstack(
+            *[
+                rx.hstack(
+                    rx.icon(icon, color=accent_icon, size=20),
+                    rx.vstack(
+                        rx.text(name, font_size="13px", font_weight="600", color="#201f1e"),
+                        rx.text(desc, font_size="12px", color="#605e5c"),
+                        spacing="0",
+                    ),
+                    background=bg,
+                    border=f"1px solid {accent_border}44",
+                    border_radius="10px",
+                    padding="12px 16px",
+                    spacing="3",
+                    align="start",
+                    width="100%",
+                )
+                for icon, name, bg, accent_icon, accent_border, desc in zip_types
+            ],
+            spacing="2",
+            width="100%",
+        ),
+        spacing="4",
+        width="100%",
+    )
+
+
+def _tut_step_analyse() -> rx.Component:
+    """Step 3 – Analyse Tab overview with sub-tab descriptions."""
+    sub_tabs = [
+        ("user", "Profile", "Agent display name, schema, description, channels, and GPT model configuration."),
+        ("book-open", "Knowledge & Tools", "Knowledge sources (SharePoint, websites, files) and integrated external tools."),
+        ("message-square", "Topics", "All topics with trigger phrases, dialog step count, and topic type badges."),
+        ("share-2", "Topic Graph", "Mermaid diagram of BeginDialog connections between topics."),
+        ("cpu", "Model", "Side-by-side comparison of AI models configured across the agent's model slots."),
+        ("zap", "Credits", "Azure Copilot credit usage estimate with per-activity type breakdown."),
+        ("play-circle", "Conversation", "Conversation flow sequence diagram and full event execution timeline."),
+    ]
+    return rx.vstack(
+        rx.hstack(
+            rx.icon("search", color=PRIMARY, size=32),
+            rx.vstack(
+                rx.heading("Analyse Tab — Deep Agent Inspection", size="4", color="#102548"),
+                rx.text(
+                    "Available when a Snapshot ZIP or Agent Solution ZIP is uploaded. "
+                    "Provides in-depth insights across 7 sub-tabs.",
+                    font_size="13px",
+                    color="#605e5c",
+                ),
+                spacing="1",
+            ),
+            spacing="3",
+            align="start",
+        ),
+        rx.divider(margin_y="2px"),
+        rx.text("Sub-tabs available", font_size="11px", font_weight="700", color=PRIMARY_DARK, letter_spacing="0.06em"),
+        rx.vstack(
+            *[
+                rx.hstack(
+                    rx.icon(icon, color=PRIMARY, size=15),
+                    rx.text(name, font_size="13px", font_weight="600", color="#201f1e", width="160px", flex_shrink="0"),
+                    rx.text(desc, font_size="12px", color="#605e5c", flex="1"),
+                    spacing="2",
+                    align="start",
+                )
+                for icon, name, desc in sub_tabs
+            ],
+            spacing="3",
+            width="100%",
+        ),
+        spacing="4",
+        width="100%",
+    )
+
+
+def _tut_step_visualize() -> rx.Component:
+    """Step 4 – Visualize Tab with dummy agent structure sample."""
+    return rx.vstack(
+        rx.hstack(
+            rx.icon("git-branch", color=PRIMARY, size=32),
+            rx.vstack(
+                rx.heading("Visualize Tab — Agent Structure Diagrams", size="4", color="#102548"),
+                rx.text(
+                    "Generates Mermaid diagrams and structured overviews showing your agent's "
+                    "component structure, channel configuration, topic count, and instruction preview.",
+                    font_size="13px",
+                    color="#605e5c",
+                ),
+                spacing="1",
+            ),
+            spacing="3",
+            align="start",
+        ),
+        rx.divider(margin_y="2px"),
+        rx.box(
+            rx.vstack(
+                rx.text(
+                    "Sample: Agent Profile Overview",
+                    font_size="11px",
+                    font_weight="700",
+                    color=PRIMARY_DARK,
+                    letter_spacing="0.06em",
+                ),
+                rx.hstack(
+                    rx.vstack(
+                        rx.text("Display Name", font_size="11px", color="#605e5c"),
+                        rx.text("Contoso HR Bot", font_size="13px", font_weight="600", color="#201f1e"),
+                        spacing="0",
+                    ),
+                    rx.vstack(
+                        rx.text("Channels", font_size="11px", color="#605e5c"),
+                        rx.hstack(
+                            rx.badge("Teams", color_scheme="blue", variant="soft"),
+                            rx.badge("Web Chat", color_scheme="green", variant="soft"),
+                            spacing="1",
+                        ),
+                        spacing="0",
+                    ),
+                    rx.vstack(
+                        rx.text("Active Topics", font_size="11px", color="#605e5c"),
+                        rx.text("24 / 27", font_size="13px", font_weight="600", color=SUCCESS),
+                        spacing="0",
+                    ),
+                    rx.vstack(
+                        rx.text("GPT Model", font_size="11px", color="#605e5c"),
+                        rx.text("GPT-4o-mini", font_size="13px", font_weight="600", color="#201f1e"),
+                        spacing="0",
+                    ),
+                    spacing="6",
+                    width="100%",
+                    wrap="wrap",
+                ),
+                rx.box(
+                    rx.text(
+                        "graph LR\n"
+                        "  Start([🟢 Start]) --> Greeting\n"
+                        "  Greeting --> FAQ[FAQ Topics]\n"
+                        "  FAQ -->|Match| Answer[Answer]\n"
+                        "  FAQ -->|No Match| Escalate[Escalate]\n"
+                        "  Answer --> End([⭕ End])",
+                        font_family="monospace",
+                        font_size="11px",
+                        color="#334a6d",
+                        white_space="pre",
+                    ),
+                    background="#f0f7ff",
+                    border="1px solid #c7deff",
+                    border_radius="8px",
+                    padding="10px 14px",
+                    margin_top="8px",
+                ),
+                spacing="3",
+                align="start",
+            ),
+            background="#f8fbff",
+            border="1px solid #d7e2f2",
+            border_radius="12px",
+            padding="16px",
+        ),
+        spacing="4",
+        width="100%",
+    )
+
+
+def _tut_step_validate() -> rx.Component:
+    """Step 5 – Validate Tab with sample validation results."""
+    results = [
+        ("check-circle", SUCCESS, "#f0fff0", "#107c1044",
+         "Instructions length is within the recommended range for GPT-4o-mini (3,200 tokens).", "PASS", "green"),
+        ("alert-triangle", WARNING_AMBER, "#fffbf0", "#c7921e44",
+         "Avoid exact phrases from training data in agent instructions to reduce hallucination risk.", "WARN", "yellow"),
+        ("alert-triangle", WARNING_AMBER, "#fffbf0", "#c7921e44",
+         "Consider adding citation requirements to knowledge source instructions.", "WARN", "yellow"),
+        ("x-circle", ERROR_COLOR, "#fff0f0", "#a4262c44",
+         "Instructions exceed the safe token limit for the o1 model (1,200 tokens).", "FAIL", "red"),
+    ]
+    return rx.vstack(
+        rx.hstack(
+            rx.icon("shield-check", color=PRIMARY, size=32),
+            rx.vstack(
+                rx.heading("Validate Tab — Best Practices Check", size="4", color="#102548"),
+                rx.text(
+                    "Validates your agent's instructions against model-specific best practices "
+                    "for GPT-4o-mini, GPT-4.1, o1, o3, and other supported models.",
+                    font_size="13px",
+                    color="#605e5c",
+                ),
+                spacing="1",
+            ),
+            spacing="3",
+            align="start",
+        ),
+        rx.divider(margin_y="2px"),
+        rx.text("Sample Validation Report", font_size="11px", font_weight="700", color=PRIMARY_DARK, letter_spacing="0.06em"),
+        rx.vstack(
+            *[
+                rx.hstack(
+                    rx.icon(icon, color=color, size=16),
+                    rx.text(msg, font_size="12px", color="#201f1e", flex="1"),
+                    rx.badge(badge, color_scheme=cs, variant="soft"),
+                    background=bg,
+                    border=f"1px solid {border}",
+                    border_radius="8px",
+                    padding="8px 12px",
+                    spacing="2",
+                    align="start",
+                    width="100%",
+                )
+                for icon, color, bg, border, msg, badge, cs in results
+            ],
+            spacing="2",
+            width="100%",
+        ),
+        spacing="4",
+        width="100%",
+    )
+
+
+def _tut_step_check() -> rx.Component:
+    """Step 6 – Check Tab with sample quality audit findings."""
+    counts = [
+        ("2", SUCCESS, "#f0fff0", "#107c1044", "PASS"),
+        ("2", WARNING_AMBER, "#fffbf0", "#c7921e44", "WARN"),
+        ("1", ERROR_COLOR, "#fff0f0", "#a4262c44", "FAIL"),
+    ]
+    findings = [
+        ("check-circle", SUCCESS, "Agent has a valid system topic for Unknown Intent"),
+        ("check-circle", SUCCESS, "Conversation Start topic is properly configured"),
+        ("alert-triangle", WARNING_AMBER, "3 topics have no test utterances in the solution"),
+        ("alert-triangle", WARNING_AMBER, "Custom connector lacks an error-handling branch"),
+        ("x-circle", ERROR_COLOR, "Agent instructions are missing required safety guidelines"),
+    ]
+    return rx.vstack(
+        rx.hstack(
+            rx.icon("scan-search", color=PRIMARY, size=32),
+            rx.vstack(
+                rx.heading("Check Tab — Solution Quality Audit", size="4", color="#102548"),
+                rx.text(
+                    "Runs 40+ automated quality checks across your agent solution covering "
+                    "topics, instructions, connectors, and Microsoft safety guidelines.",
+                    font_size="13px",
+                    color="#605e5c",
+                ),
+                spacing="1",
+            ),
+            spacing="3",
+            align="start",
+        ),
+        rx.divider(margin_y="2px"),
+        rx.hstack(
+            *[
+                rx.box(
+                    rx.vstack(
+                        rx.text(val, font_size="24px", font_weight="700", color=color),
+                        rx.text(lbl, font_size="11px", color="#605e5c"),
+                        spacing="0",
+                        align="center",
+                    ),
+                    background=bg,
+                    border=f"1px solid {border}",
+                    border_radius="10px",
+                    padding="12px 24px",
+                )
+                for val, color, bg, border, lbl in counts
+            ],
+            spacing="3",
+        ),
+        rx.vstack(
+            *[
+                rx.hstack(
+                    rx.icon(icon, color=color, size=15),
+                    rx.text(msg, font_size="12px", color="#201f1e"),
+                    spacing="2",
+                    align="center",
+                )
+                for icon, color, msg in findings
+            ],
+            spacing="2",
+            width="100%",
+        ),
+        spacing="4",
+        width="100%",
+    )
+
+
+def _tut_step_evals_deps() -> rx.Component:
+    """Step 7 – Evals and Dependencies tabs overview."""
+    return rx.vstack(
+        rx.hstack(
+            rx.icon("flask-conical", color=PRIMARY, size=32),
+            rx.vstack(
+                rx.heading("Evals & Dependencies", size="4", color="#102548"),
+                rx.text(
+                    "The Evals tab audits your test suite and evaluates coverage fitness score. "
+                    "The Dependencies tab maps all component relationships in your solution.",
+                    font_size="13px",
+                    color="#605e5c",
+                ),
+                spacing="1",
+            ),
+            spacing="3",
+            align="start",
+        ),
+        rx.divider(margin_y="2px"),
+        rx.hstack(
+            rx.box(
+                rx.vstack(
+                    rx.hstack(
+                        rx.icon("flask-conical", color=PRIMARY, size=16),
+                        rx.text("Evals Tab", font_size="13px", font_weight="600", color="#102548"),
+                        spacing="2",
+                    ),
+                    rx.text("• Test Sets: 2 (48 cases total)", font_size="12px", color="#605e5c"),
+                    rx.text("• Eval Sets: 1 (24 graded rows)", font_size="12px", color="#605e5c"),
+                    rx.text("• Fit Score: 76 / 100 ✓", font_size="12px", color=SUCCESS),
+                    rx.text("• 3 improvement recommendations", font_size="12px", color="#605e5c"),
+                    spacing="2",
+                    align="start",
+                ),
+                background="#f8fbff",
+                border="1px solid #d7e2f2",
+                border_radius="12px",
+                padding="16px",
+                flex="1",
+            ),
+            rx.box(
+                rx.vstack(
+                    rx.hstack(
+                        rx.icon("network", color=PRIMARY, size=16),
+                        rx.text("Dependencies Tab", font_size="13px", font_weight="600", color="#102548"),
+                        spacing="2",
+                    ),
+                    rx.text("• 142 components inventoried", font_size="12px", color="#605e5c"),
+                    rx.text("• 67 dependency relations mapped", font_size="12px", color="#605e5c"),
+                    rx.text("• Aggregated & Detailed diagram views", font_size="12px", color="#605e5c"),
+                    rx.text("• Searchable & sortable relation table", font_size="12px", color="#605e5c"),
+                    spacing="2",
+                    align="start",
+                ),
+                background="#f8fbff",
+                border="1px solid #d7e2f2",
+                border_radius="12px",
+                padding="16px",
+                flex="1",
+            ),
+            spacing="3",
+            width="100%",
+        ),
+        spacing="4",
+        width="100%",
+    )
+
+
+def _tutorial_step_content() -> rx.Component:
+    """Return the content panel for the active tutorial step."""
+    return rx.cond(
+        State.tutorial_step == 0,
+        _tut_step_welcome(),
+        rx.cond(
+            State.tutorial_step == 1,
+            _tut_step_transcript(),
+            rx.cond(
+                State.tutorial_step == 2,
+                _tut_step_zip_upload(),
+                rx.cond(
+                    State.tutorial_step == 3,
+                    _tut_step_analyse(),
+                    rx.cond(
+                        State.tutorial_step == 4,
+                        _tut_step_visualize(),
+                        rx.cond(
+                            State.tutorial_step == 5,
+                            _tut_step_validate(),
+                            rx.cond(
+                                State.tutorial_step == 6,
+                                _tut_step_check(),
+                                _tut_step_evals_deps(),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    )
+
+
+def tutorial_dialog() -> rx.Component:
+    """Full-screen guided tutorial dialog with 8 steps and dummy-data previews."""
+    step_labels = [
+        "Welcome",
+        "Transcripts",
+        "ZIP Upload",
+        "Analyse",
+        "Visualize",
+        "Validate",
+        "Check",
+        "Evals & Deps",
+    ]
+    return rx.dialog.root(
+        rx.dialog.content(
+            # ── Header ──────────────────────────────────────────────────────
+            rx.flex(
+                rx.hstack(
+                    rx.icon("graduation-cap", color=PRIMARY, size=20),
+                    rx.heading("Interactive Tutorial", size="4", color="#102548"),
+                    spacing="2",
+                    align="center",
+                ),
+                rx.dialog.close(
+                    rx.icon_button(
+                        rx.icon("x", size=16),
+                        variant="ghost",
+                        color_scheme="gray",
+                        on_click=State.close_tutorial,
+                        cursor="pointer",
+                    ),
+                ),
+                justify="between",
+                align="center",
+                margin_bottom="14px",
+            ),
+            # ── Step labels strip ────────────────────────────────────────────
+            rx.hstack(
+                *[
+                    rx.box(
+                        rx.text(
+                            step_labels[i],
+                            font_size="10px",
+                            font_weight=rx.cond(State.tutorial_step == i, "700", "500"),
+                            color=rx.cond(State.tutorial_step == i, PRIMARY, "#a19f9d"),
+                            text_align="center",
+                        ),
+                        rx.box(
+                            height="3px",
+                            border_radius="2px",
+                            background=rx.cond(
+                                State.tutorial_step >= i,
+                                PRIMARY,
+                                "#d7e2f2",
+                            ),
+                            margin_top="4px",
+                        ),
+                        flex="1",
+                        cursor="pointer",
+                        on_click=State.set_tutorial_step(i),
+                    )
+                    for i in range(_TUTORIAL_TOTAL)
+                ],
+                spacing="1",
+                width="100%",
+                margin_bottom="20px",
+            ),
+            # ── Step content ─────────────────────────────────────────────────
+            rx.box(
+                _tutorial_step_content(),
+                min_height="260px",
+            ),
+            # ── Navigation footer ────────────────────────────────────────────
+            rx.flex(
+                rx.text(
+                    rx.cond(
+                        State.tutorial_step < _TUTORIAL_TOTAL - 1,
+                        "Click a step above to jump, or use the arrows →",
+                        "You've reached the end — start exploring the toolkit!",
+                    ),
+                    font_size="11px",
+                    color="#a19f9d",
+                ),
+                rx.hstack(
+                    rx.cond(
+                        State.tutorial_step > 0,
+                        rx.button(
+                            rx.icon("arrow-left", size=14),
+                            "Previous",
+                            on_click=State.prev_tutorial_step,
+                            variant="outline",
+                            size="2",
+                            color_scheme="gray",
+                            cursor="pointer",
+                        ),
+                        rx.box(),
+                    ),
+                    rx.button(
+                        rx.cond(
+                            State.tutorial_step == _TUTORIAL_TOTAL - 1,
+                            rx.hstack(rx.icon("check", size=14), rx.text("Done"), spacing="1"),
+                            rx.hstack(rx.text("Next"), rx.icon("arrow-right", size=14), spacing="1"),
+                        ),
+                        on_click=State.next_tutorial_step,
+                        size="2",
+                        cursor="pointer",
+                    ),
+                    spacing="2",
+                ),
+                justify="between",
+                align="center",
+                margin_top="20px",
+                padding_top="16px",
+                border_top=f"1px solid {SURFACE_BORDER}",
+            ),
+            max_width="720px",
+            width="95vw",
+            padding="28px",
+            border_radius="16px",
+            background="#ffffff",
+        ),
+        open=State.tutorial_open,
+        on_open_change=State.set_tutorial_open,
     )
