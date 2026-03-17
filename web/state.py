@@ -14,6 +14,7 @@ from pathlib import Path
 import reflex as rx
 from dotenv import load_dotenv
 
+from evals_manager import analyze_evals_zip_bytes, export_solution_with_evals, preview_generated_evals
 from toolkit.mcs.credits import estimate_credits_from_activities
 from toolkit.mcs.models import MCSConversationTimeline as _MCSTl
 from toolkit.mcs.parser import parse_dialog_json as mcs_parse_dialog_json
@@ -51,6 +52,27 @@ from visualizer import visualize_zip_bytes, get_evals_data
 load_dotenv()
 
 _MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB — maximum accepted upload size
+
+
+def _fit_score_color(score: int) -> str:
+    if score >= 75:
+        return "#107c10"
+    if score >= 50:
+        return "#c7921e"
+    return "#a4262c"
+
+
+def _decorate_fit_dimensions(dimensions: list[dict]) -> list[dict]:
+    decorated: list[dict] = []
+    for item in dimensions:
+        score = int(item.get("score", 0) or 0)
+        decorated.append(
+            {
+                **item,
+                "accent_color": _fit_score_color(score),
+            }
+        )
+    return decorated
 
 
 def _load_users() -> dict[str, str]:
@@ -183,6 +205,27 @@ class State(rx.State):
     evals_sub_tab: str = "tests"  # "tests" | "evals"
     evals_active_test_set: str = ""  # schema_name filter, empty = all
     evals_active_eval_set: str = ""  # schema_name filter, empty = all
+    evals_is_analyzing: bool = False
+    evals_fit_error: str = ""
+    evals_fit_ran: bool = False
+    evals_fit_score: int = 0
+    evals_fit_dimensions: list[dict] = []
+    evals_fit_gaps: list[dict] = []
+    evals_fit_recommendations: list[str] = []
+    evals_should_offer_improve: bool = False
+    evals_is_generating: bool = False
+    evals_preview_error: str = ""
+    evals_preview_mode: str = ""
+    evals_preview_test_sets: list[dict] = []
+    evals_preview_eval_sets: list[dict] = []
+    evals_preview_test_cases: list[dict] = []
+    evals_preview_eval_rows: list[dict] = []
+    evals_preview_category_counts: list[dict] = []
+    evals_is_exporting: bool = False
+    evals_export_error: str = ""
+    evals_export_success: bool = False
+    evals_export_filename: str = ""
+    _evals_output_zip_b64: str = ""
 
     # ── Dependencies ──────────────────────────────────────────────────────
     deps_is_analyzing: bool = False
@@ -431,6 +474,18 @@ class State(rx.State):
         return [row for row in self.evals_all_eval_rows if row.get("set_schema") == self.evals_active_eval_set]
 
     @rx.var
+    def has_eval_fit_report(self) -> bool:
+        return self.evals_fit_ran
+
+    @rx.var
+    def has_eval_preview(self) -> bool:
+        return bool(self.evals_preview_test_cases) or bool(self.evals_preview_eval_rows)
+
+    @rx.var
+    def can_improve_current_evals(self) -> bool:
+        return self.has_evals and self.evals_should_offer_improve
+
+    @rx.var
     def validation_instructions_length_str(self) -> str:
         return str(self.validation_instructions_length)
 
@@ -604,6 +659,27 @@ class State(rx.State):
         self.evals_sub_tab = "tests"
         self.evals_active_test_set = ""
         self.evals_active_eval_set = ""
+        self.evals_is_analyzing = False
+        self.evals_fit_error = ""
+        self.evals_fit_ran = False
+        self.evals_fit_score = 0
+        self.evals_fit_dimensions = []
+        self.evals_fit_gaps = []
+        self.evals_fit_recommendations = []
+        self.evals_should_offer_improve = False
+        self.evals_is_generating = False
+        self.evals_preview_error = ""
+        self.evals_preview_mode = ""
+        self.evals_preview_test_sets = []
+        self.evals_preview_eval_sets = []
+        self.evals_preview_test_cases = []
+        self.evals_preview_eval_rows = []
+        self.evals_preview_category_counts = []
+        self.evals_is_exporting = False
+        self.evals_export_error = ""
+        self.evals_export_success = False
+        self.evals_export_filename = ""
+        self._evals_output_zip_b64 = ""
         self.deps_is_analyzing = False
         self.deps_error = ""
         self.deps_ran = False
@@ -748,6 +824,7 @@ class State(rx.State):
                         self.is_checking = False
 
                 if not self.inspect_error:
+                    self.evals_is_analyzing = True
                     yield
                     try:
                         evals = get_evals_data(file_bytes)
@@ -800,6 +877,21 @@ class State(rx.State):
                         self.evals_all_eval_rows = all_eval_rows
                     except Exception:
                         pass  # evals are non-critical; silently skip on error
+
+                    try:
+                        fit_report = analyze_evals_zip_bytes(file_bytes)
+                        self.evals_fit_score = fit_report.get("score", 0)
+                        self.evals_fit_dimensions = _decorate_fit_dimensions(fit_report.get("fit_dimensions", []))
+                        self.evals_fit_gaps = fit_report.get("gaps", [])
+                        self.evals_fit_recommendations = fit_report.get("recommendations", [])
+                        self.evals_should_offer_improve = bool(fit_report.get("should_offer_improve", False))
+                        self.evals_fit_error = ""
+                        self.evals_fit_ran = True
+                    except Exception as eval_exc:
+                        self.evals_fit_error = str(eval_exc)
+                        self.evals_fit_ran = False
+                    finally:
+                        self.evals_is_analyzing = False
             else:
                 # Generic solution ZIP (no Copilot agent assets): run dependencies only.
                 self.is_inspecting = False
@@ -1014,6 +1106,90 @@ class State(rx.State):
             self.is_processing = False
 
     @rx.event
+    async def generate_eval_samples(self):
+        if not self.zip_bytes_b64:
+            return
+
+        self.evals_is_generating = True
+        self.evals_preview_error = ""
+        self.evals_export_error = ""
+        self.evals_export_success = False
+        yield
+
+        try:
+            preview = preview_generated_evals(base64.b64decode(self.zip_bytes_b64), mode="generate", target_count=24)
+            self.evals_preview_mode = preview.get("mode", "generate")
+            self.evals_preview_test_sets = preview.get("test_sets", [])
+            self.evals_preview_eval_sets = preview.get("eval_sets", [])
+            self.evals_preview_test_cases = preview.get("test_cases", [])
+            self.evals_preview_eval_rows = preview.get("eval_rows", [])
+            self.evals_preview_category_counts = preview.get("category_counts", [])
+        except Exception as exc:
+            self.evals_preview_error = f"Eval generation failed: {exc}"
+        finally:
+            self.evals_is_generating = False
+
+    @rx.event
+    async def improve_current_evals(self):
+        if not self.zip_bytes_b64:
+            return
+
+        self.evals_is_generating = True
+        self.evals_preview_error = ""
+        self.evals_export_error = ""
+        self.evals_export_success = False
+        yield
+
+        try:
+            preview = preview_generated_evals(base64.b64decode(self.zip_bytes_b64), mode="improve", target_count=24)
+            self.evals_preview_mode = preview.get("mode", "improve")
+            self.evals_preview_test_sets = preview.get("test_sets", [])
+            self.evals_preview_eval_sets = preview.get("eval_sets", [])
+            self.evals_preview_test_cases = preview.get("test_cases", [])
+            self.evals_preview_eval_rows = preview.get("eval_rows", [])
+            self.evals_preview_category_counts = preview.get("category_counts", [])
+        except Exception as exc:
+            self.evals_preview_error = f"Eval improvement failed: {exc}"
+        finally:
+            self.evals_is_generating = False
+
+    @rx.event
+    async def export_eval_solution(self):
+        if not self.zip_bytes_b64 or not self.evals_preview_mode:
+            return
+
+        self.evals_is_exporting = True
+        self.evals_export_error = ""
+        self.evals_export_success = False
+        yield
+
+        try:
+            output_bytes, preview = export_solution_with_evals(
+                base64.b64decode(self.zip_bytes_b64),
+                mode=self.evals_preview_mode,
+                target_count=max(20, len(self.evals_preview_test_cases) or 24),
+            )
+            self._evals_output_zip_b64 = base64.b64encode(output_bytes).decode("ascii")
+            suffix = "improved" if preview.get("mode") == "improve" else "generated"
+            base_name = Path(self.upload_filename or "solution.zip").stem
+            self.evals_export_filename = f"{base_name}_{suffix}_evals.zip"
+            self.evals_export_success = True
+        except Exception as exc:
+            self.evals_export_error = f"Eval export failed: {exc}"
+        finally:
+            self.evals_is_exporting = False
+
+    @rx.event
+    def download_eval_solution(self):
+        if not self._evals_output_zip_b64 or not self.evals_export_filename:
+            return
+        return rx.download(
+            data=base64.b64decode(self._evals_output_zip_b64),
+            filename=self.evals_export_filename,
+            mime_type="application/zip",
+        )
+
+    @rx.event
     def download_result(self):
         """Trigger a browser download of the renamed ZIP using a data URL.
 
@@ -1085,6 +1261,27 @@ class State(rx.State):
         self.evals_sub_tab = "tests"
         self.evals_active_test_set = ""
         self.evals_active_eval_set = ""
+        self.evals_is_analyzing = False
+        self.evals_fit_error = ""
+        self.evals_fit_ran = False
+        self.evals_fit_score = 0
+        self.evals_fit_dimensions = []
+        self.evals_fit_gaps = []
+        self.evals_fit_recommendations = []
+        self.evals_should_offer_improve = False
+        self.evals_is_generating = False
+        self.evals_preview_error = ""
+        self.evals_preview_mode = ""
+        self.evals_preview_test_sets = []
+        self.evals_preview_eval_sets = []
+        self.evals_preview_test_cases = []
+        self.evals_preview_eval_rows = []
+        self.evals_preview_category_counts = []
+        self.evals_is_exporting = False
+        self.evals_export_error = ""
+        self.evals_export_success = False
+        self.evals_export_filename = ""
+        self._evals_output_zip_b64 = ""
         self.no_agent_warning = ""
         self.active_tab = "visualize"
         self.zip_type = ""

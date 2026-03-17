@@ -2817,203 +2817,454 @@ def _eval_data_row(row: dict) -> rx.Component:
     )
 
 
+def _eval_fit_dimension_card(item: dict) -> rx.Component:
+    return rx.box(
+        rx.vstack(
+            rx.text(item["label"], font_size="12px", font_weight="700", color="#334a6d"),
+            rx.text(item["score"], font_size="28px", font_weight="800", color="#201f1e"),
+            rx.text(item["detail"], font_size="12px", color="#605e5c", line_height="1.45"),
+            spacing="1",
+            align="start",
+        ),
+        border=f"1px solid {SURFACE_BORDER}",
+        border_left_width="4px",
+        border_left_style="solid",
+        border_left_color=item["accent_color"],
+        border_radius="12px",
+        background="#fbfdff",
+        padding="14px",
+        width="100%",
+    )
+
+
+def _eval_gap_row(item: dict) -> rx.Component:
+    return rx.box(
+        rx.vstack(
+            rx.hstack(
+                rx.badge(item["area"], color_scheme="orange", variant="soft", size="1"),
+                rx.text(item["label"], font_size="13px", font_weight="700", color="#201f1e"),
+                spacing="2",
+                align="center",
+            ),
+            rx.text(item["detail"], font_size="12px", color="#605e5c", line_height="1.45"),
+            spacing="1",
+            align="start",
+            width="100%",
+        ),
+        padding="10px 12px",
+        border_bottom="1px solid #edf1f7",
+        width="100%",
+    )
+
+
+def _preview_count_pill(item: dict) -> rx.Component:
+    return rx.box(
+        rx.hstack(
+            rx.text(item["label"], font_size="12px", font_weight="600", color="#334a6d"),
+            rx.badge(item["count"], color_scheme="blue", variant="soft", size="1"),
+            spacing="2",
+            align="center",
+        ),
+        padding="6px 10px",
+        border="1px solid #d7e2f2",
+        border_radius="16px",
+        background="#ffffff",
+    )
+
+
 def evals_panel() -> rx.Component:
     """Full-width evaluations panel for the Evals tab."""
-    return rx.cond(
-        State.has_evals,
-        rx.vstack(
-            # ── Header card ───────────────────────────────────────────────
-            card(
-                rx.hstack(
-                    rx.vstack(
+    return rx.vstack(
+        card(
+            rx.hstack(
+                rx.vstack(
+                    rx.hstack(
+                        rx.icon("flask-conical", color=PRIMARY, size=20),
+                        rx.heading("Evaluations", size="4", color="#201f1e"),
+                        spacing="2",
+                        align="center",
+                    ),
+                    rx.text(
+                        "Measure how well existing evals fit the agent purpose, then optionally generate or improve coverage.",
+                        font_size="13px",
+                        color="#605e5c",
+                    ),
+                    rx.hstack(
                         rx.hstack(
-                            rx.icon("flask-conical", color=PRIMARY, size=20),
-                            rx.heading("Built-in Evaluations", size="4", color="#201f1e"),
+                            rx.text("Built-in test cases:", font_size="13px", color="#605e5c"),
+                            rx.badge(State.evals_test_total, color_scheme="purple", variant="soft"),
                             spacing="2",
                             align="center",
                         ),
                         rx.hstack(
-                            rx.cond(
-                                State.evals_test_total > 0,
-                                rx.hstack(
-                                    rx.text("Test cases:", font_size="13px", color="#605e5c"),
-                                    rx.badge(
-                                        State.evals_test_total,
-                                        color_scheme="purple",
-                                        variant="soft",
-                                    ),
-                                    spacing="2",
-                                    align="center",
-                                ),
-                                rx.box(),
-                            ),
-                            rx.cond(
-                                State.evals_eval_total > 0,
-                                rx.hstack(
-                                    rx.text("Eval rows:", font_size="13px", color="#605e5c"),
-                                    rx.badge(
-                                        State.evals_eval_total,
-                                        color_scheme="teal",
-                                        variant="soft",
-                                    ),
-                                    spacing="2",
-                                    align="center",
-                                ),
-                                rx.box(),
-                            ),
-                            spacing="4",
+                            rx.text("Built-in eval rows:", font_size="13px", color="#605e5c"),
+                            rx.badge(State.evals_eval_total, color_scheme="teal", variant="soft"),
+                            spacing="2",
                             align="center",
-                            flex_wrap="wrap",
                         ),
+                        rx.cond(
+                            State.has_eval_fit_report,
+                            rx.hstack(
+                                rx.text("Fit score:", font_size="13px", color="#605e5c"),
+                                rx.badge(
+                                    State.evals_fit_score,
+                                    color_scheme=rx.cond(
+                                        State.evals_fit_score >= 75,
+                                        "green",
+                                        rx.cond(State.evals_fit_score >= 50, "orange", "red"),
+                                    ),
+                                    variant="soft",
+                                ),
+                                spacing="2",
+                                align="center",
+                            ),
+                            rx.box(),
+                        ),
+                        spacing="4",
+                        align="center",
+                        flex_wrap="wrap",
+                    ),
+                    spacing="2",
+                    align="start",
+                ),
+                width="100%",
+                align="center",
+            ),
+            width="100%",
+        ),
+        rx.cond(
+            State.evals_is_analyzing,
+            card(
+                rx.hstack(rx.spinner(size="3", color=PRIMARY), rx.text("Analysing eval fit…", color="#605e5c"), spacing="3"),
+                width="100%",
+            ),
+            rx.box(),
+        ),
+        rx.cond(
+            State.has_eval_fit_report,
+            card(
+                sub_heading("FIT ANALYSIS"),
+                rx.grid(
+                    rx.foreach(State.evals_fit_dimensions, _eval_fit_dimension_card),
+                    columns="repeat(auto-fit, minmax(220px, 1fr))",
+                    spacing="4",
+                    width="100%",
+                ),
+                rx.cond(
+                    State.evals_fit_gaps.length() > 0,
+                    rx.vstack(
+                        sub_heading("TOP GAPS"),
+                        rx.box(
+                            rx.foreach(State.evals_fit_gaps, _eval_gap_row),
+                            border="1px solid #edf1f7",
+                            border_radius="10px",
+                            overflow="hidden",
+                            width="100%",
+                        ),
+                        width="100%",
                         spacing="2",
                         align="start",
                     ),
-                    align="center",
-                    width="100%",
+                    rx.box(),
                 ),
-                width="100%",
-            ),
-            # ── Sub-tab bar ───────────────────────────────────────────────
-            rx.box(
-                rx.hstack(
-                    rx.cond(
-                        State.evals_test_total > 0,
-                        _evals_sub_tab_btn("tests", "list-checks", "Test Cases", State.evals_test_total),
-                        rx.box(),
-                    ),
-                    rx.cond(
-                        State.evals_eval_total > 0,
-                        _evals_sub_tab_btn("evals", "flask-conical", "Evaluations", State.evals_eval_total),
-                        rx.box(),
-                    ),
-                    spacing="0",
-                    border_bottom="1px solid #edebe9",
-                    width="100%",
-                ),
-                background="#ffffff",
-                border_radius="8px 8px 0 0",
-                width="100%",
-            ),
-            # ── Content ───────────────────────────────────────────────────
-            rx.cond(
-                State.evals_sub_tab == "tests",
-                # Test cases panel
-                card(
-                    rx.cond(
-                        State.evals_test_sets.length() > 1,
-                        rx.vstack(
-                            sub_heading("FILTER BY TEST SET"),
-                            rx.hstack(
-                                rx.foreach(State.evals_test_sets, _evals_test_set_pill),
-                                spacing="2",
-                                flex_wrap="wrap",
-                            ),
-                            margin_bottom="16px",
-                            width="100%",
-                            spacing="2",
-                            align="start",
-                        ),
-                        rx.box(),
-                    ),
-                    rx.hstack(
-                        rx.text("Input / Test Set", font_size="11px", font_weight="700", color="#605e5c", width="38%"),
-                        rx.text("Expected Response", font_size="11px", font_weight="700", color="#605e5c", width="47%"),
-                        rx.text("Info", font_size="11px", font_weight="700", color="#605e5c", width="15%"),
-                        spacing="4",
-                        padding_x="14px",
-                        padding_y="6px",
-                        background="#f3f2f1",
-                        border_radius="4px",
-                        margin_bottom="4px",
-                        width="100%",
-                    ),
-                    rx.box(
-                        rx.foreach(State.evals_filtered_test_cases, _test_case_row),
-                        width="100%",
-                        border="1px solid #edebe9",
-                        border_radius="4px",
-                        overflow="hidden",
-                    ),
-                    width="100%",
-                ),
-                # Evaluations panel
-                card(
-                    rx.cond(
-                        State.evals_eval_sets.length() > 1,
-                        rx.vstack(
-                            sub_heading("FILTER BY EVALUATION SET"),
-                            rx.hstack(
-                                rx.foreach(State.evals_eval_sets, _evals_eval_set_pill),
-                                spacing="2",
-                                flex_wrap="wrap",
-                            ),
-                            margin_bottom="16px",
-                            width="100%",
-                            spacing="2",
-                            align="start",
-                        ),
-                        rx.box(),
-                    ),
-                    # Graders info
-                    rx.cond(
-                        State.evals_active_eval_set != "",
+                rx.cond(
+                    State.evals_fit_recommendations.length() > 0,
+                    rx.vstack(
+                        sub_heading("RECOMMENDATIONS"),
                         rx.foreach(
-                            State.evals_eval_sets,
-                            lambda es: rx.cond(
-                                es["schema_name"] == State.evals_active_eval_set,
-                                rx.hstack(
-                                    rx.text("Grader:", font_size="12px", color="#605e5c"),
-                                    rx.badge(es["graders"], color_scheme="orange", variant="soft", size="1"),
-                                    margin_bottom="12px",
-                                    spacing="2",
-                                    align="center",
-                                ),
-                                rx.box(),
+                            State.evals_fit_recommendations,
+                            lambda item: rx.hstack(
+                                rx.text("•", font_size="12px", color="#605e5c"),
+                                rx.text(item, font_size="12px", color="#605e5c"),
+                                spacing="2",
+                                align="start",
                             ),
                         ),
-                        rx.box(),
-                    ),
-                    rx.hstack(
-                        rx.text("Input / Set", font_size="11px", font_weight="700", color="#605e5c", width="33%"),
-                        rx.text("Expected Output", font_size="11px", font_weight="700", color="#605e5c", width="47%"),
-                        rx.text("Info", font_size="11px", font_weight="700", color="#605e5c", width="20%"),
-                        spacing="4",
-                        padding_x="14px",
-                        padding_y="6px",
-                        background="#f3f2f1",
-                        border_radius="4px",
-                        margin_bottom="4px",
                         width="100%",
+                        spacing="1",
+                        align="start",
                     ),
-                    rx.box(
-                        rx.foreach(State.evals_filtered_eval_rows, _eval_data_row),
-                        width="100%",
-                        border="1px solid #edebe9",
-                        border_radius="4px",
-                        overflow="hidden",
-                    ),
-                    width="100%",
+                    rx.box(),
                 ),
+                width="100%",
             ),
-            width="100%",
-            spacing="4",
-            align="start",
+            rx.cond(
+                State.evals_fit_error != "",
+                card(rx.text(State.evals_fit_error, color=ERROR_COLOR, font_size="13px"), width="100%"),
+                rx.box(),
+            ),
         ),
-        # Empty state
-        rx.center(
-            rx.vstack(
-                rx.icon("flask-conical", size=36, color="#c8c6c4"),
-                rx.text(
-                    "No built-in evaluations found in the uploaded solution",
-                    font_size="14px",
-                    color="#a19f9d",
+        card(
+            sub_heading("OPTIONAL ACTIONS"),
+            rx.text(
+                "Generation and improvement are never automatic. Use these actions only when you want preview data or an exported solution with injected eval assets.",
+                font_size="13px",
+                color="#605e5c",
+                margin_bottom="10px",
+            ),
+            rx.hstack(
+                rx.button(
+                    rx.hstack(rx.icon("sparkles", size=14), rx.text("Generate 24 Sample Evals"), spacing="2", align="center"),
+                    on_click=State.generate_eval_samples,
+                    background_color=PRIMARY,
+                    color="white",
+                    _hover={"background_color": PRIMARY_DARK},
+                ),
+                rx.cond(
+                    State.can_improve_current_evals,
+                    rx.button(
+                        rx.hstack(rx.icon("sparkles", size=14), rx.text("Improve Current Evals"), spacing="2", align="center"),
+                        on_click=State.improve_current_evals,
+                        background_color="#ffffff",
+                        color=PRIMARY,
+                        border=f"1px solid {PRIMARY}",
+                        _hover={"background_color": PRIMARY_SOFT},
+                    ),
+                    rx.box(),
+                ),
+                rx.cond(
+                    State.has_eval_preview,
+                    rx.button(
+                        rx.hstack(rx.icon("download", size=14), rx.text("Export Solution With Preview Evals"), spacing="2", align="center"),
+                        on_click=State.export_eval_solution,
+                        background_color="#ffffff",
+                        color="#102548",
+                        border="1px solid #c7d6ea",
+                        _hover={"background_color": "#f7faff"},
+                    ),
+                    rx.box(),
                 ),
                 spacing="3",
-                align="center",
+                flex_wrap="wrap",
+                width="100%",
             ),
-            padding_y="48px",
+            rx.cond(
+                State.evals_is_generating | State.evals_is_exporting,
+                rx.hstack(
+                    rx.spinner(size="2", color=PRIMARY),
+                    rx.text(
+                        rx.cond(State.evals_is_exporting, "Preparing exported solution…", "Building eval preview…"),
+                        font_size="12px",
+                        color="#605e5c",
+                    ),
+                    spacing="2",
+                    margin_top="10px",
+                    align="center",
+                ),
+                rx.box(),
+            ),
+            rx.cond(
+                State.evals_preview_error != "",
+                rx.text(State.evals_preview_error, font_size="12px", color=ERROR_COLOR, margin_top="10px"),
+                rx.box(),
+            ),
+            rx.cond(
+                State.evals_export_error != "",
+                rx.text(State.evals_export_error, font_size="12px", color=ERROR_COLOR, margin_top="10px"),
+                rx.box(),
+            ),
+            rx.cond(
+                State.evals_export_success,
+                rx.hstack(
+                    rx.badge("Export ready", color_scheme="green", variant="soft"),
+                    rx.button(
+                        rx.hstack(rx.icon("download", size=14), rx.text("Download Exported Solution"), spacing="2"),
+                        on_click=State.download_eval_solution,
+                        background_color="#ffffff",
+                        color=PRIMARY,
+                        border=f"1px solid {PRIMARY}",
+                        _hover={"background_color": PRIMARY_SOFT},
+                    ),
+                    spacing="3",
+                    margin_top="10px",
+                    align="center",
+                ),
+                rx.box(),
+            ),
             width="100%",
         ),
+        rx.cond(
+            State.has_eval_preview,
+            card(
+                sub_heading("PREVIEW"),
+                rx.hstack(
+                    rx.badge(
+                        rx.cond(State.evals_preview_mode == "improve", "Improved preview", "Generated preview"),
+                        color_scheme=rx.cond(State.evals_preview_mode == "improve", "orange", "blue"),
+                        variant="soft",
+                    ),
+                    rx.foreach(State.evals_preview_category_counts, _preview_count_pill),
+                    spacing="2",
+                    align="center",
+                    flex_wrap="wrap",
+                    width="100%",
+                ),
+                rx.vstack(
+                    sub_heading("SUGGESTED TEST CASES"),
+                    rx.box(
+                        rx.foreach(State.evals_preview_test_cases, _test_case_row),
+                        width="100%",
+                        border="1px solid #edebe9",
+                        border_radius="4px",
+                        overflow="hidden",
+                    ),
+                    width="100%",
+                    spacing="2",
+                    align="start",
+                ),
+                rx.vstack(
+                    sub_heading("SUGGESTED EVALUATION ROWS"),
+                    rx.box(
+                        rx.foreach(State.evals_preview_eval_rows, _eval_data_row),
+                        width="100%",
+                        border="1px solid #edebe9",
+                        border_radius="4px",
+                        overflow="hidden",
+                    ),
+                    width="100%",
+                    spacing="2",
+                    align="start",
+                ),
+                width="100%",
+            ),
+            rx.box(),
+        ),
+        rx.cond(
+            State.has_evals,
+            rx.vstack(
+                rx.box(
+                    rx.hstack(
+                        rx.cond(
+                            State.evals_test_total > 0,
+                            _evals_sub_tab_btn("tests", "list-checks", "Test Cases", State.evals_test_total),
+                            rx.box(),
+                        ),
+                        rx.cond(
+                            State.evals_eval_total > 0,
+                            _evals_sub_tab_btn("evals", "flask-conical", "Evaluations", State.evals_eval_total),
+                            rx.box(),
+                        ),
+                        spacing="0",
+                        border_bottom="1px solid #edebe9",
+                        width="100%",
+                    ),
+                    background="#ffffff",
+                    border_radius="8px 8px 0 0",
+                    width="100%",
+                ),
+                rx.cond(
+                    State.evals_sub_tab == "tests",
+                    card(
+                        rx.cond(
+                            State.evals_test_sets.length() > 1,
+                            rx.vstack(
+                                sub_heading("FILTER BY TEST SET"),
+                                rx.hstack(rx.foreach(State.evals_test_sets, _evals_test_set_pill), spacing="2", flex_wrap="wrap"),
+                                margin_bottom="16px",
+                                width="100%",
+                                spacing="2",
+                                align="start",
+                            ),
+                            rx.box(),
+                        ),
+                        rx.hstack(
+                            rx.text("Input / Test Set", font_size="11px", font_weight="700", color="#605e5c", width="38%"),
+                            rx.text("Expected Response", font_size="11px", font_weight="700", color="#605e5c", width="47%"),
+                            rx.text("Info", font_size="11px", font_weight="700", color="#605e5c", width="15%"),
+                            spacing="4",
+                            padding_x="14px",
+                            padding_y="6px",
+                            background="#f3f2f1",
+                            border_radius="4px",
+                            margin_bottom="4px",
+                            width="100%",
+                        ),
+                        rx.box(
+                            rx.foreach(State.evals_filtered_test_cases, _test_case_row),
+                            width="100%",
+                            border="1px solid #edebe9",
+                            border_radius="4px",
+                            overflow="hidden",
+                        ),
+                        width="100%",
+                    ),
+                    card(
+                        rx.cond(
+                            State.evals_eval_sets.length() > 1,
+                            rx.vstack(
+                                sub_heading("FILTER BY EVALUATION SET"),
+                                rx.hstack(rx.foreach(State.evals_eval_sets, _evals_eval_set_pill), spacing="2", flex_wrap="wrap"),
+                                margin_bottom="16px",
+                                width="100%",
+                                spacing="2",
+                                align="start",
+                            ),
+                            rx.box(),
+                        ),
+                        rx.cond(
+                            State.evals_active_eval_set != "",
+                            rx.foreach(
+                                State.evals_eval_sets,
+                                lambda es: rx.cond(
+                                    es["schema_name"] == State.evals_active_eval_set,
+                                    rx.hstack(
+                                        rx.text("Grader:", font_size="12px", color="#605e5c"),
+                                        rx.badge(es["graders"], color_scheme="orange", variant="soft", size="1"),
+                                        margin_bottom="12px",
+                                        spacing="2",
+                                        align="center",
+                                    ),
+                                    rx.box(),
+                                ),
+                            ),
+                            rx.box(),
+                        ),
+                        rx.hstack(
+                            rx.text("Input / Set", font_size="11px", font_weight="700", color="#605e5c", width="33%"),
+                            rx.text("Expected Output", font_size="11px", font_weight="700", color="#605e5c", width="47%"),
+                            rx.text("Info", font_size="11px", font_weight="700", color="#605e5c", width="20%"),
+                            spacing="4",
+                            padding_x="14px",
+                            padding_y="6px",
+                            background="#f3f2f1",
+                            border_radius="4px",
+                            margin_bottom="4px",
+                            width="100%",
+                        ),
+                        rx.box(
+                            rx.foreach(State.evals_filtered_eval_rows, _eval_data_row),
+                            width="100%",
+                            border="1px solid #edebe9",
+                            border_radius="4px",
+                            overflow="hidden",
+                        ),
+                        width="100%",
+                    ),
+                ),
+                width="100%",
+                spacing="4",
+                align="start",
+            ),
+            rx.center(
+                rx.vstack(
+                    rx.icon("flask-conical", size=36, color="#c8c6c4"),
+                    rx.text("No built-in evaluations found in the uploaded solution", font_size="14px", color="#a19f9d"),
+                    rx.text(
+                        "Use Generate Sample Evals to prepare a balanced preview, then export a solution with injected eval assets.",
+                        font_size="12px",
+                        color="#a19f9d",
+                        text_align="center",
+                    ),
+                    spacing="3",
+                    align="center",
+                ),
+                padding_y="24px",
+                width="100%",
+            ),
+        ),
+        width="100%",
+        spacing="4",
+        align="start",
     )
 
 
