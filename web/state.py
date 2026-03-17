@@ -1586,8 +1586,8 @@ class State(rx.State):
             )
             self.mcs_dv_oauth_device_code = str(result.get("device_code", ""))
             self.mcs_dv_oauth_user_code = str(result.get("user_code", ""))
-            self.mcs_dv_oauth_verify_uri = (
-                str(result.get("verification_uri_complete", "")) or str(result.get("verification_uri", ""))
+            self.mcs_dv_oauth_verify_uri = str(result.get("verification_uri_complete", "")) or str(
+                result.get("verification_uri", "")
             )
             resolved_url = str(result.get("dataverse_url", ""))
             if resolved_url and not self.mcs_dv_dataverse_url.strip():
@@ -1625,9 +1625,13 @@ class State(rx.State):
                 device_code=device_code,
             )
             if str(result.get("status", "")).lower() == "pending":
-                self.mcs_dv_oauth_message = str(result.get("message", "Authorization pending. Complete sign-in and retry."))
+                self.mcs_dv_oauth_message = str(
+                    result.get("message", "Authorization pending. Complete sign-in and retry.")
+                )
                 self.mcs_dv_auth_ok = False
-                self.mcs_dv_auth_message = "Device login pending. Complete sign-in and click Complete Device Login again."
+                self.mcs_dv_auth_message = (
+                    "Device login pending. Complete sign-in and click Complete Device Login again."
+                )
             else:
                 self._mcs_dv_session_token = str(result.get("access_token", ""))
                 self.mcs_dv_auth_ok = bool(self._mcs_dv_session_token)
@@ -1869,8 +1873,7 @@ class State(rx.State):
             self.mcs_dv_last_conversation_id = str(metadata.get("transcript_conversation_id", ""))
         except RemoteFetchError as exc:
             self.mcs_upload_error = (
-                "Dataverse transcript fetch failed: "
-                f"{exc}. You can still upload a transcript JSON file manually."
+                f"Dataverse transcript fetch failed: {exc}. You can still upload a transcript JSON file manually."
             )
         except Exception as exc:
             self.mcs_upload_error = f"Dataverse transcript analysis failed: {exc}\n{traceback.format_exc()}"
@@ -1990,8 +1993,7 @@ class State(rx.State):
             return
 
         self.mcs_section_profile = (
-            "## Bot Profile\n\n"
-            "_No snapshot loaded — drop a Copilot Studio snapshot ZIP for full agent analysis._\n"
+            "## Bot Profile\n\n_No snapshot loaded — drop a Copilot Studio snapshot ZIP for full agent analysis._\n"
         )
         self.mcs_section_knowledge_tools = (
             "## Knowledge Sources & External Tools\n\n"

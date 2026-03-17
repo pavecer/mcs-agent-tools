@@ -31,7 +31,9 @@ def _solution_zip_bytes(include_existing_evals: bool) -> bytes:
 </ImportExportXml>
 """.strip(),
         )
-        zf.writestr("[Content_Types].xml", "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\" />")
+        zf.writestr(
+            "[Content_Types].xml", '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types" />'
+        )
         zf.writestr("bots/copilots_demo_legal/configuration.json", json.dumps(config))
         zf.writestr("bots/copilots_demo_legal/bot.xml", "<bot><name>Demo Legal</name></bot>")
         zf.writestr(
@@ -174,7 +176,9 @@ def test_analyze_evals_reports_fit_and_improve_signal():
 
 
 def test_preview_generated_evals_returns_20_to_50_samples():
-    preview = preview_generated_evals(_solution_zip_bytes(include_existing_evals=False), mode="generate", target_count=24)
+    preview = preview_generated_evals(
+        _solution_zip_bytes(include_existing_evals=False), mode="generate", target_count=24
+    )
 
     assert preview["mode"] == "generate"
     assert 20 <= len(preview["test_cases"]) <= 50

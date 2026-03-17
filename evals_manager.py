@@ -94,11 +94,7 @@ def _normalize_label(value: str) -> str:
 
 
 def _tokenize(text: str) -> set[str]:
-    return {
-        token
-        for token in re.findall(r"[a-z0-9]{3,}", text.lower())
-        if token not in _STOPWORDS
-    }
+    return {token for token in re.findall(r"[a-z0-9]{3,}", text.lower()) if token not in _STOPWORDS}
 
 
 def _collect_action_facts(actions: list, tool_kinds: set[str], knowledge_sources: set[str]) -> None:
@@ -209,9 +205,7 @@ def _extract_blueprint(work_dir: Path) -> dict:
         data = _load_yaml(comp_dir / "data")
         begin = data.get("beginDialog") or {}
         trigger_queries = [
-            query.strip()
-            for query in begin.get("triggerQueries") or []
-            if isinstance(query, str) and query.strip()
+            query.strip() for query in begin.get("triggerQueries") or [] if isinstance(query, str) and query.strip()
         ]
         actions = begin.get("actions") or []
         topic_tool_kinds: set[str] = set()
@@ -301,9 +295,10 @@ def _build_fit_report(blueprint: dict, eval_profile, solution_hints: list[dict] 
             for action_kind in topic.get("action_kinds") or []:
                 covered_tool_kinds.add(action_kind)
             for knowledge in blueprint["knowledge_sources"]:
-                if knowledge.lower() in " ".join(topic.get("trigger_queries") or []).lower() or knowledge.lower() in topic[
-                    "display_name"
-                ].lower():
+                if (
+                    knowledge.lower() in " ".join(topic.get("trigger_queries") or []).lower()
+                    or knowledge.lower() in topic["display_name"].lower()
+                ):
                     covered_knowledge_sources.add(knowledge)
         topic_coverage.append(
             {
@@ -341,11 +336,17 @@ def _build_fit_report(blueprint: dict, eval_profile, solution_hints: list[dict] 
         covered = tool_kind in covered_tool_kinds
         tool_rows.append({"label": tool_kind, "covered": covered, "detail": "Tool/action path"})
     for knowledge in blueprint["knowledge_sources"]:
-        covered = knowledge in covered_knowledge_sources or any(knowledge.lower() in case.get("input", "").lower() for case in corpus)
-        tool_rows.append({"label": f"Knowledge: {knowledge}", "covered": covered, "detail": "Grounded knowledge source"})
+        covered = knowledge in covered_knowledge_sources or any(
+            knowledge.lower() in case.get("input", "").lower() for case in corpus
+        )
+        tool_rows.append(
+            {"label": f"Knowledge: {knowledge}", "covered": covered, "detail": "Grounded knowledge source"}
+        )
 
     populated_outputs = sum(1 for case in corpus if case.get("output") or case.get("keywords"))
-    unique_inputs = len({re.sub(r"\s+", " ", case.get("input", "").strip().lower()) for case in corpus if case.get("input")})
+    unique_inputs = len(
+        {re.sub(r"\s+", " ", case.get("input", "").strip().lower()) for case in corpus if case.get("input")}
+    )
     duplication_score = int((unique_inputs / max(total_cases, 1)) * 100) if total_cases else 0
     assertion_score = int((populated_outputs / max(total_cases, 1)) * 100) if total_cases else 0
     density_target = max(8, min(20, len(blueprint["topics"]) * 2 + len(blueprint["expectations"])))
@@ -399,7 +400,9 @@ def _build_fit_report(blueprint: dict, eval_profile, solution_hints: list[dict] 
     if topic_score < 60:
         recommendations.append("Add or improve cases for uncovered active topics and trigger phrases.")
     if instruction_score < 60:
-        recommendations.append("Add behaviour tests for grounding, safety, clarification, and citation rules from the instructions.")
+        recommendations.append(
+            "Add behaviour tests for grounding, safety, clarification, and citation rules from the instructions."
+        )
     if tool_score < 60:
         recommendations.append("Exercise knowledge search and tool-enabled flows explicitly in the eval set.")
     if quality_score < 60:
@@ -426,7 +429,9 @@ def _build_fit_report(blueprint: dict, eval_profile, solution_hints: list[dict] 
 
 def _collect_solution_hints(work_dir: Path, blueprint: dict) -> list[dict]:
     hints: list[dict] = []
-    for result in _check_topics(work_dir, blueprint["schema_name"]) + _check_agent_config(work_dir, blueprint["schema_name"]):
+    for result in _check_topics(work_dir, blueprint["schema_name"]) + _check_agent_config(
+        work_dir, blueprint["schema_name"]
+    ):
         severity = (result.get("severity") or "").upper()
         if severity not in {"WARN", "FAIL"}:
             continue
@@ -434,7 +439,9 @@ def _collect_solution_hints(work_dir: Path, blueprint: dict) -> list[dict]:
             {
                 "area": result.get("category") or "Solution",
                 "label": result.get("title") or result.get("code") or "Coverage gap",
-                "detail": result.get("detail") or result.get("title") or "Relevant solution check requires test coverage.",
+                "detail": result.get("detail")
+                or result.get("title")
+                or "Relevant solution check requires test coverage.",
             }
         )
     return hints
@@ -563,10 +570,14 @@ def _balance_scenarios(blueprint: dict, target_count: int, mode: str, fit_report
     if mode == "improve":
         uncovered_labels = {gap["label"] for gap in fit_report.get("gaps", [])}
         filtered_topics = [
-            item for item in topic_scenarios if any(label.lower() in item["input"].lower() for label in uncovered_labels)
+            item
+            for item in topic_scenarios
+            if any(label.lower() in item["input"].lower() for label in uncovered_labels)
         ]
         filtered_expectations = [
-            item for item in expectation_scenarios if any(label.lower() in item["expected"].lower() for label in uncovered_labels)
+            item
+            for item in expectation_scenarios
+            if any(label.lower() in item["expected"].lower() for label in uncovered_labels)
         ]
         scenarios.extend(filtered_topics)
         scenarios.extend(filtered_expectations)
@@ -647,7 +658,13 @@ def _bundle_preview(blueprint: dict, scenarios: list[dict], mode: str) -> dict:
     ]
     return {
         "mode": mode,
-        "test_sets": [{"schema_name": f"generated_{mode}_tests", "display_name": f"{prefix} Test Cases", "test_count": len(test_cases)}],
+        "test_sets": [
+            {
+                "schema_name": f"generated_{mode}_tests",
+                "display_name": f"{prefix} Test Cases",
+                "test_count": len(test_cases),
+            }
+        ],
         "eval_sets": [
             {
                 "schema_name": f"generated_{mode}_evals",
@@ -659,7 +676,8 @@ def _bundle_preview(blueprint: dict, scenarios: list[dict], mode: str) -> dict:
         "test_cases": test_cases,
         "eval_rows": eval_rows,
         "category_counts": [
-            {"label": label, "count": count} for label, count in sorted(category_counts.items(), key=lambda item: item[0])
+            {"label": label, "count": count}
+            for label, count in sorted(category_counts.items(), key=lambda item: item[0])
         ],
     }
 
@@ -830,7 +848,9 @@ def preview_generated_evals(zip_bytes: bytes, mode: str = "generate", target_cou
             safe_extractall(zf, work_dir)
         blueprint = _extract_blueprint(work_dir)
         eval_profile = parse_evals_zip(work_dir)
-        fit_report = _build_fit_report(blueprint, eval_profile, solution_hints=_collect_solution_hints(work_dir, blueprint))
+        fit_report = _build_fit_report(
+            blueprint, eval_profile, solution_hints=_collect_solution_hints(work_dir, blueprint)
+        )
         scenarios = _balance_scenarios(blueprint, target_count=target_count, mode=mode, fit_report=fit_report)
     return _bundle_preview(blueprint, scenarios, mode)
 
@@ -842,7 +862,9 @@ def export_solution_with_evals(zip_bytes: bytes, mode: str = "generate", target_
             safe_extractall(zf, work_dir)
         blueprint = _extract_blueprint(work_dir)
         eval_profile = parse_evals_zip(work_dir)
-        fit_report = _build_fit_report(blueprint, eval_profile, solution_hints=_collect_solution_hints(work_dir, blueprint))
+        fit_report = _build_fit_report(
+            blueprint, eval_profile, solution_hints=_collect_solution_hints(work_dir, blueprint)
+        )
         scenarios = _balance_scenarios(blueprint, target_count=target_count, mode=mode, fit_report=fit_report)
         preview = _bundle_preview(blueprint, scenarios, mode)
         _inject_preview_into_solution(work_dir, blueprint, preview)

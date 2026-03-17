@@ -275,7 +275,9 @@ def _mcs_dataverse_fetch_block() -> rx.Component:
             width="100%",
         ),
         rx.text(
-            rx.cond(State.mcs_dv_use_env_auth, "Current mode: Environment credentials", "Current mode: Manual credentials"),
+            rx.cond(
+                State.mcs_dv_use_env_auth, "Current mode: Environment credentials", "Current mode: Manual credentials"
+            ),
             font_size="11px",
             color="#605e5c",
         ),
@@ -2935,7 +2937,9 @@ def evals_panel() -> rx.Component:
         rx.cond(
             State.evals_is_analyzing,
             card(
-                rx.hstack(rx.spinner(size="3", color=PRIMARY), rx.text("Analysing eval fit…", color="#605e5c"), spacing="3"),
+                rx.hstack(
+                    rx.spinner(size="3", color=PRIMARY), rx.text("Analysing eval fit…", color="#605e5c"), spacing="3"
+                ),
                 width="100%",
             ),
             rx.box(),
@@ -3004,7 +3008,9 @@ def evals_panel() -> rx.Component:
             ),
             rx.hstack(
                 rx.button(
-                    rx.hstack(rx.icon("sparkles", size=14), rx.text("Generate 24 Sample Evals"), spacing="2", align="center"),
+                    rx.hstack(
+                        rx.icon("sparkles", size=14), rx.text("Generate 24 Sample Evals"), spacing="2", align="center"
+                    ),
                     on_click=State.generate_eval_samples,
                     background_color=PRIMARY,
                     color="white",
@@ -3013,7 +3019,9 @@ def evals_panel() -> rx.Component:
                 rx.cond(
                     State.can_improve_current_evals,
                     rx.button(
-                        rx.hstack(rx.icon("sparkles", size=14), rx.text("Improve Current Evals"), spacing="2", align="center"),
+                        rx.hstack(
+                            rx.icon("sparkles", size=14), rx.text("Improve Current Evals"), spacing="2", align="center"
+                        ),
                         on_click=State.improve_current_evals,
                         background_color="#ffffff",
                         color=PRIMARY,
@@ -3025,7 +3033,12 @@ def evals_panel() -> rx.Component:
                 rx.cond(
                     State.has_eval_preview,
                     rx.button(
-                        rx.hstack(rx.icon("download", size=14), rx.text("Export Solution With Preview Evals"), spacing="2", align="center"),
+                        rx.hstack(
+                            rx.icon("download", size=14),
+                            rx.text("Export Solution With Preview Evals"),
+                            spacing="2",
+                            align="center",
+                        ),
                         on_click=State.export_eval_solution,
                         background_color="#ffffff",
                         color="#102548",
@@ -3159,7 +3172,11 @@ def evals_panel() -> rx.Component:
                             State.evals_test_sets.length() > 1,
                             rx.vstack(
                                 sub_heading("FILTER BY TEST SET"),
-                                rx.hstack(rx.foreach(State.evals_test_sets, _evals_test_set_pill), spacing="2", flex_wrap="wrap"),
+                                rx.hstack(
+                                    rx.foreach(State.evals_test_sets, _evals_test_set_pill),
+                                    spacing="2",
+                                    flex_wrap="wrap",
+                                ),
                                 margin_bottom="16px",
                                 width="100%",
                                 spacing="2",
@@ -3168,8 +3185,12 @@ def evals_panel() -> rx.Component:
                             rx.box(),
                         ),
                         rx.hstack(
-                            rx.text("Input / Test Set", font_size="11px", font_weight="700", color="#605e5c", width="38%"),
-                            rx.text("Expected Response", font_size="11px", font_weight="700", color="#605e5c", width="47%"),
+                            rx.text(
+                                "Input / Test Set", font_size="11px", font_weight="700", color="#605e5c", width="38%"
+                            ),
+                            rx.text(
+                                "Expected Response", font_size="11px", font_weight="700", color="#605e5c", width="47%"
+                            ),
                             rx.text("Info", font_size="11px", font_weight="700", color="#605e5c", width="15%"),
                             spacing="4",
                             padding_x="14px",
@@ -3193,7 +3214,11 @@ def evals_panel() -> rx.Component:
                             State.evals_eval_sets.length() > 1,
                             rx.vstack(
                                 sub_heading("FILTER BY EVALUATION SET"),
-                                rx.hstack(rx.foreach(State.evals_eval_sets, _evals_eval_set_pill), spacing="2", flex_wrap="wrap"),
+                                rx.hstack(
+                                    rx.foreach(State.evals_eval_sets, _evals_eval_set_pill),
+                                    spacing="2",
+                                    flex_wrap="wrap",
+                                ),
                                 margin_bottom="16px",
                                 width="100%",
                                 spacing="2",
@@ -3221,7 +3246,9 @@ def evals_panel() -> rx.Component:
                         ),
                         rx.hstack(
                             rx.text("Input / Set", font_size="11px", font_weight="700", color="#605e5c", width="33%"),
-                            rx.text("Expected Output", font_size="11px", font_weight="700", color="#605e5c", width="47%"),
+                            rx.text(
+                                "Expected Output", font_size="11px", font_weight="700", color="#605e5c", width="47%"
+                            ),
                             rx.text("Info", font_size="11px", font_weight="700", color="#605e5c", width="20%"),
                             spacing="4",
                             padding_x="14px",
@@ -3248,7 +3275,9 @@ def evals_panel() -> rx.Component:
             rx.center(
                 rx.vstack(
                     rx.icon("flask-conical", size=36, color="#c8c6c4"),
-                    rx.text("No built-in evaluations found in the uploaded solution", font_size="14px", color="#a19f9d"),
+                    rx.text(
+                        "No built-in evaluations found in the uploaded solution", font_size="14px", color="#a19f9d"
+                    ),
                     rx.text(
                         "Use Generate Sample Evals to prepare a balanced preview, then export a solution with injected eval assets.",
                         font_size="12px",

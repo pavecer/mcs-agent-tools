@@ -639,9 +639,7 @@ def _render_components(profile: BotProfile) -> str:
         if comps:
             act = sum(1 for c in comps if c.state == "Active")
             inact = len(comps) - act
-            lines.append(
-                f"| {_CAT_LABELS[cat]} | {len(comps)} | {act} | {inact if inact else '—'} |"
-            )
+            lines.append(f"| {_CAT_LABELS[cat]} | {len(comps)} | {act} | {inact if inact else '—'} |")
     lines.append("")
 
     _TOPIC_CATS = {"user_topics", "orchestrator_topics", "system_topics", "automation_topics"}

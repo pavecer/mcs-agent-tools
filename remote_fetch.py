@@ -22,9 +22,7 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 
-_GUID_RE = re.compile(
-    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
-)
+_GUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 _GUID_SEARCH_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 
 
@@ -127,9 +125,7 @@ def fetch_transcript_by_id(
     row, table_name = _find_transcript_row_by_id(base_url=base_url, headers=headers, transcript_id=transcript_id)
     activities = _rows_to_activities([row])
     if not activities:
-        raise RemoteFetchError(
-            "Transcript row was found, but no recognizable text field was available for analysis."
-        )
+        raise RemoteFetchError("Transcript row was found, but no recognizable text field was available for analysis.")
 
     metadata = {
         "transcript_source": "dataverse",
@@ -270,7 +266,9 @@ def complete_device_code_auth(*, tenant_id: str, client_id: str, device_code: st
         if err in {"authorization_pending", "slow_down"}:
             return {
                 "status": "pending",
-                "message": str(payload.get("error_description", "Authorization still pending. Complete sign-in and retry.")),
+                "message": str(
+                    payload.get("error_description", "Authorization still pending. Complete sign-in and retry.")
+                ),
             }
         if err == "expired_token":
             raise RemoteFetchError("Device code expired. Start authentication again.") from exc
@@ -354,8 +352,7 @@ def _fetch_with_dataverse(
 
     if not yaml_text:
         comp_payload = _dataverse_get(
-            f"{base_url}/api/data/v9.2/botcomponents?"
-            f"$filter=_botid_value eq {agent_ref.agent_id}&$top=200",
+            f"{base_url}/api/data/v9.2/botcomponents?$filter=_botid_value eq {agent_ref.agent_id}&$top=200",
             headers,
         )
         yaml_text = _extract_yaml_text(comp_payload)
@@ -525,8 +522,7 @@ def _extract_template_with_pac(*, environment: str, agent_id: str) -> str:
                 return yaml_files[0].read_text(encoding="utf-8")
 
         raise RemoteFetchError(
-            "pac extract-template did not produce a YAML file. "
-            f"Last error: {last_error or 'unknown'}"
+            f"pac extract-template did not produce a YAML file. Last error: {last_error or 'unknown'}"
         )
 
 
@@ -856,13 +852,11 @@ def _fetch_transcripts_dataverse(
     endpoints = [
         (
             "conversationtranscripts",
-            f"{base_url}/api/data/v9.2/conversationtranscripts?$top=200&"
-            f"$orderby=createdon desc",
+            f"{base_url}/api/data/v9.2/conversationtranscripts?$top=200&$orderby=createdon desc",
         ),
         (
             "conversationtranscript",
-            f"{base_url}/api/data/v9.2/conversationtranscript?$top=200&"
-            f"$orderby=createdon desc",
+            f"{base_url}/api/data/v9.2/conversationtranscript?$top=200&$orderby=createdon desc",
         ),
     ]
 
