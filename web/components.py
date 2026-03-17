@@ -211,6 +211,384 @@ def json_upload_area() -> rx.Component:
     )
 
 
+def _mcs_dataverse_fetch_block() -> rx.Component:
+    """Shared Dataverse transcript fetch UI block."""
+    return rx.vstack(
+        sub_heading("FETCH FROM DATAVERSE"),
+        rx.text(
+            "Alternative to JSON upload: authenticate and fetch a transcript directly by transcript ID.",
+            font_size="12px",
+            color="#605e5c",
+        ),
+        rx.text(
+            "Tip: environment IDs such as Default-... are best-effort resolved; Dataverse URL is always reliable.",
+            font_size="11px",
+            color="#605e5c",
+        ),
+        rx.text("Environment ID or URL", font_size="11px", font_weight="600", color="#334a6d"),
+        rx.hstack(
+            rx.input(
+                placeholder="e.g. Default-1234... or https://org.crm.dynamics.com",
+                value=State.mcs_dv_environment,
+                on_change=State.set_mcs_dv_environment,
+                size="2",
+                width="50%",
+            ),
+            rx.input(
+                placeholder="Dataverse URL override (optional)",
+                value=State.mcs_dv_dataverse_url,
+                on_change=State.set_mcs_dv_dataverse_url,
+                size="2",
+                width="50%",
+            ),
+            spacing="2",
+            width="100%",
+            flex_wrap="wrap",
+        ),
+        rx.text("Transcript ID", font_size="11px", font_weight="600", color="#334a6d"),
+        rx.input(
+            placeholder="Transcript ID",
+            value=State.mcs_dv_transcript_id,
+            on_change=State.set_mcs_dv_transcript_id,
+            size="2",
+            width="100%",
+        ),
+        rx.text("Authentication mode", font_size="11px", font_weight="600", color="#334a6d"),
+        rx.hstack(
+            rx.button(
+                "Use Env Auth",
+                on_click=State.set_mcs_dv_use_env_auth(True),
+                size="1",
+                variant=rx.cond(State.mcs_dv_use_env_auth, "solid", "outline"),
+                color_scheme=rx.cond(State.mcs_dv_use_env_auth, "blue", "gray"),
+                cursor="pointer",
+            ),
+            rx.button(
+                "Manual Auth",
+                on_click=State.set_mcs_dv_use_env_auth(False),
+                size="1",
+                variant=rx.cond(State.mcs_dv_use_env_auth, "outline", "solid"),
+                color_scheme=rx.cond(State.mcs_dv_use_env_auth, "gray", "blue"),
+                cursor="pointer",
+            ),
+            spacing="2",
+            width="100%",
+        ),
+        rx.text(
+            rx.cond(State.mcs_dv_use_env_auth, "Current mode: Environment credentials", "Current mode: Manual credentials"),
+            font_size="11px",
+            color="#605e5c",
+        ),
+        rx.cond(
+            State.mcs_dv_use_env_auth,
+            rx.callout(
+                "Using environment credentials. If none are configured, the app will automatically switch to Manual Auth.",
+                icon="shield-check",
+                color_scheme="blue",
+            ),
+            rx.vstack(
+                rx.text("OAuth Device Code (recommended)", font_size="11px", font_weight="700", color="#334a6d"),
+                rx.hstack(
+                    rx.input(
+                        placeholder="Tenant ID",
+                        value=State.mcs_dv_oauth_tenant_id,
+                        on_change=State.set_mcs_dv_oauth_tenant_id,
+                        size="2",
+                        width="50%",
+                    ),
+                    rx.input(
+                        placeholder="Client ID (public app)",
+                        value=State.mcs_dv_oauth_client_id,
+                        on_change=State.set_mcs_dv_oauth_client_id,
+                        size="2",
+                        width="50%",
+                    ),
+                    spacing="2",
+                    width="100%",
+                    flex_wrap="wrap",
+                ),
+                rx.hstack(
+                    rx.button(
+                        "Use Default Public Client ID",
+                        on_click=State.use_mcs_dv_default_oauth_client_id,
+                        size="1",
+                        variant="ghost",
+                        color_scheme="blue",
+                        cursor="pointer",
+                    ),
+                    rx.text(
+                        "Convenience preset; tenant policy may require your own app registration.",
+                        font_size="11px",
+                        color="#605e5c",
+                    ),
+                    spacing="2",
+                    align="center",
+                    flex_wrap="wrap",
+                    width="100%",
+                ),
+                rx.hstack(
+                    rx.button(
+                        "Start Device Login",
+                        on_click=State.start_mcs_dataverse_device_login,
+                        size="1",
+                        variant="outline",
+                        color_scheme="blue",
+                        is_disabled=State.mcs_is_processing,
+                        _disabled={"opacity": "0.5", "cursor": "not-allowed"},
+                    ),
+                    rx.button(
+                        "Complete Device Login",
+                        on_click=State.complete_mcs_dataverse_device_login,
+                        size="1",
+                        variant="outline",
+                        color_scheme="blue",
+                        is_disabled=State.mcs_is_processing | (State.mcs_dv_oauth_device_code == ""),
+                        _disabled={"opacity": "0.5", "cursor": "not-allowed"},
+                    ),
+                    spacing="2",
+                    flex_wrap="wrap",
+                ),
+                rx.cond(
+                    State.mcs_dv_oauth_user_code != "",
+                    rx.box(
+                        rx.text("User code", font_size="11px", font_weight="700", color="#334a6d"),
+                        rx.code(State.mcs_dv_oauth_user_code),
+                        rx.cond(
+                            State.mcs_dv_oauth_verify_uri != "",
+                            rx.link(
+                                "Open verification URL",
+                                href=State.mcs_dv_oauth_verify_uri,
+                                is_external=True,
+                                color=PRIMARY,
+                                font_size="12px",
+                            ),
+                            rx.box(),
+                        ),
+                        width="100%",
+                    ),
+                    rx.box(),
+                ),
+                rx.cond(
+                    State.mcs_dv_oauth_message != "",
+                    rx.callout(
+                        State.mcs_dv_oauth_message,
+                        icon="info",
+                        color_scheme="blue",
+                    ),
+                    rx.box(),
+                ),
+                rx.divider(),
+                rx.text("Manual token / app credentials", font_size="11px", font_weight="700", color="#334a6d"),
+                rx.input(
+                    placeholder="Bearer token (optional if using app credentials below)",
+                    value=State.mcs_dv_token,
+                    on_change=State.set_mcs_dv_token,
+                    size="2",
+                    width="100%",
+                ),
+                rx.hstack(
+                    rx.input(
+                        placeholder="Tenant ID",
+                        value=State.mcs_dv_tenant_id,
+                        on_change=State.set_mcs_dv_tenant_id,
+                        size="2",
+                        width="33%",
+                    ),
+                    rx.input(
+                        placeholder="Client ID",
+                        value=State.mcs_dv_client_id,
+                        on_change=State.set_mcs_dv_client_id,
+                        size="2",
+                        width="33%",
+                    ),
+                    rx.input(
+                        placeholder="Client Secret",
+                        value=State.mcs_dv_client_secret,
+                        on_change=State.set_mcs_dv_client_secret,
+                        size="2",
+                        type="password",
+                        width="33%",
+                    ),
+                    spacing="2",
+                    width="100%",
+                    flex_wrap="wrap",
+                ),
+                rx.text(
+                    "Secrets are only used for this request and client secret is cleared after fetch.",
+                    font_size="11px",
+                    color="#605e5c",
+                ),
+                spacing="2",
+                width="100%",
+                align="start",
+            ),
+        ),
+        rx.button(
+            rx.hstack(
+                rx.icon("key-round", size=14),
+                rx.text("Authenticate", font_size="13px"),
+                spacing="2",
+                align="center",
+            ),
+            on_click=State.authenticate_mcs_dataverse,
+            is_disabled=State.mcs_is_processing,
+            size="2",
+            variant="outline",
+            color_scheme="blue",
+            cursor="pointer",
+            _disabled={"opacity": "0.5", "cursor": "not-allowed"},
+            width="100%",
+        ),
+        rx.button(
+            rx.hstack(
+                rx.icon("database", size=14),
+                rx.text("Fetch Transcript by ID", font_size="13px"),
+                spacing="2",
+                align="center",
+            ),
+            on_click=State.fetch_mcs_transcript_from_dataverse,
+            is_disabled=State.mcs_dv_actions_locked | State.mcs_is_processing,
+            size="2",
+            color_scheme="blue",
+            cursor="pointer",
+            _disabled={"opacity": "0.5", "cursor": "not-allowed"},
+            width="100%",
+        ),
+        rx.button(
+            rx.hstack(
+                rx.icon("shield-check", size=14),
+                rx.text("Test Connection", font_size="13px"),
+                spacing="2",
+                align="center",
+            ),
+            on_click=State.test_mcs_dataverse_connection,
+            is_disabled=State.mcs_dv_actions_locked | State.mcs_is_processing,
+            size="2",
+            variant="outline",
+            color_scheme="blue",
+            cursor="pointer",
+            _disabled={"opacity": "0.5", "cursor": "not-allowed"},
+            width="100%",
+        ),
+        rx.cond(
+            State.mcs_is_processing,
+            rx.hstack(
+                rx.spinner(size="2", color=PRIMARY),
+                rx.text("Working on Dataverse request...", font_size="12px", color="#605e5c"),
+                spacing="2",
+                align="center",
+            ),
+            rx.box(),
+        ),
+        rx.cond(
+            State.mcs_dv_actions_locked,
+            rx.callout(
+                "Manual Auth mode is locked. Click Authenticate first, then run Test Connection or Fetch.",
+                icon="lock",
+                color_scheme="amber",
+            ),
+            rx.box(),
+        ),
+        rx.cond(
+            State.mcs_upload_error != "",
+            rx.callout(
+                State.mcs_upload_error,
+                icon="triangle-alert",
+                color_scheme="red",
+            ),
+            rx.box(),
+        ),
+        rx.cond(
+            State.mcs_dv_auth_message != "",
+            rx.callout(
+                State.mcs_dv_auth_message,
+                icon=rx.cond(State.mcs_dv_auth_ok, "badge-check", "triangle-alert"),
+                color_scheme=rx.cond(State.mcs_dv_auth_ok, "green", "red"),
+            ),
+            rx.box(),
+        ),
+        rx.cond(
+            State.mcs_dv_connection_message != "",
+            rx.callout(
+                State.mcs_dv_connection_message,
+                icon=rx.cond(State.mcs_dv_connection_ok, "badge-check", "triangle-alert"),
+                color_scheme=rx.cond(State.mcs_dv_connection_ok, "green", "red"),
+            ),
+            rx.box(),
+        ),
+        rx.cond(
+            State.mcs_dv_last_transcript_id != "",
+            rx.box(
+                rx.text("Last fetched transcript", font_size="12px", font_weight="700", color="#334a6d"),
+                rx.grid(
+                    rx.text("Source", font_size="12px", color="#605e5c"),
+                    rx.text(State.mcs_dv_last_source, font_size="12px", color="#201f1e"),
+                    rx.text("Table", font_size="12px", color="#605e5c"),
+                    rx.text(State.mcs_dv_last_table, font_size="12px", color="#201f1e"),
+                    rx.text("Transcript ID", font_size="12px", color="#605e5c"),
+                    rx.text(State.mcs_dv_last_transcript_id, font_size="12px", color="#201f1e"),
+                    rx.text("Created", font_size="12px", color="#605e5c"),
+                    rx.text(State.mcs_dv_last_created_at, font_size="12px", color="#201f1e"),
+                    rx.text("Conversation ID", font_size="12px", color="#605e5c"),
+                    rx.text(State.mcs_dv_last_conversation_id, font_size="12px", color="#201f1e"),
+                    columns="2",
+                    row_gap="6px",
+                    column_gap="12px",
+                    width="100%",
+                ),
+                border="1px solid #e1dfdd",
+                border_radius="8px",
+                padding="10px",
+                width="100%",
+            ),
+            rx.box(),
+        ),
+        spacing="2",
+        width="100%",
+        align="start",
+    )
+
+
+def transcript_input_choice_area() -> rx.Component:
+    """Landing first-step choice: upload JSON or fetch from Dataverse."""
+    return rx.vstack(
+        rx.text(
+            "Step 1: Choose transcript input method",
+            font_size="13px",
+            font_weight="700",
+            color="#201f1e",
+        ),
+        rx.hstack(
+            rx.button(
+                "Upload JSON",
+                on_click=State.set_mcs_landing_transcript_mode("upload"),
+                size="2",
+                variant=rx.cond(State.mcs_landing_transcript_mode == "upload", "solid", "outline"),
+                color_scheme=rx.cond(State.mcs_landing_transcript_mode == "upload", "blue", "gray"),
+                cursor="pointer",
+            ),
+            rx.button(
+                "Fetch from Dataverse",
+                on_click=State.set_mcs_landing_transcript_mode("dataverse"),
+                size="2",
+                variant=rx.cond(State.mcs_landing_transcript_mode == "dataverse", "solid", "outline"),
+                color_scheme=rx.cond(State.mcs_landing_transcript_mode == "dataverse", "blue", "gray"),
+                cursor="pointer",
+            ),
+            spacing="2",
+            flex_wrap="wrap",
+        ),
+        rx.cond(
+            State.mcs_landing_transcript_mode == "dataverse",
+            _mcs_dataverse_fetch_block(),
+            json_upload_area(),
+        ),
+        width="100%",
+        spacing="3",
+        align="start",
+    )
+
+
 # ── Detected info panel (read-only summary) ────────────────────────────────────
 
 
@@ -571,7 +949,377 @@ def feedback_footer() -> rx.Component:
     )
 
 
-# ── Visualization panel ───────────────────────────────────────────────────────
+# ── Visualization panel — rich structured UI ─────────────────────────────────
+
+
+def _viz_channel_badge(ch: str) -> rx.Component:
+    return rx.badge(ch, color_scheme="blue", variant="soft", size="1")
+
+
+def _viz_config_pill(label: str, value: rx.Component) -> rx.Component:
+    """One config property pill — label above value."""
+    return rx.vstack(
+        rx.text(label, font_size="10px", font_weight="700", color="#605e5c", letter_spacing="0.06em"),
+        value,
+        spacing="1",
+        align="start",
+    )
+
+
+def _viz_count_block(count: rx.Var, label: str, color: str) -> rx.Component:
+    return rx.vstack(
+        rx.text(count, font_size="26px", font_weight="700", color=color, line_height="1"),
+        rx.text(label, font_size="11px", color="#605e5c", font_weight="500"),
+        spacing="1",
+        align="center",
+    )
+
+
+def _viz_cat_stat_row(stat: dict) -> rx.Component:
+    """One row in the category summary table inside the Components card."""
+    return rx.hstack(
+        rx.box(
+            width="8px",
+            height="8px",
+            border_radius="50%",
+            background=stat["color"],
+            flex_shrink="0",
+        ),
+        rx.text(stat["label"], font_size="13px", color="#201f1e", flex="1"),
+        rx.text(
+            stat["total"],
+            font_size="13px",
+            font_weight="600",
+            color="#201f1e",
+            min_width="32px",
+            text_align="right",
+        ),
+        rx.text(
+            stat["active"],
+            font_size="13px",
+            color="#107c10",
+            font_weight="500",
+            min_width="40px",
+            text_align="right",
+        ),
+        rx.text(
+            stat["inactive_display"],
+            font_size="13px",
+            color="#c7921e",
+            font_weight="500",
+            min_width="48px",
+            text_align="right",
+        ),
+        spacing="3",
+        width="100%",
+        align="center",
+        padding_y="5px",
+    )
+
+
+def _viz_component_row(row: dict) -> rx.Component:
+    """Render a section header or a component item row (topic / other)."""
+    return rx.match(
+        row["kind"],
+        (
+            "header",
+            rx.box(
+                rx.hstack(
+                    rx.box(
+                        width="3px",
+                        height="14px",
+                        background=row["color"],
+                        border_radius="2px",
+                        flex_shrink="0",
+                    ),
+                    rx.text(
+                        row["label"],
+                        font_size="11px",
+                        font_weight="700",
+                        color=row["color"],
+                        letter_spacing="0.05em",
+                    ),
+                    spacing="2",
+                    align="center",
+                ),
+                padding_top="14px",
+                padding_bottom="5px",
+                width="100%",
+            ),
+        ),
+        (
+            "topic",
+            rx.box(
+                rx.hstack(
+                    rx.text(row["name"], font_size="13px", color="#201f1e", flex="1"),
+                    rx.badge(row["trigger"], color_scheme="blue", variant="soft", size="1"),
+                    rx.badge(row["status_label"], color_scheme=row["status_scheme"], variant="soft", size="1"),
+                    spacing="2",
+                    align="center",
+                    width="100%",
+                    flex_wrap="wrap",
+                ),
+                padding="7px 12px",
+                border_left_width="3px",
+                border_left_style="solid",
+                border_left_color=row["row_border"],
+                background=row["row_bg"],
+                border_radius="0 6px 6px 0",
+                margin_bottom="4px",
+                width="100%",
+            ),
+        ),
+        (
+            "other",
+            rx.box(
+                rx.hstack(
+                    rx.text(row["name"], font_size="13px", color="#201f1e", flex="1"),
+                    rx.badge(row["status_label"], color_scheme=row["status_scheme"], variant="soft", size="1"),
+                    spacing="2",
+                    align="center",
+                    width="100%",
+                ),
+                padding="7px 12px",
+                border_left_width="3px",
+                border_left_style="solid",
+                border_left_color=row["row_border"],
+                background=row["row_bg"],
+                border_radius="0 6px 6px 0",
+                margin_bottom="4px",
+                width="100%",
+            ),
+        ),
+        rx.box(),
+    )
+
+
+def _viz_solution_panel() -> rx.Component:
+    """Rich card-based visualization for solution ZIP data."""
+    return rx.vstack(
+        # ── 1. Header card ──────────────────────────────────────────────────
+        card(
+            rx.hstack(
+                rx.vstack(
+                    rx.hstack(
+                        rx.icon("bot", color=PRIMARY, size=22),
+                        rx.heading(State.viz_display_name, size="5", color="#102548"),
+                        spacing="2",
+                        align="center",
+                    ),
+                    rx.hstack(
+                        rx.foreach(State.viz_channels, _viz_channel_badge),
+                        rx.cond(
+                            State.viz_model != "",
+                            rx.badge(State.viz_model, color_scheme="purple", variant="soft"),
+                            rx.box(),
+                        ),
+                        rx.badge(State.viz_recognizer, color_scheme="gray", variant="soft"),
+                        spacing="2",
+                        align="center",
+                        flex_wrap="wrap",
+                    ),
+                    spacing="3",
+                    align="start",
+                ),
+                rx.spacer(),
+                rx.hstack(
+                    _viz_count_block(State.viz_total, "total", "#102548"),
+                    rx.divider(orientation="vertical", height="40px"),
+                    _viz_count_block(State.viz_active_count, "active", "#107c10"),
+                    rx.cond(
+                        State.viz_inactive_count > 0,
+                        rx.hstack(
+                            rx.divider(orientation="vertical", height="40px"),
+                            _viz_count_block(State.viz_inactive_count, "inactive", "#c7921e"),
+                            spacing="4",
+                            align="center",
+                        ),
+                        rx.box(),
+                    ),
+                    spacing="4",
+                    align="center",
+                ),
+                align="center",
+                width="100%",
+                flex_wrap="wrap",
+                gap="20px",
+            ),
+            width="100%",
+        ),
+        # ── 2. AI Configuration card ────────────────────────────────────────
+        card(
+            rx.hstack(
+                rx.icon("cpu", color=PRIMARY, size=16),
+                rx.heading("AI Configuration", size="3", color="#102548"),
+                spacing="2",
+                align="center",
+                margin_bottom="14px",
+            ),
+            rx.hstack(
+                _viz_config_pill(
+                    "MODEL",
+                    rx.cond(
+                        State.viz_model != "",
+                        rx.badge(State.viz_model, color_scheme="purple", variant="soft"),
+                        rx.text("—", font_size="13px", color="#a19f9d"),
+                    ),
+                ),
+                rx.divider(orientation="vertical", height="36px"),
+                _viz_config_pill(
+                    "WEB BROWSING",
+                    rx.cond(
+                        State.viz_web_browsing,
+                        rx.badge("Enabled", color_scheme="green", variant="soft"),
+                        rx.badge("Disabled", color_scheme="gray", variant="soft"),
+                    ),
+                ),
+                rx.divider(orientation="vertical", height="36px"),
+                _viz_config_pill(
+                    "USE MODEL KNOWLEDGE",
+                    rx.cond(
+                        State.viz_use_model_knowledge,
+                        rx.badge("Yes", color_scheme="green", variant="soft"),
+                        rx.badge("No", color_scheme="gray", variant="soft"),
+                    ),
+                ),
+                spacing="5",
+                align="center",
+                flex_wrap="wrap",
+            ),
+            # Instructions preview
+            rx.cond(
+                State.viz_instructions_length > 0,
+                rx.vstack(
+                    rx.hstack(
+                        rx.icon("file-text", size=14, color="#605e5c"),
+                        rx.text(
+                            "System Instructions",
+                            font_size="12px",
+                            font_weight="700",
+                            color="#334a6d",
+                        ),
+                        rx.badge(
+                            State.viz_instructions_length_str + " chars",
+                            color_scheme="gray",
+                            variant="soft",
+                            size="1",
+                        ),
+                        spacing="2",
+                        align="center",
+                        margin_top="16px",
+                        margin_bottom="8px",
+                    ),
+                    rx.box(
+                        rx.text(
+                            State.viz_instructions_preview,
+                            font_size="12px",
+                            color="#3a3a3a",
+                            white_space="pre-wrap",
+                            font_family="'Cascadia Code', 'Consolas', monospace",
+                            line_height="1.65",
+                        ),
+                        background="#f7f8fa",
+                        border="1px solid #e0e4ed",
+                        border_left_width="4px",
+                        border_left_color=PRIMARY,
+                        border_radius="0 8px 8px 0",
+                        padding="14px 16px",
+                        width="100%",
+                    ),
+                    width="100%",
+                    spacing="0",
+                ),
+                rx.box(),
+            ),
+            width="100%",
+        ),
+        # ── 3. Components card ──────────────────────────────────────────────
+        card(
+            rx.hstack(
+                rx.icon("layout-grid", color=PRIMARY, size=16),
+                rx.heading("Components", size="3", color="#102548"),
+                spacing="2",
+                align="center",
+                margin_bottom="14px",
+            ),
+            # Category summary header
+            rx.hstack(
+                rx.text(
+                    "Category",
+                    font_size="10px",
+                    font_weight="700",
+                    color="#605e5c",
+                    letter_spacing="0.06em",
+                    flex="1",
+                ),
+                rx.text(
+                    "Total",
+                    font_size="10px",
+                    font_weight="700",
+                    color="#605e5c",
+                    letter_spacing="0.06em",
+                    min_width="32px",
+                    text_align="right",
+                ),
+                rx.text(
+                    "Active",
+                    font_size="10px",
+                    font_weight="700",
+                    color="#605e5c",
+                    letter_spacing="0.06em",
+                    min_width="40px",
+                    text_align="right",
+                ),
+                rx.text(
+                    "Inactive",
+                    font_size="10px",
+                    font_weight="700",
+                    color="#605e5c",
+                    letter_spacing="0.06em",
+                    min_width="48px",
+                    text_align="right",
+                ),
+                spacing="3",
+                width="100%",
+                align="center",
+                padding_bottom="6px",
+                border_bottom=f"1px solid {SURFACE_BORDER}",
+                margin_bottom="2px",
+            ),
+            rx.foreach(State.viz_category_stats, _viz_cat_stat_row),
+            rx.divider(margin_y="14px"),
+            # Per-component rows
+            rx.foreach(State.viz_component_rows, _viz_component_row),
+            width="100%",
+        ),
+        # ── 4. Topic graph ──────────────────────────────────────────────────
+        rx.cond(
+            State.viz_mermaid != "",
+            card(
+                rx.hstack(
+                    rx.icon("git-merge", color=PRIMARY, size=16),
+                    rx.heading("Topic Connection Graph", size="3", color="#102548"),
+                    spacing="2",
+                    align="center",
+                    margin_bottom="14px",
+                ),
+                rx.box(
+                    rx.el.pre(State.viz_mermaid, class_name="mermaid"),
+                    width="100%",
+                    overflow_x="auto",
+                    padding="22px",
+                    background="#f7fbff",
+                    border=f"1px solid {SURFACE_BORDER}",
+                    border_radius="16px",
+                    box_shadow="inset 0 1px 0 rgba(255,255,255,0.85)",
+                ),
+                width="100%",
+            ),
+            rx.box(),
+        ),
+        width="100%",
+        spacing="4",
+    )
 
 
 def visualization_panel() -> rx.Component:
@@ -598,10 +1346,16 @@ def visualization_panel() -> rx.Component:
             ),
             rx.cond(
                 State.has_visualization,
-                rx.vstack(
-                    rx.foreach(State.viz_segments, render_segment),
-                    width="100%",
-                    spacing="4",
+                rx.cond(
+                    State.viz_display_name != "",
+                    # Rich card UI for solution ZIPs
+                    _viz_solution_panel(),
+                    # Fallback markdown/mermaid rendering for snapshot ZIPs
+                    rx.vstack(
+                        rx.foreach(State.viz_segments, render_segment),
+                        width="100%",
+                        spacing="4",
+                    ),
                 ),
                 rx.center(
                     rx.vstack(
@@ -1066,6 +1820,8 @@ def _mcs_upload_form() -> rx.Component:
             ),
             rx.box(),
         ),
+        rx.divider(margin_y="4px"),
+        _mcs_dataverse_fetch_block(),
         spacing="3",
         width="100%",
         align="start",
@@ -2061,203 +2817,454 @@ def _eval_data_row(row: dict) -> rx.Component:
     )
 
 
+def _eval_fit_dimension_card(item: dict) -> rx.Component:
+    return rx.box(
+        rx.vstack(
+            rx.text(item["label"], font_size="12px", font_weight="700", color="#334a6d"),
+            rx.text(item["score"], font_size="28px", font_weight="800", color="#201f1e"),
+            rx.text(item["detail"], font_size="12px", color="#605e5c", line_height="1.45"),
+            spacing="1",
+            align="start",
+        ),
+        border=f"1px solid {SURFACE_BORDER}",
+        border_left_width="4px",
+        border_left_style="solid",
+        border_left_color=item["accent_color"],
+        border_radius="12px",
+        background="#fbfdff",
+        padding="14px",
+        width="100%",
+    )
+
+
+def _eval_gap_row(item: dict) -> rx.Component:
+    return rx.box(
+        rx.vstack(
+            rx.hstack(
+                rx.badge(item["area"], color_scheme="orange", variant="soft", size="1"),
+                rx.text(item["label"], font_size="13px", font_weight="700", color="#201f1e"),
+                spacing="2",
+                align="center",
+            ),
+            rx.text(item["detail"], font_size="12px", color="#605e5c", line_height="1.45"),
+            spacing="1",
+            align="start",
+            width="100%",
+        ),
+        padding="10px 12px",
+        border_bottom="1px solid #edf1f7",
+        width="100%",
+    )
+
+
+def _preview_count_pill(item: dict) -> rx.Component:
+    return rx.box(
+        rx.hstack(
+            rx.text(item["label"], font_size="12px", font_weight="600", color="#334a6d"),
+            rx.badge(item["count"], color_scheme="blue", variant="soft", size="1"),
+            spacing="2",
+            align="center",
+        ),
+        padding="6px 10px",
+        border="1px solid #d7e2f2",
+        border_radius="16px",
+        background="#ffffff",
+    )
+
+
 def evals_panel() -> rx.Component:
     """Full-width evaluations panel for the Evals tab."""
-    return rx.cond(
-        State.has_evals,
-        rx.vstack(
-            # ── Header card ───────────────────────────────────────────────
-            card(
-                rx.hstack(
-                    rx.vstack(
+    return rx.vstack(
+        card(
+            rx.hstack(
+                rx.vstack(
+                    rx.hstack(
+                        rx.icon("flask-conical", color=PRIMARY, size=20),
+                        rx.heading("Evaluations", size="4", color="#201f1e"),
+                        spacing="2",
+                        align="center",
+                    ),
+                    rx.text(
+                        "Measure how well existing evals fit the agent purpose, then optionally generate or improve coverage.",
+                        font_size="13px",
+                        color="#605e5c",
+                    ),
+                    rx.hstack(
                         rx.hstack(
-                            rx.icon("flask-conical", color=PRIMARY, size=20),
-                            rx.heading("Built-in Evaluations", size="4", color="#201f1e"),
+                            rx.text("Built-in test cases:", font_size="13px", color="#605e5c"),
+                            rx.badge(State.evals_test_total, color_scheme="purple", variant="soft"),
                             spacing="2",
                             align="center",
                         ),
                         rx.hstack(
-                            rx.cond(
-                                State.evals_test_total > 0,
-                                rx.hstack(
-                                    rx.text("Test cases:", font_size="13px", color="#605e5c"),
-                                    rx.badge(
-                                        State.evals_test_total,
-                                        color_scheme="purple",
-                                        variant="soft",
-                                    ),
-                                    spacing="2",
-                                    align="center",
-                                ),
-                                rx.box(),
-                            ),
-                            rx.cond(
-                                State.evals_eval_total > 0,
-                                rx.hstack(
-                                    rx.text("Eval rows:", font_size="13px", color="#605e5c"),
-                                    rx.badge(
-                                        State.evals_eval_total,
-                                        color_scheme="teal",
-                                        variant="soft",
-                                    ),
-                                    spacing="2",
-                                    align="center",
-                                ),
-                                rx.box(),
-                            ),
-                            spacing="4",
+                            rx.text("Built-in eval rows:", font_size="13px", color="#605e5c"),
+                            rx.badge(State.evals_eval_total, color_scheme="teal", variant="soft"),
+                            spacing="2",
                             align="center",
-                            flex_wrap="wrap",
                         ),
+                        rx.cond(
+                            State.has_eval_fit_report,
+                            rx.hstack(
+                                rx.text("Fit score:", font_size="13px", color="#605e5c"),
+                                rx.badge(
+                                    State.evals_fit_score,
+                                    color_scheme=rx.cond(
+                                        State.evals_fit_score >= 75,
+                                        "green",
+                                        rx.cond(State.evals_fit_score >= 50, "orange", "red"),
+                                    ),
+                                    variant="soft",
+                                ),
+                                spacing="2",
+                                align="center",
+                            ),
+                            rx.box(),
+                        ),
+                        spacing="4",
+                        align="center",
+                        flex_wrap="wrap",
+                    ),
+                    spacing="2",
+                    align="start",
+                ),
+                width="100%",
+                align="center",
+            ),
+            width="100%",
+        ),
+        rx.cond(
+            State.evals_is_analyzing,
+            card(
+                rx.hstack(rx.spinner(size="3", color=PRIMARY), rx.text("Analysing eval fit…", color="#605e5c"), spacing="3"),
+                width="100%",
+            ),
+            rx.box(),
+        ),
+        rx.cond(
+            State.has_eval_fit_report,
+            card(
+                sub_heading("FIT ANALYSIS"),
+                rx.grid(
+                    rx.foreach(State.evals_fit_dimensions, _eval_fit_dimension_card),
+                    columns="repeat(auto-fit, minmax(220px, 1fr))",
+                    spacing="4",
+                    width="100%",
+                ),
+                rx.cond(
+                    State.evals_fit_gaps.length() > 0,
+                    rx.vstack(
+                        sub_heading("TOP GAPS"),
+                        rx.box(
+                            rx.foreach(State.evals_fit_gaps, _eval_gap_row),
+                            border="1px solid #edf1f7",
+                            border_radius="10px",
+                            overflow="hidden",
+                            width="100%",
+                        ),
+                        width="100%",
                         spacing="2",
                         align="start",
                     ),
-                    align="center",
-                    width="100%",
+                    rx.box(),
                 ),
-                width="100%",
-            ),
-            # ── Sub-tab bar ───────────────────────────────────────────────
-            rx.box(
-                rx.hstack(
-                    rx.cond(
-                        State.evals_test_total > 0,
-                        _evals_sub_tab_btn("tests", "list-checks", "Test Cases", State.evals_test_total),
-                        rx.box(),
-                    ),
-                    rx.cond(
-                        State.evals_eval_total > 0,
-                        _evals_sub_tab_btn("evals", "flask-conical", "Evaluations", State.evals_eval_total),
-                        rx.box(),
-                    ),
-                    spacing="0",
-                    border_bottom="1px solid #edebe9",
-                    width="100%",
-                ),
-                background="#ffffff",
-                border_radius="8px 8px 0 0",
-                width="100%",
-            ),
-            # ── Content ───────────────────────────────────────────────────
-            rx.cond(
-                State.evals_sub_tab == "tests",
-                # Test cases panel
-                card(
-                    rx.cond(
-                        State.evals_test_sets.length() > 1,
-                        rx.vstack(
-                            sub_heading("FILTER BY TEST SET"),
-                            rx.hstack(
-                                rx.foreach(State.evals_test_sets, _evals_test_set_pill),
-                                spacing="2",
-                                flex_wrap="wrap",
-                            ),
-                            margin_bottom="16px",
-                            width="100%",
-                            spacing="2",
-                            align="start",
-                        ),
-                        rx.box(),
-                    ),
-                    rx.hstack(
-                        rx.text("Input / Test Set", font_size="11px", font_weight="700", color="#605e5c", width="38%"),
-                        rx.text("Expected Response", font_size="11px", font_weight="700", color="#605e5c", width="47%"),
-                        rx.text("Info", font_size="11px", font_weight="700", color="#605e5c", width="15%"),
-                        spacing="4",
-                        padding_x="14px",
-                        padding_y="6px",
-                        background="#f3f2f1",
-                        border_radius="4px",
-                        margin_bottom="4px",
-                        width="100%",
-                    ),
-                    rx.box(
-                        rx.foreach(State.evals_filtered_test_cases, _test_case_row),
-                        width="100%",
-                        border="1px solid #edebe9",
-                        border_radius="4px",
-                        overflow="hidden",
-                    ),
-                    width="100%",
-                ),
-                # Evaluations panel
-                card(
-                    rx.cond(
-                        State.evals_eval_sets.length() > 1,
-                        rx.vstack(
-                            sub_heading("FILTER BY EVALUATION SET"),
-                            rx.hstack(
-                                rx.foreach(State.evals_eval_sets, _evals_eval_set_pill),
-                                spacing="2",
-                                flex_wrap="wrap",
-                            ),
-                            margin_bottom="16px",
-                            width="100%",
-                            spacing="2",
-                            align="start",
-                        ),
-                        rx.box(),
-                    ),
-                    # Graders info
-                    rx.cond(
-                        State.evals_active_eval_set != "",
+                rx.cond(
+                    State.evals_fit_recommendations.length() > 0,
+                    rx.vstack(
+                        sub_heading("RECOMMENDATIONS"),
                         rx.foreach(
-                            State.evals_eval_sets,
-                            lambda es: rx.cond(
-                                es["schema_name"] == State.evals_active_eval_set,
-                                rx.hstack(
-                                    rx.text("Grader:", font_size="12px", color="#605e5c"),
-                                    rx.badge(es["graders"], color_scheme="orange", variant="soft", size="1"),
-                                    margin_bottom="12px",
-                                    spacing="2",
-                                    align="center",
-                                ),
-                                rx.box(),
+                            State.evals_fit_recommendations,
+                            lambda item: rx.hstack(
+                                rx.text("•", font_size="12px", color="#605e5c"),
+                                rx.text(item, font_size="12px", color="#605e5c"),
+                                spacing="2",
+                                align="start",
                             ),
                         ),
-                        rx.box(),
-                    ),
-                    rx.hstack(
-                        rx.text("Input / Set", font_size="11px", font_weight="700", color="#605e5c", width="33%"),
-                        rx.text("Expected Output", font_size="11px", font_weight="700", color="#605e5c", width="47%"),
-                        rx.text("Info", font_size="11px", font_weight="700", color="#605e5c", width="20%"),
-                        spacing="4",
-                        padding_x="14px",
-                        padding_y="6px",
-                        background="#f3f2f1",
-                        border_radius="4px",
-                        margin_bottom="4px",
                         width="100%",
+                        spacing="1",
+                        align="start",
                     ),
-                    rx.box(
-                        rx.foreach(State.evals_filtered_eval_rows, _eval_data_row),
-                        width="100%",
-                        border="1px solid #edebe9",
-                        border_radius="4px",
-                        overflow="hidden",
-                    ),
-                    width="100%",
+                    rx.box(),
                 ),
+                width="100%",
             ),
-            width="100%",
-            spacing="4",
-            align="start",
+            rx.cond(
+                State.evals_fit_error != "",
+                card(rx.text(State.evals_fit_error, color=ERROR_COLOR, font_size="13px"), width="100%"),
+                rx.box(),
+            ),
         ),
-        # Empty state
-        rx.center(
-            rx.vstack(
-                rx.icon("flask-conical", size=36, color="#c8c6c4"),
-                rx.text(
-                    "No built-in evaluations found in the uploaded solution",
-                    font_size="14px",
-                    color="#a19f9d",
+        card(
+            sub_heading("OPTIONAL ACTIONS"),
+            rx.text(
+                "Generation and improvement are never automatic. Use these actions only when you want preview data or an exported solution with injected eval assets.",
+                font_size="13px",
+                color="#605e5c",
+                margin_bottom="10px",
+            ),
+            rx.hstack(
+                rx.button(
+                    rx.hstack(rx.icon("sparkles", size=14), rx.text("Generate 24 Sample Evals"), spacing="2", align="center"),
+                    on_click=State.generate_eval_samples,
+                    background_color=PRIMARY,
+                    color="white",
+                    _hover={"background_color": PRIMARY_DARK},
+                ),
+                rx.cond(
+                    State.can_improve_current_evals,
+                    rx.button(
+                        rx.hstack(rx.icon("sparkles", size=14), rx.text("Improve Current Evals"), spacing="2", align="center"),
+                        on_click=State.improve_current_evals,
+                        background_color="#ffffff",
+                        color=PRIMARY,
+                        border=f"1px solid {PRIMARY}",
+                        _hover={"background_color": PRIMARY_SOFT},
+                    ),
+                    rx.box(),
+                ),
+                rx.cond(
+                    State.has_eval_preview,
+                    rx.button(
+                        rx.hstack(rx.icon("download", size=14), rx.text("Export Solution With Preview Evals"), spacing="2", align="center"),
+                        on_click=State.export_eval_solution,
+                        background_color="#ffffff",
+                        color="#102548",
+                        border="1px solid #c7d6ea",
+                        _hover={"background_color": "#f7faff"},
+                    ),
+                    rx.box(),
                 ),
                 spacing="3",
-                align="center",
+                flex_wrap="wrap",
+                width="100%",
             ),
-            padding_y="48px",
+            rx.cond(
+                State.evals_is_generating | State.evals_is_exporting,
+                rx.hstack(
+                    rx.spinner(size="2", color=PRIMARY),
+                    rx.text(
+                        rx.cond(State.evals_is_exporting, "Preparing exported solution…", "Building eval preview…"),
+                        font_size="12px",
+                        color="#605e5c",
+                    ),
+                    spacing="2",
+                    margin_top="10px",
+                    align="center",
+                ),
+                rx.box(),
+            ),
+            rx.cond(
+                State.evals_preview_error != "",
+                rx.text(State.evals_preview_error, font_size="12px", color=ERROR_COLOR, margin_top="10px"),
+                rx.box(),
+            ),
+            rx.cond(
+                State.evals_export_error != "",
+                rx.text(State.evals_export_error, font_size="12px", color=ERROR_COLOR, margin_top="10px"),
+                rx.box(),
+            ),
+            rx.cond(
+                State.evals_export_success,
+                rx.hstack(
+                    rx.badge("Export ready", color_scheme="green", variant="soft"),
+                    rx.button(
+                        rx.hstack(rx.icon("download", size=14), rx.text("Download Exported Solution"), spacing="2"),
+                        on_click=State.download_eval_solution,
+                        background_color="#ffffff",
+                        color=PRIMARY,
+                        border=f"1px solid {PRIMARY}",
+                        _hover={"background_color": PRIMARY_SOFT},
+                    ),
+                    spacing="3",
+                    margin_top="10px",
+                    align="center",
+                ),
+                rx.box(),
+            ),
             width="100%",
         ),
+        rx.cond(
+            State.has_eval_preview,
+            card(
+                sub_heading("PREVIEW"),
+                rx.hstack(
+                    rx.badge(
+                        rx.cond(State.evals_preview_mode == "improve", "Improved preview", "Generated preview"),
+                        color_scheme=rx.cond(State.evals_preview_mode == "improve", "orange", "blue"),
+                        variant="soft",
+                    ),
+                    rx.foreach(State.evals_preview_category_counts, _preview_count_pill),
+                    spacing="2",
+                    align="center",
+                    flex_wrap="wrap",
+                    width="100%",
+                ),
+                rx.vstack(
+                    sub_heading("SUGGESTED TEST CASES"),
+                    rx.box(
+                        rx.foreach(State.evals_preview_test_cases, _test_case_row),
+                        width="100%",
+                        border="1px solid #edebe9",
+                        border_radius="4px",
+                        overflow="hidden",
+                    ),
+                    width="100%",
+                    spacing="2",
+                    align="start",
+                ),
+                rx.vstack(
+                    sub_heading("SUGGESTED EVALUATION ROWS"),
+                    rx.box(
+                        rx.foreach(State.evals_preview_eval_rows, _eval_data_row),
+                        width="100%",
+                        border="1px solid #edebe9",
+                        border_radius="4px",
+                        overflow="hidden",
+                    ),
+                    width="100%",
+                    spacing="2",
+                    align="start",
+                ),
+                width="100%",
+            ),
+            rx.box(),
+        ),
+        rx.cond(
+            State.has_evals,
+            rx.vstack(
+                rx.box(
+                    rx.hstack(
+                        rx.cond(
+                            State.evals_test_total > 0,
+                            _evals_sub_tab_btn("tests", "list-checks", "Test Cases", State.evals_test_total),
+                            rx.box(),
+                        ),
+                        rx.cond(
+                            State.evals_eval_total > 0,
+                            _evals_sub_tab_btn("evals", "flask-conical", "Evaluations", State.evals_eval_total),
+                            rx.box(),
+                        ),
+                        spacing="0",
+                        border_bottom="1px solid #edebe9",
+                        width="100%",
+                    ),
+                    background="#ffffff",
+                    border_radius="8px 8px 0 0",
+                    width="100%",
+                ),
+                rx.cond(
+                    State.evals_sub_tab == "tests",
+                    card(
+                        rx.cond(
+                            State.evals_test_sets.length() > 1,
+                            rx.vstack(
+                                sub_heading("FILTER BY TEST SET"),
+                                rx.hstack(rx.foreach(State.evals_test_sets, _evals_test_set_pill), spacing="2", flex_wrap="wrap"),
+                                margin_bottom="16px",
+                                width="100%",
+                                spacing="2",
+                                align="start",
+                            ),
+                            rx.box(),
+                        ),
+                        rx.hstack(
+                            rx.text("Input / Test Set", font_size="11px", font_weight="700", color="#605e5c", width="38%"),
+                            rx.text("Expected Response", font_size="11px", font_weight="700", color="#605e5c", width="47%"),
+                            rx.text("Info", font_size="11px", font_weight="700", color="#605e5c", width="15%"),
+                            spacing="4",
+                            padding_x="14px",
+                            padding_y="6px",
+                            background="#f3f2f1",
+                            border_radius="4px",
+                            margin_bottom="4px",
+                            width="100%",
+                        ),
+                        rx.box(
+                            rx.foreach(State.evals_filtered_test_cases, _test_case_row),
+                            width="100%",
+                            border="1px solid #edebe9",
+                            border_radius="4px",
+                            overflow="hidden",
+                        ),
+                        width="100%",
+                    ),
+                    card(
+                        rx.cond(
+                            State.evals_eval_sets.length() > 1,
+                            rx.vstack(
+                                sub_heading("FILTER BY EVALUATION SET"),
+                                rx.hstack(rx.foreach(State.evals_eval_sets, _evals_eval_set_pill), spacing="2", flex_wrap="wrap"),
+                                margin_bottom="16px",
+                                width="100%",
+                                spacing="2",
+                                align="start",
+                            ),
+                            rx.box(),
+                        ),
+                        rx.cond(
+                            State.evals_active_eval_set != "",
+                            rx.foreach(
+                                State.evals_eval_sets,
+                                lambda es: rx.cond(
+                                    es["schema_name"] == State.evals_active_eval_set,
+                                    rx.hstack(
+                                        rx.text("Grader:", font_size="12px", color="#605e5c"),
+                                        rx.badge(es["graders"], color_scheme="orange", variant="soft", size="1"),
+                                        margin_bottom="12px",
+                                        spacing="2",
+                                        align="center",
+                                    ),
+                                    rx.box(),
+                                ),
+                            ),
+                            rx.box(),
+                        ),
+                        rx.hstack(
+                            rx.text("Input / Set", font_size="11px", font_weight="700", color="#605e5c", width="33%"),
+                            rx.text("Expected Output", font_size="11px", font_weight="700", color="#605e5c", width="47%"),
+                            rx.text("Info", font_size="11px", font_weight="700", color="#605e5c", width="20%"),
+                            spacing="4",
+                            padding_x="14px",
+                            padding_y="6px",
+                            background="#f3f2f1",
+                            border_radius="4px",
+                            margin_bottom="4px",
+                            width="100%",
+                        ),
+                        rx.box(
+                            rx.foreach(State.evals_filtered_eval_rows, _eval_data_row),
+                            width="100%",
+                            border="1px solid #edebe9",
+                            border_radius="4px",
+                            overflow="hidden",
+                        ),
+                        width="100%",
+                    ),
+                ),
+                width="100%",
+                spacing="4",
+                align="start",
+            ),
+            rx.center(
+                rx.vstack(
+                    rx.icon("flask-conical", size=36, color="#c8c6c4"),
+                    rx.text("No built-in evaluations found in the uploaded solution", font_size="14px", color="#a19f9d"),
+                    rx.text(
+                        "Use Generate Sample Evals to prepare a balanced preview, then export a solution with injected eval assets.",
+                        font_size="12px",
+                        color="#a19f9d",
+                        text_align="center",
+                    ),
+                    spacing="3",
+                    align="center",
+                ),
+                padding_y="24px",
+                width="100%",
+            ),
+        ),
+        width="100%",
+        spacing="4",
+        align="start",
     )
 
 

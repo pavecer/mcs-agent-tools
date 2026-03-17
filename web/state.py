@@ -14,6 +14,7 @@ from pathlib import Path
 import reflex as rx
 from dotenv import load_dotenv
 
+from evals_manager import analyze_evals_zip_bytes, export_solution_with_evals, preview_generated_evals
 from toolkit.mcs.credits import estimate_credits_from_activities
 from toolkit.mcs.models import MCSConversationTimeline as _MCSTl
 from toolkit.mcs.parser import parse_dialog_json as mcs_parse_dialog_json
@@ -34,6 +35,16 @@ from renamer import (
     safe_extractall,
 )
 from deps_analyzer import analyze_deps_zip_bytes_report
+from remote_fetch import (
+    authenticate_dataverse,
+    begin_device_code_auth,
+    check_dataverse_connection,
+    complete_device_code_auth,
+    DataverseAuthConfig,
+    has_dataverse_env_credentials,
+    RemoteFetchError,
+    fetch_transcript_by_id,
+)
 from solution_checker import check_solution_zip
 from validator import validate_instructions, validate_zip_bytes
 from visualizer import visualize_zip_bytes, get_evals_data
@@ -41,6 +52,27 @@ from visualizer import visualize_zip_bytes, get_evals_data
 load_dotenv()
 
 _MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB — maximum accepted upload size
+
+
+def _fit_score_color(score: int) -> str:
+    if score >= 75:
+        return "#107c10"
+    if score >= 50:
+        return "#c7921e"
+    return "#a4262c"
+
+
+def _decorate_fit_dimensions(dimensions: list[dict]) -> list[dict]:
+    decorated: list[dict] = []
+    for item in dimensions:
+        score = int(item.get("score", 0) or 0)
+        decorated.append(
+            {
+                **item,
+                "accent_color": _fit_score_color(score),
+            }
+        )
+    return decorated
 
 
 def _load_users() -> dict[str, str]:
@@ -118,7 +150,24 @@ class State(rx.State):
     # ── Visualization ─────────────────────────────────────────────────────
     is_visualizing: bool = False
     viz_error: str = ""
+    # Snapshot ZIP path uses raw markdown segments; solution ZIP uses structured vars below
     viz_segments: list[dict] = []
+    # Structured vars populated only for solution ZIPs
+    viz_display_name: str = ""
+    viz_schema_name: str = ""
+    viz_channels: list[str] = []
+    viz_recognizer: str = ""
+    viz_model: str = ""
+    viz_web_browsing: bool = False
+    viz_use_model_knowledge: bool = False
+    viz_instructions_length: int = 0
+    viz_instructions_preview: str = ""
+    viz_total: int = 0
+    viz_active_count: int = 0
+    viz_inactive_count: int = 0
+    viz_category_stats: list[dict] = []
+    viz_component_rows: list[dict] = []
+    viz_mermaid: str = ""
 
     # ── Validation ───────────────────────────────────────────────────────────
     is_validating: bool = False
@@ -156,6 +205,27 @@ class State(rx.State):
     evals_sub_tab: str = "tests"  # "tests" | "evals"
     evals_active_test_set: str = ""  # schema_name filter, empty = all
     evals_active_eval_set: str = ""  # schema_name filter, empty = all
+    evals_is_analyzing: bool = False
+    evals_fit_error: str = ""
+    evals_fit_ran: bool = False
+    evals_fit_score: int = 0
+    evals_fit_dimensions: list[dict] = []
+    evals_fit_gaps: list[dict] = []
+    evals_fit_recommendations: list[str] = []
+    evals_should_offer_improve: bool = False
+    evals_is_generating: bool = False
+    evals_preview_error: str = ""
+    evals_preview_mode: str = ""
+    evals_preview_test_sets: list[dict] = []
+    evals_preview_eval_sets: list[dict] = []
+    evals_preview_test_cases: list[dict] = []
+    evals_preview_eval_rows: list[dict] = []
+    evals_preview_category_counts: list[dict] = []
+    evals_is_exporting: bool = False
+    evals_export_error: str = ""
+    evals_export_success: bool = False
+    evals_export_filename: str = ""
+    _evals_output_zip_b64: str = ""
 
     # ── Dependencies ──────────────────────────────────────────────────────
     deps_is_analyzing: bool = False
@@ -227,6 +297,33 @@ class State(rx.State):
     mcs_conv_event_mix: list[dict] = []
     mcs_conv_latency_bands: list[dict] = []
     mcs_conv_highlights: list[dict] = []
+    mcs_dv_environment: str = ""
+    mcs_dv_dataverse_url: str = ""
+    mcs_dv_transcript_id: str = ""
+    mcs_dv_use_env_auth: bool = True
+    mcs_dv_token: str = ""
+    mcs_dv_tenant_id: str = ""
+    mcs_dv_client_id: str = ""
+    mcs_dv_client_secret: str = ""
+    mcs_dv_connection_ok: bool = False
+    mcs_dv_connection_message: str = ""
+    mcs_dv_last_source: str = ""
+    mcs_dv_last_table: str = ""
+    mcs_dv_last_transcript_id: str = ""
+    mcs_dv_last_created_at: str = ""
+    mcs_dv_last_conversation_id: str = ""
+    mcs_landing_transcript_mode: str = "upload"  # upload | dataverse
+    mcs_dv_auth_ok: bool = False
+    mcs_dv_auth_message: str = ""
+    _mcs_dv_session_token: str = ""
+    mcs_dv_oauth_tenant_id: str = ""
+    mcs_dv_oauth_client_id: str = ""
+    mcs_dv_oauth_device_code: str = ""
+    mcs_dv_oauth_user_code: str = ""
+    mcs_dv_oauth_verify_uri: str = ""
+    mcs_dv_oauth_message: str = ""
+
+    _DEFAULT_DEVICE_CLIENT_ID: str = "04b07795-8ddb-461a-bbee-02f9e1bf7b46"
 
     # ── Computed / derived ────────────────────────────────────────────────
 
@@ -240,7 +337,11 @@ class State(rx.State):
 
     @rx.var
     def has_visualization(self) -> bool:
-        return len(self.viz_segments) > 0
+        return len(self.viz_segments) > 0 or self.viz_display_name != ""
+
+    @rx.var
+    def viz_instructions_length_str(self) -> str:
+        return f"{self.viz_instructions_length:,}"
 
     @rx.var
     def has_validation(self) -> bool:
@@ -373,6 +474,18 @@ class State(rx.State):
         return [row for row in self.evals_all_eval_rows if row.get("set_schema") == self.evals_active_eval_set]
 
     @rx.var
+    def has_eval_fit_report(self) -> bool:
+        return self.evals_fit_ran
+
+    @rx.var
+    def has_eval_preview(self) -> bool:
+        return bool(self.evals_preview_test_cases) or bool(self.evals_preview_eval_rows)
+
+    @rx.var
+    def can_improve_current_evals(self) -> bool:
+        return self.has_evals and self.evals_should_offer_improve
+
+    @rx.var
     def validation_instructions_length_str(self) -> str:
         return str(self.validation_instructions_length)
 
@@ -408,6 +521,14 @@ class State(rx.State):
     @rx.var
     def has_mcs_conv_visual_summary(self) -> bool:
         return bool(self.mcs_conv_kpis)
+
+    @rx.var
+    def mcs_dv_manual_mode(self) -> bool:
+        return not self.mcs_dv_use_env_auth
+
+    @rx.var
+    def mcs_dv_actions_locked(self) -> bool:
+        return self.mcs_dv_manual_mode and (not self.mcs_dv_auth_ok)
 
     @rx.var
     def mcs_report_segments(self) -> list[dict]:
@@ -498,6 +619,21 @@ class State(rx.State):
         self._output_zip_b64 = ""
         self.viz_segments = []
         self.viz_error = ""
+        self.viz_display_name = ""
+        self.viz_schema_name = ""
+        self.viz_channels = []
+        self.viz_recognizer = ""
+        self.viz_model = ""
+        self.viz_web_browsing = False
+        self.viz_use_model_knowledge = False
+        self.viz_instructions_length = 0
+        self.viz_instructions_preview = ""
+        self.viz_total = 0
+        self.viz_active_count = 0
+        self.viz_inactive_count = 0
+        self.viz_category_stats = []
+        self.viz_component_rows = []
+        self.viz_mermaid = ""
         self.validation_ran = False
         self.validation_error = ""
         self.validation_results = []
@@ -523,6 +659,27 @@ class State(rx.State):
         self.evals_sub_tab = "tests"
         self.evals_active_test_set = ""
         self.evals_active_eval_set = ""
+        self.evals_is_analyzing = False
+        self.evals_fit_error = ""
+        self.evals_fit_ran = False
+        self.evals_fit_score = 0
+        self.evals_fit_dimensions = []
+        self.evals_fit_gaps = []
+        self.evals_fit_recommendations = []
+        self.evals_should_offer_improve = False
+        self.evals_is_generating = False
+        self.evals_preview_error = ""
+        self.evals_preview_mode = ""
+        self.evals_preview_test_sets = []
+        self.evals_preview_eval_sets = []
+        self.evals_preview_test_cases = []
+        self.evals_preview_eval_rows = []
+        self.evals_preview_category_counts = []
+        self.evals_is_exporting = False
+        self.evals_export_error = ""
+        self.evals_export_success = False
+        self.evals_export_filename = ""
+        self._evals_output_zip_b64 = ""
         self.deps_is_analyzing = False
         self.deps_error = ""
         self.deps_ran = False
@@ -598,11 +755,28 @@ class State(rx.State):
                     self.is_visualizing = True
                     yield
                     try:
-                        self.viz_segments = visualize_zip_bytes(file_bytes)
+                        result = visualize_zip_bytes(file_bytes)
+                        self.viz_display_name = result["display_name"]
+                        self.viz_schema_name = result["schema_name"]
+                        self.viz_channels = result["channels"]
+                        self.viz_recognizer = result["recognizer"]
+                        self.viz_model = result["model"]
+                        self.viz_web_browsing = result["web_browsing"]
+                        self.viz_use_model_knowledge = result["use_model_knowledge"]
+                        self.viz_instructions_length = result["instructions_length"]
+                        self.viz_instructions_preview = result["instructions_preview"]
+                        self.viz_total = result["total"]
+                        self.viz_active_count = result["active"]
+                        self.viz_inactive_count = result["inactive"]
+                        self.viz_category_stats = result["category_stats"]
+                        self.viz_component_rows = result["component_rows"]
+                        self.viz_mermaid = result["mermaid"]
                         self.viz_error = ""
                     except Exception as viz_exc:
                         self.viz_error = str(viz_exc)
-                        self.viz_segments = []
+                        self.viz_display_name = ""
+                        self.viz_component_rows = []
+                        self.viz_mermaid = ""
                     finally:
                         self.is_visualizing = False
 
@@ -650,6 +824,7 @@ class State(rx.State):
                         self.is_checking = False
 
                 if not self.inspect_error:
+                    self.evals_is_analyzing = True
                     yield
                     try:
                         evals = get_evals_data(file_bytes)
@@ -702,6 +877,21 @@ class State(rx.State):
                         self.evals_all_eval_rows = all_eval_rows
                     except Exception:
                         pass  # evals are non-critical; silently skip on error
+
+                    try:
+                        fit_report = analyze_evals_zip_bytes(file_bytes)
+                        self.evals_fit_score = fit_report.get("score", 0)
+                        self.evals_fit_dimensions = _decorate_fit_dimensions(fit_report.get("fit_dimensions", []))
+                        self.evals_fit_gaps = fit_report.get("gaps", [])
+                        self.evals_fit_recommendations = fit_report.get("recommendations", [])
+                        self.evals_should_offer_improve = bool(fit_report.get("should_offer_improve", False))
+                        self.evals_fit_error = ""
+                        self.evals_fit_ran = True
+                    except Exception as eval_exc:
+                        self.evals_fit_error = str(eval_exc)
+                        self.evals_fit_ran = False
+                    finally:
+                        self.evals_is_analyzing = False
             else:
                 # Generic solution ZIP (no Copilot agent assets): run dependencies only.
                 self.is_inspecting = False
@@ -916,6 +1106,90 @@ class State(rx.State):
             self.is_processing = False
 
     @rx.event
+    async def generate_eval_samples(self):
+        if not self.zip_bytes_b64:
+            return
+
+        self.evals_is_generating = True
+        self.evals_preview_error = ""
+        self.evals_export_error = ""
+        self.evals_export_success = False
+        yield
+
+        try:
+            preview = preview_generated_evals(base64.b64decode(self.zip_bytes_b64), mode="generate", target_count=24)
+            self.evals_preview_mode = preview.get("mode", "generate")
+            self.evals_preview_test_sets = preview.get("test_sets", [])
+            self.evals_preview_eval_sets = preview.get("eval_sets", [])
+            self.evals_preview_test_cases = preview.get("test_cases", [])
+            self.evals_preview_eval_rows = preview.get("eval_rows", [])
+            self.evals_preview_category_counts = preview.get("category_counts", [])
+        except Exception as exc:
+            self.evals_preview_error = f"Eval generation failed: {exc}"
+        finally:
+            self.evals_is_generating = False
+
+    @rx.event
+    async def improve_current_evals(self):
+        if not self.zip_bytes_b64:
+            return
+
+        self.evals_is_generating = True
+        self.evals_preview_error = ""
+        self.evals_export_error = ""
+        self.evals_export_success = False
+        yield
+
+        try:
+            preview = preview_generated_evals(base64.b64decode(self.zip_bytes_b64), mode="improve", target_count=24)
+            self.evals_preview_mode = preview.get("mode", "improve")
+            self.evals_preview_test_sets = preview.get("test_sets", [])
+            self.evals_preview_eval_sets = preview.get("eval_sets", [])
+            self.evals_preview_test_cases = preview.get("test_cases", [])
+            self.evals_preview_eval_rows = preview.get("eval_rows", [])
+            self.evals_preview_category_counts = preview.get("category_counts", [])
+        except Exception as exc:
+            self.evals_preview_error = f"Eval improvement failed: {exc}"
+        finally:
+            self.evals_is_generating = False
+
+    @rx.event
+    async def export_eval_solution(self):
+        if not self.zip_bytes_b64 or not self.evals_preview_mode:
+            return
+
+        self.evals_is_exporting = True
+        self.evals_export_error = ""
+        self.evals_export_success = False
+        yield
+
+        try:
+            output_bytes, preview = export_solution_with_evals(
+                base64.b64decode(self.zip_bytes_b64),
+                mode=self.evals_preview_mode,
+                target_count=max(20, len(self.evals_preview_test_cases) or 24),
+            )
+            self._evals_output_zip_b64 = base64.b64encode(output_bytes).decode("ascii")
+            suffix = "improved" if preview.get("mode") == "improve" else "generated"
+            base_name = Path(self.upload_filename or "solution.zip").stem
+            self.evals_export_filename = f"{base_name}_{suffix}_evals.zip"
+            self.evals_export_success = True
+        except Exception as exc:
+            self.evals_export_error = f"Eval export failed: {exc}"
+        finally:
+            self.evals_is_exporting = False
+
+    @rx.event
+    def download_eval_solution(self):
+        if not self._evals_output_zip_b64 or not self.evals_export_filename:
+            return
+        return rx.download(
+            data=base64.b64decode(self._evals_output_zip_b64),
+            filename=self.evals_export_filename,
+            mime_type="application/zip",
+        )
+
+    @rx.event
     def download_result(self):
         """Trigger a browser download of the renamed ZIP using a data URL.
 
@@ -987,6 +1261,27 @@ class State(rx.State):
         self.evals_sub_tab = "tests"
         self.evals_active_test_set = ""
         self.evals_active_eval_set = ""
+        self.evals_is_analyzing = False
+        self.evals_fit_error = ""
+        self.evals_fit_ran = False
+        self.evals_fit_score = 0
+        self.evals_fit_dimensions = []
+        self.evals_fit_gaps = []
+        self.evals_fit_recommendations = []
+        self.evals_should_offer_improve = False
+        self.evals_is_generating = False
+        self.evals_preview_error = ""
+        self.evals_preview_mode = ""
+        self.evals_preview_test_sets = []
+        self.evals_preview_eval_sets = []
+        self.evals_preview_test_cases = []
+        self.evals_preview_eval_rows = []
+        self.evals_preview_category_counts = []
+        self.evals_is_exporting = False
+        self.evals_export_error = ""
+        self.evals_export_success = False
+        self.evals_export_filename = ""
+        self._evals_output_zip_b64 = ""
         self.no_agent_warning = ""
         self.active_tab = "visualize"
         self.zip_type = ""
@@ -1019,6 +1314,41 @@ class State(rx.State):
         self.mcs_conv_latency_bands = []
         self.mcs_conv_highlights = []
         self.mcs_analyse_tab = "profile"
+        self.mcs_dv_environment = ""
+        self.mcs_dv_dataverse_url = ""
+        self.mcs_dv_transcript_id = ""
+        self.mcs_dv_use_env_auth = True
+        self.mcs_dv_token = ""
+        self.mcs_dv_tenant_id = ""
+        self.mcs_dv_client_id = ""
+        self.mcs_dv_client_secret = ""
+        self.mcs_dv_connection_ok = False
+        self.mcs_dv_connection_message = ""
+        self.mcs_dv_last_source = ""
+        self.mcs_dv_last_table = ""
+        self.mcs_dv_last_transcript_id = ""
+        self.mcs_dv_last_created_at = ""
+        self.mcs_dv_last_conversation_id = ""
+        self.mcs_landing_transcript_mode = "upload"
+        self.mcs_dv_auth_ok = False
+        self.mcs_dv_auth_message = ""
+        self._mcs_dv_session_token = ""
+        self.mcs_dv_oauth_tenant_id = ""
+        self.mcs_dv_oauth_client_id = ""
+        self.mcs_dv_oauth_device_code = ""
+        self.mcs_dv_oauth_user_code = ""
+        self.mcs_dv_oauth_verify_uri = ""
+        self.mcs_dv_oauth_message = ""
+        self.mcs_dv_auth_ok = False
+        self.mcs_dv_auth_message = ""
+        self._mcs_dv_session_token = ""
+        self.mcs_dv_oauth_tenant_id = ""
+        self.mcs_dv_oauth_client_id = ""
+        self.mcs_dv_oauth_device_code = ""
+        self.mcs_dv_oauth_user_code = ""
+        self.mcs_dv_oauth_verify_uri = ""
+        self.mcs_dv_oauth_message = ""
+        self.mcs_landing_transcript_mode = "upload"
         self.mcs_report_markdown = ""
         self.mcs_report_title = ""
         self.mcs_upload_error = ""
@@ -1164,6 +1494,281 @@ class State(rx.State):
         self.mcs_analyse_tab = tab
 
     @rx.event
+    def set_mcs_landing_transcript_mode(self, value: str):
+        mode = (value or "").strip().lower()
+        self.mcs_landing_transcript_mode = "dataverse" if mode == "dataverse" else "upload"
+
+    @rx.event
+    def set_mcs_dv_environment(self, value: str):
+        self.mcs_dv_environment = value
+        self.mcs_dv_connection_message = ""
+
+    @rx.event
+    def set_mcs_dv_dataverse_url(self, value: str):
+        self.mcs_dv_dataverse_url = value
+        self.mcs_dv_connection_message = ""
+
+    @rx.event
+    def set_mcs_dv_transcript_id(self, value: str):
+        self.mcs_dv_transcript_id = value
+
+    @rx.event
+    def set_mcs_dv_token(self, value: str):
+        self.mcs_dv_token = value
+        self.mcs_dv_auth_ok = False
+        self.mcs_dv_auth_message = ""
+        self._mcs_dv_session_token = ""
+
+    @rx.event
+    def set_mcs_dv_tenant_id(self, value: str):
+        self.mcs_dv_tenant_id = value
+        self.mcs_dv_auth_ok = False
+        self.mcs_dv_auth_message = ""
+        self._mcs_dv_session_token = ""
+
+    @rx.event
+    def set_mcs_dv_client_id(self, value: str):
+        self.mcs_dv_client_id = value
+        self.mcs_dv_auth_ok = False
+        self.mcs_dv_auth_message = ""
+        self._mcs_dv_session_token = ""
+
+    @rx.event
+    def set_mcs_dv_client_secret(self, value: str):
+        self.mcs_dv_client_secret = value
+        self.mcs_dv_auth_ok = False
+        self.mcs_dv_auth_message = ""
+        self._mcs_dv_session_token = ""
+
+    @rx.event
+    def set_mcs_dv_oauth_tenant_id(self, value: str):
+        self.mcs_dv_oauth_tenant_id = value
+
+    @rx.event
+    def set_mcs_dv_oauth_client_id(self, value: str):
+        self.mcs_dv_oauth_client_id = value
+
+    @rx.event
+    def use_mcs_dv_default_oauth_client_id(self):
+        """Apply a known public-client ID as a convenience preset."""
+        self.mcs_dv_oauth_client_id = self._DEFAULT_DEVICE_CLIENT_ID
+        self.mcs_dv_oauth_message = (
+            "Applied default public client ID preset. "
+            "If your tenant blocks it, replace with your app registration client ID."
+        )
+
+    @rx.event
+    def start_mcs_dataverse_device_login(self):
+        """Start OAuth device-code sign-in flow for smoother UI auth."""
+        environment = self.mcs_dv_environment.strip()
+        dataverse_url = self.mcs_dv_dataverse_url.strip()
+        if not environment and not dataverse_url:
+            self.mcs_upload_error = "Provide either Environment ID/URL or Dataverse URL."
+            return
+
+        tenant_id = self.mcs_dv_oauth_tenant_id.strip() or self.mcs_dv_tenant_id.strip()
+        client_id = self.mcs_dv_oauth_client_id.strip() or self.mcs_dv_client_id.strip()
+        if not tenant_id or not client_id:
+            self.mcs_upload_error = "OAuth Device Code requires Tenant ID and Client ID."
+            return
+
+        self.mcs_is_processing = True
+        self.mcs_upload_error = ""
+        self.mcs_dv_oauth_message = "Starting device-code sign in..."
+        yield
+
+        try:
+            result = begin_device_code_auth(
+                environment=environment or dataverse_url,
+                dataverse_url=dataverse_url or None,
+                tenant_id=tenant_id,
+                client_id=client_id,
+            )
+            self.mcs_dv_oauth_device_code = str(result.get("device_code", ""))
+            self.mcs_dv_oauth_user_code = str(result.get("user_code", ""))
+            self.mcs_dv_oauth_verify_uri = (
+                str(result.get("verification_uri_complete", "")) or str(result.get("verification_uri", ""))
+            )
+            resolved_url = str(result.get("dataverse_url", ""))
+            if resolved_url and not self.mcs_dv_dataverse_url.strip():
+                self.mcs_dv_dataverse_url = resolved_url
+            default_message = "Open the verification URL, enter the user code, then click Complete Device Login."
+            self.mcs_dv_oauth_message = str(result.get("message", "")).strip() or default_message
+            self.mcs_dv_auth_ok = False
+            self.mcs_dv_auth_message = "Device login started. Complete sign-in then click Complete Device Login."
+        except RemoteFetchError as exc:
+            self.mcs_dv_oauth_message = f"Device login start failed: {exc}"
+        except Exception as exc:
+            self.mcs_dv_oauth_message = f"Device login start failed: {exc}"
+        finally:
+            self.mcs_is_processing = False
+
+    @rx.event
+    def complete_mcs_dataverse_device_login(self):
+        """Complete OAuth device-code flow and store session token."""
+        tenant_id = self.mcs_dv_oauth_tenant_id.strip() or self.mcs_dv_tenant_id.strip()
+        client_id = self.mcs_dv_oauth_client_id.strip() or self.mcs_dv_client_id.strip()
+        device_code = self.mcs_dv_oauth_device_code.strip()
+        if not tenant_id or not client_id or not device_code:
+            self.mcs_upload_error = "Start Device Login first (Tenant ID, Client ID and device code are required)."
+            return
+
+        self.mcs_is_processing = True
+        self.mcs_upload_error = ""
+        self.mcs_dv_oauth_message = "Completing device-code sign in..."
+        yield
+
+        try:
+            result = complete_device_code_auth(
+                tenant_id=tenant_id,
+                client_id=client_id,
+                device_code=device_code,
+            )
+            if str(result.get("status", "")).lower() == "pending":
+                self.mcs_dv_oauth_message = str(result.get("message", "Authorization pending. Complete sign-in and retry."))
+                self.mcs_dv_auth_ok = False
+                self.mcs_dv_auth_message = "Device login pending. Complete sign-in and click Complete Device Login again."
+            else:
+                self._mcs_dv_session_token = str(result.get("access_token", ""))
+                self.mcs_dv_auth_ok = bool(self._mcs_dv_session_token)
+                self.mcs_dv_auth_message = "Device login successful. Session token is ready for Test/Fetch."
+                self.mcs_dv_oauth_message = "Device login completed."
+        except RemoteFetchError as exc:
+            self.mcs_dv_auth_ok = False
+            self.mcs_dv_auth_message = f"Device login failed: {exc}"
+            self.mcs_dv_oauth_message = self.mcs_dv_auth_message
+        except Exception as exc:
+            self.mcs_dv_auth_ok = False
+            self.mcs_dv_auth_message = f"Device login failed: {exc}"
+            self.mcs_dv_oauth_message = self.mcs_dv_auth_message
+        finally:
+            self.mcs_is_processing = False
+
+    @rx.event
+    def set_mcs_dv_use_env_auth(self, value: bool):
+        self.mcs_dv_use_env_auth = bool(value)
+        self.mcs_dv_auth_ok = False
+        self.mcs_dv_auth_message = ""
+        self._mcs_dv_session_token = ""
+        if self.mcs_dv_use_env_auth:
+            self.mcs_dv_token = ""
+            self.mcs_dv_tenant_id = ""
+            self.mcs_dv_client_id = ""
+            self.mcs_dv_client_secret = ""
+
+    @rx.event
+    def authenticate_mcs_dataverse(self):
+        """Acquire Dataverse token explicitly for container deployments without pac auth."""
+        environment = self.mcs_dv_environment.strip()
+        dataverse_url = self.mcs_dv_dataverse_url.strip()
+        if not environment and not dataverse_url:
+            self.mcs_upload_error = "Provide either Environment ID/URL or Dataverse URL."
+            self.mcs_dv_auth_ok = False
+            self.mcs_dv_auth_message = "Authentication failed: missing Environment ID/URL or Dataverse URL."
+            return
+
+        self.mcs_is_processing = True
+        self.mcs_upload_error = ""
+        self.mcs_dv_auth_ok = False
+        self.mcs_dv_auth_message = "Authenticating..."
+        yield
+
+        if self.mcs_dv_use_env_auth and not has_dataverse_env_credentials():
+            self.mcs_dv_use_env_auth = False
+            self.mcs_dv_auth_ok = False
+            self.mcs_dv_auth_message = (
+                "Environment credentials were not found. Switched to Manual Auth automatically. "
+                "Provide bearer token or tenant/client/secret and click Authenticate again."
+            )
+            self.mcs_is_processing = False
+            return
+
+        auth: DataverseAuthConfig | None = None
+        if not self.mcs_dv_use_env_auth:
+            auth = DataverseAuthConfig(
+                token=self.mcs_dv_token.strip() or None,
+                tenant_id=self.mcs_dv_tenant_id.strip() or None,
+                client_id=self.mcs_dv_client_id.strip() or None,
+                client_secret=self.mcs_dv_client_secret.strip() or None,
+            )
+
+        try:
+            result = authenticate_dataverse(
+                environment=environment or dataverse_url,
+                dataverse_url=dataverse_url or None,
+                auth=auth,
+            )
+            self._mcs_dv_session_token = str(result.get("access_token", ""))
+            resolved_url = str(result.get("dataverse_url", ""))
+            if resolved_url and not self.mcs_dv_dataverse_url.strip():
+                self.mcs_dv_dataverse_url = resolved_url
+            self.mcs_dv_auth_ok = True
+            self.mcs_dv_auth_message = "Authentication successful. Token stored for this session."
+        except RemoteFetchError as exc:
+            self.mcs_dv_auth_ok = False
+            self.mcs_dv_auth_message = f"Authentication failed: {exc}"
+        except Exception as exc:
+            self.mcs_dv_auth_ok = False
+            self.mcs_dv_auth_message = f"Authentication failed: {exc}"
+        finally:
+            self.mcs_dv_client_secret = ""
+            self.mcs_is_processing = False
+
+    @rx.event
+    def test_mcs_dataverse_connection(self):
+        """Test Dataverse authentication and connectivity for transcript fetch."""
+        environment = self.mcs_dv_environment.strip()
+        dataverse_url = self.mcs_dv_dataverse_url.strip()
+        if self.mcs_dv_actions_locked:
+            self.mcs_upload_error = "Authenticate first in Manual Auth mode."
+            self.mcs_dv_connection_ok = False
+            self.mcs_dv_connection_message = "Connection blocked: authenticate first in Manual Auth mode."
+            return
+        if not environment and not dataverse_url:
+            self.mcs_upload_error = "Provide either Environment ID/URL or Dataverse URL."
+            self.mcs_dv_connection_ok = False
+            self.mcs_dv_connection_message = "Connection failed: missing Environment ID/URL or Dataverse URL."
+            return
+
+        self.mcs_is_processing = True
+        self.mcs_upload_error = ""
+        self.mcs_dv_connection_ok = False
+        self.mcs_dv_connection_message = ""
+        yield
+
+        auth: DataverseAuthConfig | None = None
+        if self._mcs_dv_session_token:
+            auth = DataverseAuthConfig(token=self._mcs_dv_session_token)
+        elif not self.mcs_dv_use_env_auth:
+            auth = DataverseAuthConfig(
+                token=self.mcs_dv_token.strip() or None,
+                tenant_id=self.mcs_dv_tenant_id.strip() or None,
+                client_id=self.mcs_dv_client_id.strip() or None,
+                client_secret=self.mcs_dv_client_secret.strip() or None,
+            )
+
+        try:
+            info = check_dataverse_connection(
+                environment=environment or dataverse_url,
+                dataverse_url=dataverse_url or None,
+                auth=auth,
+            )
+            self.mcs_dv_connection_ok = True
+            self.mcs_dv_connection_message = (
+                "Connected to Dataverse successfully. "
+                f"Org: {info.get('organization_id', '-')}, User: {info.get('user_id', '-')}"
+            )
+        except RemoteFetchError as exc:
+            self.mcs_dv_connection_ok = False
+            self.mcs_dv_connection_message = f"Connection failed: {exc}"
+        except Exception as exc:
+            self.mcs_dv_connection_ok = False
+            self.mcs_dv_connection_message = f"Connection test failed: {exc}"
+        finally:
+            self.mcs_dv_client_secret = ""
+            self.mcs_is_processing = False
+
+    @rx.event
     async def handle_mcs_upload(self, files: list[rx.UploadFile]):
         """Parse a transcript JSON and build a conversation analysis report."""
         if not files:
@@ -1182,6 +1787,7 @@ class State(rx.State):
 
         self.mcs_is_processing = True
         self.mcs_upload_error = ""
+        self.mcs_dv_connection_message = ""
         yield
 
         try:
@@ -1190,95 +1796,86 @@ class State(rx.State):
                 json_path = tmp_path / "transcript.json"
                 json_path.write_bytes(file_bytes)
                 activities, metadata = mcs_parse_transcript(json_path)
-                timeline = mcs_build_timeline(activities, {})
-                title = f"Transcript Analysis — {filename}"
-                transcript_report = mcs_render_transcript_report(title, timeline, metadata)
-                estimate = estimate_credits_from_activities(activities, None)
-                credit_report = mcs_render_credit_estimate("Credit Prediction", estimate)
-                self.mcs_credit_rows = [
-                    {
-                        "meter": "Classic answer",
-                        "count": estimate.classic_answers,
-                        "rate": "1",
-                        "credits": estimate.classic_credits,
-                    },
-                    {
-                        "meter": "Generative answer",
-                        "count": estimate.generative_answers,
-                        "rate": "2",
-                        "credits": estimate.generative_credits,
-                    },
-                    {
-                        "meter": "Agent action",
-                        "count": estimate.agent_actions,
-                        "rate": "5",
-                        "credits": estimate.agent_action_credits,
-                    },
-                    {
-                        "meter": "Tenant graph grounding (messages)",
-                        "count": estimate.tenant_graph_grounding_messages,
-                        "rate": "10",
-                        "credits": estimate.tenant_graph_credits,
-                    },
-                    {
-                        "meter": "Agent flow actions",
-                        "count": estimate.agent_flow_actions,
-                        "rate": "13 / 100",
-                        "credits": estimate.agent_flow_credits,
-                    },
-                    {
-                        "meter": "Text/gen AI tools (premium) responses",
-                        "count": estimate.premium_tool_responses,
-                        "rate": "100 / 10",
-                        "credits": estimate.premium_tool_credits,
-                    },
-                ]
-                self.mcs_credit_total = estimate.total_credits
-                self.mcs_credit_assumptions = estimate.assumptions
-                self.mcs_conversation_flow = mcs_build_conversation_flow_items(timeline)
-                self.mcs_conversation_flow_source = "transcript"
-                conv_summary = mcs_build_conversation_visual_summary(timeline)
-                self.mcs_conv_kpis = conv_summary.get("kpis", [])
-                self.mcs_conv_event_mix = conv_summary.get("event_mix", [])
-                self.mcs_conv_latency_bands = conv_summary.get("latency_bands", [])
-                self.mcs_conv_highlights = conv_summary.get("highlights", [])
-
-                if self.mcs_source == "snapshot":
-                    # Append transcript to the existing snapshot conversation section
-                    existing = self.mcs_section_conversation.rstrip()
-                    self.mcs_section_conversation = (
-                        existing + "\n\n---\n\n## Uploaded Transcript\n\n" + transcript_report
-                    )
-                    existing_credits = self.mcs_section_credits.rstrip()
-                    self.mcs_section_credits = (
-                        existing_credits + "\n\n---\n\n## Uploaded Transcript Credits\n\n" + credit_report
-                    )
-                    self.mcs_report_markdown = self._compose_mcs_report_markdown()
-                    self.mcs_analyse_tab = "conversation"
-                else:
-                    # No snapshot: populate sections with placeholders + transcript conv
-                    self.mcs_section_profile = (
-                        "## Bot Profile\n\n"
-                        "_No snapshot loaded — drop a Copilot Studio snapshot ZIP for full agent analysis._\n"
-                    )
-                    self.mcs_section_knowledge_tools = (
-                        "## Knowledge Sources & External Tools\n\n"
-                        "_No snapshot loaded — drop a Copilot Studio snapshot ZIP for knowledge and connector inventory._\n"
-                    )
-                    self.mcs_section_topics = "## Topics & Components\n\n_No snapshot loaded._\n"
-                    self.mcs_section_graph = "## Topic Redirect Graph\n\n_No snapshot loaded._\n"
-                    self.mcs_section_conversation = transcript_report
-                    self.mcs_section_credits = credit_report
-                    self.mcs_report_title = title
-                    self.mcs_source = "transcript"
-                    self.mcs_report_markdown = self._compose_mcs_report_markdown()
-                    self.mcs_analyse_tab = "conversation"
-                    self.upload_filename = filename
-                    self.active_tab = "analyse"
+                self._apply_transcript_analysis(
+                    activities=activities,
+                    metadata=metadata,
+                    title=f"Transcript Analysis — {filename}",
+                    conversation_label="Uploaded Transcript",
+                    credits_label="Uploaded Transcript Credits",
+                    upload_filename=filename,
+                )
 
         except Exception as exc:
             self.mcs_upload_error = f"Analysis failed: {exc}\n{traceback.format_exc()}"
         finally:
+            self.mcs_is_processing = False
+
+    @rx.event
+    def fetch_mcs_transcript_from_dataverse(self):
+        """Fetch one transcript by Dataverse transcript ID and analyse it."""
+        transcript_id = self.mcs_dv_transcript_id.strip()
+        environment = self.mcs_dv_environment.strip()
+        dataverse_url = self.mcs_dv_dataverse_url.strip()
+        if self.mcs_dv_actions_locked:
+            self.mcs_upload_error = "Authenticate first in Manual Auth mode."
+            self.mcs_dv_auth_ok = False
+            self.mcs_dv_auth_message = "Fetch blocked: authenticate first in Manual Auth mode."
+            return
+        if not transcript_id:
+            self.mcs_upload_error = "Please provide a transcript ID."
+            self.mcs_dv_auth_ok = False
+            self.mcs_dv_auth_message = "Fetch failed: transcript ID is required."
+            return
+        if not environment and not dataverse_url:
+            self.mcs_upload_error = "Provide either Environment ID/URL or Dataverse URL."
+            self.mcs_dv_auth_ok = False
+            self.mcs_dv_auth_message = "Fetch failed: missing Environment ID/URL or Dataverse URL."
+            return
+
+        self.mcs_is_processing = True
+        self.mcs_upload_error = ""
+        yield
+
+        auth: DataverseAuthConfig | None = None
+        if self._mcs_dv_session_token:
+            auth = DataverseAuthConfig(token=self._mcs_dv_session_token)
+        elif not self.mcs_dv_use_env_auth:
+            auth = DataverseAuthConfig(
+                token=self.mcs_dv_token.strip() or None,
+                tenant_id=self.mcs_dv_tenant_id.strip() or None,
+                client_id=self.mcs_dv_client_id.strip() or None,
+                client_secret=self.mcs_dv_client_secret.strip() or None,
+            )
+
+        try:
+            activities, metadata = fetch_transcript_by_id(
+                environment=environment or dataverse_url,
+                transcript_id=transcript_id,
+                dataverse_url=dataverse_url or None,
+                auth=auth,
+            )
+            self._apply_transcript_analysis(
+                activities=activities,
+                metadata=metadata,
+                title=f"Dataverse Transcript Analysis — {transcript_id}",
+                conversation_label=f"Dataverse Transcript {transcript_id}",
+                credits_label=f"Dataverse Transcript {transcript_id} Credits",
+                upload_filename=f"dataverse_{transcript_id}.json",
+            )
+            self.mcs_dv_last_source = str(metadata.get("transcript_source", "dataverse"))
+            self.mcs_dv_last_table = str(metadata.get("transcript_table", ""))
+            self.mcs_dv_last_transcript_id = str(metadata.get("transcript_id", transcript_id))
+            self.mcs_dv_last_created_at = str(metadata.get("transcript_created_at", ""))
+            self.mcs_dv_last_conversation_id = str(metadata.get("transcript_conversation_id", ""))
+        except RemoteFetchError as exc:
+            self.mcs_upload_error = (
+                "Dataverse transcript fetch failed: "
+                f"{exc}. You can still upload a transcript JSON file manually."
+            )
+        except Exception as exc:
+            self.mcs_upload_error = f"Dataverse transcript analysis failed: {exc}\n{traceback.format_exc()}"
+        finally:
+            self.mcs_dv_client_secret = ""
             self.mcs_is_processing = False
 
     @rx.event
@@ -1320,6 +1917,96 @@ class State(rx.State):
         self.mcs_analyse_tab = "profile"
 
     # ── Private helpers ───────────────────────────────────────────────────
+
+    def _apply_transcript_analysis(
+        self,
+        *,
+        activities: list[dict],
+        metadata: dict,
+        title: str,
+        conversation_label: str,
+        credits_label: str,
+        upload_filename: str,
+    ) -> None:
+        timeline = mcs_build_timeline(activities, {})
+        transcript_report = mcs_render_transcript_report(title, timeline, metadata)
+        estimate = estimate_credits_from_activities(activities, None)
+        credit_report = mcs_render_credit_estimate("Credit Prediction", estimate)
+        self.mcs_credit_rows = [
+            {
+                "meter": "Classic answer",
+                "count": estimate.classic_answers,
+                "rate": "1",
+                "credits": estimate.classic_credits,
+            },
+            {
+                "meter": "Generative answer",
+                "count": estimate.generative_answers,
+                "rate": "2",
+                "credits": estimate.generative_credits,
+            },
+            {
+                "meter": "Agent action",
+                "count": estimate.agent_actions,
+                "rate": "5",
+                "credits": estimate.agent_action_credits,
+            },
+            {
+                "meter": "Tenant graph grounding (messages)",
+                "count": estimate.tenant_graph_grounding_messages,
+                "rate": "10",
+                "credits": estimate.tenant_graph_credits,
+            },
+            {
+                "meter": "Agent flow actions",
+                "count": estimate.agent_flow_actions,
+                "rate": "13 / 100",
+                "credits": estimate.agent_flow_credits,
+            },
+            {
+                "meter": "Text/gen AI tools (premium) responses",
+                "count": estimate.premium_tool_responses,
+                "rate": "100 / 10",
+                "credits": estimate.premium_tool_credits,
+            },
+        ]
+        self.mcs_credit_total = estimate.total_credits
+        self.mcs_credit_assumptions = estimate.assumptions
+        self.mcs_conversation_flow = mcs_build_conversation_flow_items(timeline)
+        self.mcs_conversation_flow_source = "transcript"
+        conv_summary = mcs_build_conversation_visual_summary(timeline)
+        self.mcs_conv_kpis = conv_summary.get("kpis", [])
+        self.mcs_conv_event_mix = conv_summary.get("event_mix", [])
+        self.mcs_conv_latency_bands = conv_summary.get("latency_bands", [])
+        self.mcs_conv_highlights = conv_summary.get("highlights", [])
+
+        if self.mcs_source == "snapshot":
+            existing = self.mcs_section_conversation.rstrip()
+            self.mcs_section_conversation = existing + f"\n\n---\n\n## {conversation_label}\n\n" + transcript_report
+            existing_credits = self.mcs_section_credits.rstrip()
+            self.mcs_section_credits = existing_credits + f"\n\n---\n\n## {credits_label}\n\n" + credit_report
+            self.mcs_report_markdown = self._compose_mcs_report_markdown()
+            self.mcs_analyse_tab = "conversation"
+            return
+
+        self.mcs_section_profile = (
+            "## Bot Profile\n\n"
+            "_No snapshot loaded — drop a Copilot Studio snapshot ZIP for full agent analysis._\n"
+        )
+        self.mcs_section_knowledge_tools = (
+            "## Knowledge Sources & External Tools\n\n"
+            "_No snapshot loaded — drop a Copilot Studio snapshot ZIP for knowledge and connector inventory._\n"
+        )
+        self.mcs_section_topics = "## Topics & Components\n\n_No snapshot loaded._\n"
+        self.mcs_section_graph = "## Topic Redirect Graph\n\n_No snapshot loaded._\n"
+        self.mcs_section_conversation = transcript_report
+        self.mcs_section_credits = credit_report
+        self.mcs_report_title = title
+        self.mcs_source = "transcript"
+        self.mcs_report_markdown = self._compose_mcs_report_markdown()
+        self.mcs_analyse_tab = "conversation"
+        self.upload_filename = upload_filename
+        self.active_tab = "analyse"
 
     def _update_derived_schema(self):
         if self.detected_bot_schema and self.new_agent_name.strip():

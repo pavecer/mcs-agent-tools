@@ -63,6 +63,12 @@ You can also upload transcript JSON and render a detailed conversation report wi
 - Execution timeline/gantt-style sections
 - Event log and error highlights
 
+Analyse tab also supports direct Dataverse transcript retrieval by transcript ID:
+
+- Enter environment + transcript ID
+- Authenticate via environment credentials (recommended) or manual token/service principal fields
+- Fetch and render conversation analytics without exporting JSON manually
+
 ### 5. Dependencies (solution ZIP)
 
 Analyze dependency health and component inventory for both agent and non-agent solution exports.
@@ -75,7 +81,31 @@ Includes:
 - Components table with sorting, filtering, sticky header, and truncation/hover details
 - Discovery merged from `solution.xml` and artefact folders (`botcomponents/`, `bots/`, `Assets/*set.xml`, `Workflows/`)
 
-### 6. Rename (solution ZIP only)
+### 6. Evals Fit + Optional Generation (solution ZIP only)
+
+The Evals tab now analyses how well existing built-in test cases and evaluation rows fit the agent purpose based on:
+
+- System instructions and behavioural constraints
+- Active topics and trigger coverage
+- Knowledge-search and tool-enabled flows
+- Guardrail/system-topic coverage
+- Eval density, duplication, and assertion quality
+
+What it provides:
+
+- Composite fit score with transparent sub-scores
+- Coverage gaps and recommendations
+- Optional **Generate Sample Evals** action for solutions with missing or weak eval coverage
+- Optional **Improve Current Evals** action when existing eval fit drops below 50%
+- Optional export of a modified solution ZIP with generated/improved `mspva_*` eval assets injected
+
+Notes:
+
+- Generation and improvement are **not automatic**.
+- Export is explicit and button-triggered.
+- The current implementation uses deterministic generation with room for optional LLM-assisted expansion later.
+
+### 7. Rename (solution ZIP only)
 
 Create a safe copy of an exported solution by rewriting bot and solution identifiers so import does not overwrite the original.
 
@@ -114,10 +144,11 @@ Bottom-right footer includes:
 Typical flow:
 
 1. Upload a `.zip` export.
-2. For solution ZIPs, use **Dependencies** first for component/dependency health, then **Visualize**, **Validate**, and **Check**.
+2. For solution ZIPs, use **Dependencies** first for component/dependency health, then **Visualize**, **Validate**, **Check**, and **Evals**.
 3. For snapshot ZIPs, use **Analyse**, **Visualize**, and **Validate** tabs.
 4. Optionally upload transcript `.json` in Analyse to enrich conversation reporting.
-5. Use the **Rename** tab (solution ZIPs only) last to create a renamed copy for safe import.
+5. In **Evals**, optionally generate or improve sample evals and export a solution copy that includes them.
+6. Use the **Rename** tab (solution ZIPs only) last to create a renamed copy for safe import.
 
 ### CLI (rename)
 
@@ -151,6 +182,44 @@ Inspect-only mode example:
 uv run python main.py solution.zip --inspect
 ```
 
+### CLI (remote fetch and analysis)
+
+You can fetch bot content directly from an environment and generate an analysis report without manual ZIP exports.
+
+Example (acceptance criteria):
+
+```bash
+uv run mcs-tools --env <envID> --agent <agentID-or-name> --fetch
+```
+
+This command will:
+
+1. Resolve the target agent by ID or name.
+2. Fetch the latest bot content from the environment.
+3. Optionally fetch recent transcripts (best-effort).
+4. Generate a Markdown analysis report in the working directory.
+
+Useful options:
+
+```bash
+# Explicit provider selection: auto | pac | dataverse
+uv run mcs-tools --fetch --env <envID> --agent "Legal Copilot" --provider pac
+
+# Save report to a custom path
+uv run mcs-tools --fetch --env <envID> --agent <agentID> --report-output ./reports/legal.md
+
+# Disable transcript fetch
+uv run mcs-tools --fetch --env <envID> --agent <agentID> --no-transcripts
+
+# Dataverse API mode
+uv run mcs-tools --fetch --provider dataverse --env https://<org>.crm.dynamics.com --agent <agentID>
+```
+
+Fallback behavior:
+
+- If remote fetch is unavailable or authentication is missing, the tool prints a clear error and guidance.
+- You can always fall back to manual local input (`solution.zip`, snapshot ZIP, or transcript JSON upload in the web UI).
+
 ## Configuration
 
 Environment variables:
@@ -161,6 +230,36 @@ Environment variables:
 - `PORT`: single port in prod mode (default `2009`)
 - `API_URL`: public app URL baked into the frontend during production image build (default `http://localhost:2009` for local Docker)
 - `USERS`: optional basic auth credentials list (`user1:pass1,user2:pass2`)
+
+Remote fetch credentials and connection setup:
+
+- `MCS_DATAVERSE_URL`: Dataverse base URL (for API mode), for example `https://contoso.crm.dynamics.com`
+- `MCS_DATAVERSE_TOKEN`: Bearer token for Dataverse API access
+- `MCS_AAD_TENANT_ID`: Entra tenant ID (service principal flow)
+- `MCS_AAD_CLIENT_ID`: Entra app client ID (service principal flow)
+- `MCS_AAD_CLIENT_SECRET`: Entra app client secret (service principal flow)
+- `MCS_AAD_SCOPE`: Optional OAuth scope override (defaults to `<dataverse-url>/.default`)
+- `MCS_ADMIN_SESSIONS_URL`: Optional admin analytics sessions API endpoint (transcript fallback)
+- `MCS_ADMIN_API_TOKEN`: Optional bearer token for admin analytics API
+
+Notes:
+
+- Do not hardcode secrets in source code or command history.
+- Prefer environment variables for tokens and client secrets.
+- Transcript retrieval is best-effort and may be constrained by retention windows (commonly around 29 days in Copilot Studio transcript analytics).
+
+Power Platform CLI setup (recommended for fetch mode):
+
+```bash
+# Ensure pac is installed and available
+pac --version
+
+# Authenticate
+pac auth create
+
+# (Optional) verify accessible copilots
+pac copilot list
+```
 
 When `USERS` is set, the app requires login at `/login`.
 
@@ -215,6 +314,7 @@ tests/               Unit tests
 - Binary files are not rewritten.
 - GUIDs are not regenerated by this tool.
 - Validation is static/rule-based and does not call an LLM API.
+- Eval generation and improvement are optional, deterministic in the current implementation, and only modify a solution when you explicitly export a generated/improved copy.
 - Test coverage currently focuses on renamer utilities and validation of naming rules.
 
 ## License

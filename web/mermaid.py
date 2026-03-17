@@ -32,12 +32,20 @@ def mermaid_script() -> rx.Component:
                         style.textContent = `
                             pre.mermaid svg {
                                 max-width: none !important;
-                                width: 100% !important;
+                                width: auto !important;
+                                min-width: 100%;
                                 height: auto !important;
                             }
                             pre.mermaid {
+                                display: flex;
+                                justify-content: center;
+                                align-items: flex-start;
                                 overflow-x: auto;
                                 overflow-y: auto;
+                            }
+                            pre.mermaid .label {
+                                font-weight: 600;
+                                letter-spacing: 0.01em;
                             }
                         `;
                         document.head.appendChild(style);
