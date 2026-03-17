@@ -52,6 +52,7 @@ from visualizer import visualize_zip_bytes, get_evals_data
 load_dotenv()
 
 _MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB — maximum accepted upload size
+TUTORIAL_TOTAL_STEPS = 8  # number of tutorial steps; must match _TUTORIAL_TOTAL in components.py
 
 
 def _fit_score_color(score: int) -> str:
@@ -268,6 +269,31 @@ class State(rx.State):
     password: str = ""
     is_authenticated: bool = False
     auth_error: str = ""
+
+    # ── Tutorial ──────────────────────────────────────────────────────────────
+    tutorial_open: bool = False
+    tutorial_step: int = 0  # 0-based; total steps defined in components.py
+
+    def open_tutorial(self) -> None:
+        """Open the guided tutorial and reset to the first step."""
+        self.tutorial_step = 0
+        self.tutorial_open = True
+
+    def close_tutorial(self) -> None:
+        """Close the tutorial dialog."""
+        self.tutorial_open = False
+
+    def next_tutorial_step(self) -> None:
+        """Advance to the next step; close the dialog after the last step."""
+        if self.tutorial_step < TUTORIAL_TOTAL_STEPS - 1:
+            self.tutorial_step += 1
+        else:
+            self.tutorial_open = False
+
+    def prev_tutorial_step(self) -> None:
+        """Go back to the previous tutorial step."""
+        if self.tutorial_step > 0:
+            self.tutorial_step -= 1
 
     # ── ZIP type detection ────────────────────────────────────────────────────
     zip_type: str = ""  # "solution" | "snapshot"
