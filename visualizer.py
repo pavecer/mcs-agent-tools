@@ -705,7 +705,7 @@ def _render_topic_graph(profile: BotProfile) -> str:
     lines = [
         "## Topic Connection Graph\n",
         "```mermaid",
-        '%%{init: {"useMaxWidth": false, "theme": "base", "themeVariables": {"fontFamily": "Segoe UI, Arial, sans-serif", "fontSize": "15px", "primaryTextColor": "#102548", "lineColor": "#6f86a8"}, "flowchart": {"curve": "basis", "nodeSpacing": 34, "rankSpacing": 44, "padding": 10}}}%%',
+        '%%{init: {"useMaxWidth": false, "theme": "base", "themeVariables": {"fontFamily": "Segoe UI, Arial, sans-serif", "fontSize": "14px", "primaryTextColor": "#102548", "lineColor": "#6f86a8"}, "flowchart": {"htmlLabels": false, "curve": "basis", "nodeSpacing": 60, "rankSpacing": 80, "padding": 16}}}%%',
         "graph TD",
         "    classDef default fill:#ffffff,stroke:#8bb8ff,stroke-width:1.6px,color:#102548;",
         "    linkStyle default stroke:#6f86a8,stroke-width:1.4px;",
@@ -716,6 +716,8 @@ def _render_topic_graph(profile: BotProfile) -> str:
     for src, tgt, condition in edges:
         if condition:
             cond_label = _sanitize_mermaid(condition)
+            if len(cond_label) > 28:
+                cond_label = cond_label[:25] + "..."
             lines.append(f"    {src} -->|{cond_label}| {tgt}")
         else:
             lines.append(f"    {src} --> {tgt}")

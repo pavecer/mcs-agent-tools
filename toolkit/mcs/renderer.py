@@ -269,7 +269,7 @@ def render_topic_graph(profile: MCSBotProfile) -> str:
         "## Topic Redirect Graph",
         "",
         "```mermaid",
-        '%%{init: {"theme": "base", "themeVariables": {"fontFamily": "Segoe UI, Arial, sans-serif", "fontSize": "15px", "primaryTextColor": "#102548", "lineColor": "#6f86a8"}, "flowchart": {"curve": "basis", "nodeSpacing": 34, "rankSpacing": 44, "padding": 10}}}%%',
+        '%%{init: {"useMaxWidth": false, "theme": "base", "themeVariables": {"fontFamily": "Segoe UI, Arial, sans-serif", "fontSize": "14px", "primaryTextColor": "#102548", "lineColor": "#6f86a8"}, "flowchart": {"htmlLabels": false, "curve": "basis", "nodeSpacing": 60, "rankSpacing": 80, "padding": 16}}}%%',
         "graph TD",
         "    classDef default fill:#ffffff,stroke:#8bb8ff,stroke-width:1.6px,color:#102548;",
         "    linkStyle default stroke:#6f86a8,stroke-width:1.4px;",
