@@ -183,6 +183,106 @@ _MODEL_CATALOGUE: dict[str, dict] = {
             "Evaluate GPT-4.1 if conversational quality is more important than reasoning depth."
         ),
     },
+    "gpt5reasoning": {
+        "display": "GPT-5 Reasoning",
+        "tier": "Deep / Reasoning (GA)",
+        "context_window": "400 K tokens",
+        "cost_tier": "Premium",
+        "strengths": [
+            "Most capable reasoning model in Copilot Studio (replaces o3, Dec 2025)",
+            "Advanced chain-of-thought reasoning for complex analytical tasks",
+            "400 K-token context enables very large knowledge bases",
+            "Excellent for legal, financial, scientific, and compliance agents",
+        ],
+        "limitations": [
+            "No temperature control — fixed sampling",
+            "Premium cost and higher latency than conversational models",
+            "Overkill for FAQ or simple customer-service agents",
+        ],
+        "recommendation": (
+            "Use for agents requiring expert-level analytical reasoning on private data. "
+            "Consider GPT-5 Chat or GPT-4.1 for conversational or lower-complexity scenarios."
+        ),
+    },
+    "gpt52chat": {
+        "display": "GPT-5.2 Chat",
+        "tier": "General (Experimental)",
+        "context_window": "128 K tokens",
+        "cost_tier": "Standard",
+        "strengths": [
+            "Improved conversational quality over GPT-5 Chat",
+            "Strong instruction adherence and factual grounding",
+            "Standard rate — cost-effective for conversational agents",
+        ],
+        "limitations": [
+            "Experimental — not suitable for production without thorough evaluation",
+            "Performance and availability may vary",
+        ],
+        "recommendation": (
+            "Evaluate against GPT-5 Chat (GA) before considering for rollout. "
+            "Do not deploy in production without systematic evaluation."
+        ),
+    },
+    "gpt52reasoning": {
+        "display": "GPT-5.2 Reasoning",
+        "tier": "Deep / Reasoning (Experimental)",
+        "context_window": "400 K tokens",
+        "cost_tier": "Premium",
+        "strengths": [
+            "Highest available reasoning depth in Copilot Studio",
+            "400 K-token context for very large analytical workloads",
+            "Exceeds GPT-5 Reasoning on complex multi-step problems",
+        ],
+        "limitations": [
+            "Experimental — not for production; subject to availability and quality variability",
+            "No temperature control",
+            "Highest latency of all available models",
+        ],
+        "recommendation": (
+            "Reserve for advanced experimental exploration. "
+            "Compare systematically against GPT-5 Reasoning (GA) before any rollout."
+        ),
+    },
+    "claudesonnet45": {
+        "display": "Claude Sonnet 4.5",
+        "tier": "General (Experimental / External)",
+        "context_window": "200 K tokens",
+        "cost_tier": "Standard",
+        "strengths": [
+            "Strong conversational quality and nuanced writing",
+            "200 K-token context for large knowledge sets",
+            "Anthropic built-in safety policies",
+        ],
+        "limitations": [
+            "External model — Anthropic data terms apply; content moderation control unavailable",
+            "Experimental — not for production",
+            "Requires Enable External Models in Power Platform admin centre",
+        ],
+        "recommendation": (
+            "Evaluate against GPT-5 Chat for conversational quality. "
+            "Review Anthropic data terms before using with regulated or customer data."
+        ),
+    },
+    "claudeopus45": {
+        "display": "Claude Opus 4.5",
+        "tier": "Deep (Experimental / External)",
+        "context_window": "200 K tokens",
+        "cost_tier": "Premium",
+        "strengths": [
+            "Anthropic's most capable model — advanced analysis and nuanced reasoning",
+            "Excellent writing quality and ethical reasoning",
+            "200 K-token context for large documents",
+        ],
+        "limitations": [
+            "External model — Anthropic data terms apply; content moderation control unavailable",
+            "Experimental — not for production; replaces Claude Opus 4.1 (retired Feb 2026)",
+            "Premium cost; requires Enable External Models in Power Platform admin centre",
+        ],
+        "recommendation": (
+            "Compare against GPT-5 Reasoning (GA) for deep-analysis use cases. "
+            "Review Anthropic terms before processing regulated data."
+        ),
+    },
 }
 
 # Map from Copilot Studio modelNameHint to OpenAI API model name for API comparison.
@@ -202,6 +302,21 @@ _HINT_TO_OPENAI_MODEL: dict[str, str] = {
     "GPT5Chat": "gpt-5-chat",
     "gpt-5-chat": "gpt-5-chat",
     "gpt5chat": "gpt-5-chat",
+    "GPT5Reasoning": "gpt-5-reasoning",
+    "gpt-5-reasoning": "gpt-5-reasoning",
+    "gpt5reasoning": "gpt-5-reasoning",
+    "GPT52Chat": "gpt-5.2-chat",
+    "gpt-5.2-chat": "gpt-5.2-chat",
+    "gpt52chat": "gpt-5.2-chat",
+    "GPT52Reasoning": "gpt-5.2-reasoning",
+    "gpt-5.2-reasoning": "gpt-5.2-reasoning",
+    "gpt52reasoning": "gpt-5.2-reasoning",
+    "ClaudeSonnet45": "claude-sonnet-4-5",
+    "claude-sonnet-4.5": "claude-sonnet-4-5",
+    "claudesonnet45": "claude-sonnet-4-5",
+    "ClaudeOpus45": "claude-opus-4-5",
+    "claude-opus-4.5": "claude-opus-4-5",
+    "claudeopus45": "claude-opus-4-5",
     "o1": "o1",
     "o1-preview": "o1-preview",
     "o1-mini": "o1-mini",
@@ -216,8 +331,8 @@ _HINT_TO_OPENAI_MODEL: dict[str, str] = {
     "GPT4": "gpt-4",
 }
 
-# Model keys that are below the GPT-4.1 threshold (legacy / not in catalogue).
-_LEGACY_HINTS = {"GPT4o", "gpt-4o", "gpt-4o-mini", "gpt-4", "GPT4", "gpt-35-turbo", "gpt-3.5-turbo"}
+# Model keys that are below the GPT-4.1 threshold or retired (legacy / not in active catalogue).
+_LEGACY_HINTS = {"GPT4o", "gpt-4o", "gpt-4o-mini", "gpt-4", "GPT4", "gpt-35-turbo", "gpt-3.5-turbo", "o1", "o1-preview", "o1-mini", "o3", "o3-mini", "o4-mini", "o4mini"}
 
 # Generic sample queries used for API-based comparison.
 _SAMPLE_QUERIES: list[str] = [
