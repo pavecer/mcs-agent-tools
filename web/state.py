@@ -128,7 +128,24 @@ class State(rx.State):
     # ── Visualization ─────────────────────────────────────────────────────
     is_visualizing: bool = False
     viz_error: str = ""
+    # Snapshot ZIP path uses raw markdown segments; solution ZIP uses structured vars below
     viz_segments: list[dict] = []
+    # Structured vars populated only for solution ZIPs
+    viz_display_name: str = ""
+    viz_schema_name: str = ""
+    viz_channels: list[str] = []
+    viz_recognizer: str = ""
+    viz_model: str = ""
+    viz_web_browsing: bool = False
+    viz_use_model_knowledge: bool = False
+    viz_instructions_length: int = 0
+    viz_instructions_preview: str = ""
+    viz_total: int = 0
+    viz_active_count: int = 0
+    viz_inactive_count: int = 0
+    viz_category_stats: list[dict] = []
+    viz_component_rows: list[dict] = []
+    viz_mermaid: str = ""
 
     # ── Validation ───────────────────────────────────────────────────────────
     is_validating: bool = False
@@ -277,7 +294,11 @@ class State(rx.State):
 
     @rx.var
     def has_visualization(self) -> bool:
-        return len(self.viz_segments) > 0
+        return len(self.viz_segments) > 0 or self.viz_display_name != ""
+
+    @rx.var
+    def viz_instructions_length_str(self) -> str:
+        return f"{self.viz_instructions_length:,}"
 
     @rx.var
     def has_validation(self) -> bool:
@@ -543,6 +564,21 @@ class State(rx.State):
         self._output_zip_b64 = ""
         self.viz_segments = []
         self.viz_error = ""
+        self.viz_display_name = ""
+        self.viz_schema_name = ""
+        self.viz_channels = []
+        self.viz_recognizer = ""
+        self.viz_model = ""
+        self.viz_web_browsing = False
+        self.viz_use_model_knowledge = False
+        self.viz_instructions_length = 0
+        self.viz_instructions_preview = ""
+        self.viz_total = 0
+        self.viz_active_count = 0
+        self.viz_inactive_count = 0
+        self.viz_category_stats = []
+        self.viz_component_rows = []
+        self.viz_mermaid = ""
         self.validation_ran = False
         self.validation_error = ""
         self.validation_results = []
@@ -643,11 +679,28 @@ class State(rx.State):
                     self.is_visualizing = True
                     yield
                     try:
-                        self.viz_segments = visualize_zip_bytes(file_bytes)
+                        result = visualize_zip_bytes(file_bytes)
+                        self.viz_display_name = result["display_name"]
+                        self.viz_schema_name = result["schema_name"]
+                        self.viz_channels = result["channels"]
+                        self.viz_recognizer = result["recognizer"]
+                        self.viz_model = result["model"]
+                        self.viz_web_browsing = result["web_browsing"]
+                        self.viz_use_model_knowledge = result["use_model_knowledge"]
+                        self.viz_instructions_length = result["instructions_length"]
+                        self.viz_instructions_preview = result["instructions_preview"]
+                        self.viz_total = result["total"]
+                        self.viz_active_count = result["active"]
+                        self.viz_inactive_count = result["inactive"]
+                        self.viz_category_stats = result["category_stats"]
+                        self.viz_component_rows = result["component_rows"]
+                        self.viz_mermaid = result["mermaid"]
                         self.viz_error = ""
                     except Exception as viz_exc:
                         self.viz_error = str(viz_exc)
-                        self.viz_segments = []
+                        self.viz_display_name = ""
+                        self.viz_component_rows = []
+                        self.viz_mermaid = ""
                     finally:
                         self.is_visualizing = False
 

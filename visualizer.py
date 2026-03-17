@@ -571,6 +571,15 @@ def _classify(comp: ComponentSummary) -> str | None:
 # ── Report sections ────────────────────────────────────────────────────────────
 
 
+def _short_trigger_label(trigger_kind: str | None) -> str:
+    """Return a short human-readable label for a trigger kind."""
+    if not trigger_kind:
+        return "—"
+    # Strip the leading 'On' prefix then insert spaces before capitals
+    label = trigger_kind.removeprefix("On")
+    return re.sub(r"(?<=[a-z])(?=[A-Z])", " ", label) or trigger_kind
+
+
 def _render_ai_config(profile: BotProfile) -> str:
     if not profile.gpt_info:
         return ""
@@ -582,9 +591,14 @@ def _render_ai_config(profile: BotProfile) -> str:
     lines.append(f"| Use Model Knowledge | {'Yes' if profile.use_model_knowledge else 'No'} |")
     lines.append("")
     if g.instructions:
-        snippet = g.instructions[:500] + ("…" if len(g.instructions) > 500 else "")
-        lines.append(f"**System Instructions** ({len(g.instructions)} chars):\n")
-        lines.append(f"```\n{snippet}\n```")
+        char_count = len(g.instructions)
+        lines.append(f"**System Instructions** ({char_count:,} chars):\n")
+        snippet = g.instructions[:600] + ("…" if char_count > 600 else "")
+        for ql in snippet.replace("\r\n", "\n").replace("\r", "\n").split("\n")[:15]:
+            lines.append(f"> {ql}" if ql.strip() else ">")
+        if char_count > 600:
+            lines.append(">")
+            lines.append(f"> *…({char_count - 600:,} more characters)*")
         lines.append("")
     return "\n".join(lines)
 
@@ -611,10 +625,12 @@ def _render_components(profile: BotProfile) -> str:
 
     total = sum(len(v) for v in by_cat.values())
     active = sum(1 for v in by_cat.values() for c in v if c.state == "Active")
+    inactive = total - active
 
+    inactive_note = f", **{inactive}** inactive" if inactive else ""
     lines = [
         "## Components\n",
-        f"**{total}** total — **{active}** active, **{total - active}** inactive\n",
+        f"**{total}** total — **{active}** active{inactive_note}\n",
         "| Category | Count | Active | Inactive |",
         "| --- | --- | --- | --- |",
     ]
@@ -622,18 +638,32 @@ def _render_components(profile: BotProfile) -> str:
         comps = by_cat.get(cat)
         if comps:
             act = sum(1 for c in comps if c.state == "Active")
-            lines.append(f"| {_CAT_LABELS[cat]} | {len(comps)} | {act} | {len(comps) - act} |")
+            inact = len(comps) - act
+            lines.append(
+                f"| {_CAT_LABELS[cat]} | {len(comps)} | {act} | {inact if inact else '—'} |"
+            )
     lines.append("")
+
+    _TOPIC_CATS = {"user_topics", "orchestrator_topics", "system_topics", "automation_topics"}
 
     for cat in _CAT_ORDER:
         comps = by_cat.get(cat)
         if not comps:
             continue
         lines.append(f"### {_CAT_LABELS[cat]} ({len(comps)})\n")
-        lines.append("| Name | Schema | State |")
-        lines.append("| --- | --- | --- |")
-        for c in comps:
-            lines.append(f"| {c.display_name} | `{c.schema_name}` | {c.state} |")
+        if cat in _TOPIC_CATS:
+            lines.append("| Name | Trigger | Status |")
+            lines.append("| --- | --- | --- |")
+            for c in comps:
+                trigger = _short_trigger_label(c.trigger_kind)
+                status = "✓ Active" if c.state == "Active" else "╌ Inactive"
+                lines.append(f"| {c.display_name} | {trigger} | {status} |")
+        else:
+            lines.append("| Name | Status |")
+            lines.append("| --- | --- |")
+            for c in comps:
+                status = "✓ Active" if c.state == "Active" else "╌ Inactive"
+                lines.append(f"| {c.display_name} | {status} |")
         lines.append("")
 
     return "\n".join(lines)
@@ -677,11 +707,13 @@ def _render_topic_graph(profile: BotProfile) -> str:
     lines = [
         "## Topic Connection Graph\n",
         "```mermaid",
-        '%%{init: {"useMaxWidth": false}}%%',
+        '%%{init: {"useMaxWidth": false, "theme": "base", "themeVariables": {"fontFamily": "Segoe UI, Arial, sans-serif", "fontSize": "15px", "primaryTextColor": "#102548", "lineColor": "#6f86a8"}, "flowchart": {"curve": "basis", "nodeSpacing": 34, "rankSpacing": 44, "padding": 10}}}%%',
         "graph TD",
+        "    classDef default fill:#ffffff,stroke:#8bb8ff,stroke-width:1.6px,color:#102548;",
+        "    linkStyle default stroke:#6f86a8,stroke-width:1.4px;",
     ]
     for nid, display in sorted(nodes.items()):
-        lines.append(f"    {nid}[{_sanitize_mermaid(display)}]")
+        lines.append(f'    {nid}("{_sanitize_mermaid(display)}")')
 
     for src, tgt, condition in edges:
         if condition:
@@ -692,6 +724,125 @@ def _render_topic_graph(profile: BotProfile) -> str:
 
     lines.extend(["```", ""])
     return "\n".join(lines)
+
+
+# ── Structured viz dict (for rich web UI rendering) ──────────────────────────
+
+_CAT_COLORS: dict[str, str] = {
+    "user_topics": "#0078d4",
+    "orchestrator_topics": "#7719aa",
+    "system_topics": "#107c10",
+    "automation_topics": "#c7921e",
+    "knowledge": "#0fa3b1",
+    "skills": "#5c6bc0",
+    "custom_entities": "#e67e22",
+    "variables": "#795548",
+    "settings": "#607d8b",
+}
+
+_TOPIC_CATS: set[str] = {"user_topics", "orchestrator_topics", "system_topics", "automation_topics"}
+
+
+def _profile_to_viz_dict(profile: BotProfile) -> dict:
+    """Convert a parsed BotProfile into a flat, JSON-serialisable dict for the web UI."""
+    by_cat: dict[str, list[ComponentSummary]] = {}
+    for comp in profile.components:
+        cat = _classify(comp)
+        if cat is not None:
+            by_cat.setdefault(cat, []).append(comp)
+
+    total = sum(len(v) for v in by_cat.values())
+    active = sum(1 for v in by_cat.values() for c in v if c.state == "Active")
+
+    category_stats: list[dict] = []
+    for cat in _CAT_ORDER:
+        comps = by_cat.get(cat)
+        if comps:
+            act = sum(1 for c in comps if c.state == "Active")
+            category_stats.append(
+                {
+                    "label": _CAT_LABELS[cat],
+                    "color": _CAT_COLORS.get(cat, "#607d8b"),
+                    "total": len(comps),
+                    "active": act,
+                    "inactive": len(comps) - act,
+                    "inactive_display": str(len(comps) - act) if (len(comps) - act) > 0 else "—",
+                }
+            )
+
+    # Flat list of header + item rows for rx.foreach rendering
+    component_rows: list[dict] = []
+    for cat in _CAT_ORDER:
+        comps = by_cat.get(cat)
+        if not comps:
+            continue
+        color = _CAT_COLORS.get(cat, "#607d8b")
+        component_rows.append(
+            {
+                "kind": "header",
+                "label": f"{_CAT_LABELS[cat]} ({len(comps)})",
+                "color": color,
+                "name": "",
+                "trigger": "",
+                "state": "",
+            }
+        )
+        for c in comps:
+            is_active = c.state == "Active"
+            component_rows.append(
+                {
+                    "kind": "topic" if cat in _TOPIC_CATS else "other",
+                    "name": c.display_name,
+                    "trigger": _short_trigger_label(c.trigger_kind) if cat in _TOPIC_CATS else "",
+                    "state": c.state,
+                    "status_label": "Active" if is_active else "Inactive",
+                    "status_scheme": "green" if is_active else "orange",
+                    "row_bg": "#f6fff6" if is_active else "#fffbe6",
+                    "row_border": "#107c10" if is_active else "#c7921e",
+                    "color": color,
+                    "label": "",
+                }
+            )
+
+    # Instructions
+    g = profile.gpt_info
+    instructions_length = 0
+    instructions_preview = ""
+    model = ""
+    web_browsing = False
+    if g:
+        model = g.model_hint or ""
+        web_browsing = g.web_browsing
+        if g.instructions:
+            instructions_length = len(g.instructions)
+            snippet = g.instructions[:600]
+            instructions_preview = snippet + ("…" if instructions_length > 600 else "")
+
+    # Mermaid
+    mermaid_content = ""
+    if profile.topic_connections:
+        graph_md = _render_topic_graph(profile)
+        m = re.search(r"```mermaid\s*\n(.*?)```", graph_md, re.DOTALL)
+        if m:
+            mermaid_content = m.group(1).strip()
+
+    return {
+        "display_name": profile.display_name,
+        "schema_name": profile.schema_name,
+        "channels": [c for c in profile.channels if c],
+        "recognizer": profile.recognizer_kind,
+        "model": model,
+        "web_browsing": web_browsing,
+        "use_model_knowledge": profile.use_model_knowledge,
+        "instructions_length": instructions_length,
+        "instructions_preview": instructions_preview,
+        "total": total,
+        "active": active,
+        "inactive": total - active,
+        "category_stats": category_stats,
+        "component_rows": component_rows,
+        "mermaid": mermaid_content,
+    }
 
 
 # ── Report assembler ───────────────────────────────────────────────────────────
@@ -741,10 +892,10 @@ def split_segments(md: str) -> list[dict]:
 # ── Public API ─────────────────────────────────────────────────────────────────
 
 
-def visualize_zip_bytes(zip_bytes: bytes) -> list[dict]:
-    """Parse a solution ZIP and return render segments for the web UI.
+def visualize_zip_bytes(zip_bytes: bytes) -> dict:
+    """Parse a solution ZIP and return a structured dict for the rich web UI.
 
-    Returns a list of ``{'type': 'markdown'|'mermaid', 'content': str}`` dicts.
+    Returns a flat, JSON-serialisable dict ready to be unpacked into State viz_* vars.
     Raises ``ValueError`` or ``RuntimeError`` on failure.
     """
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -753,8 +904,7 @@ def visualize_zip_bytes(zip_bytes: bytes) -> list[dict]:
             safe_extractall(zf, tmp)
         profile = parse_solution_zip(tmp)
 
-    md = generate_markdown_report(profile)
-    return split_segments(md)
+    return _profile_to_viz_dict(profile)
 
 
 def get_evals_data(zip_bytes: bytes) -> dict:

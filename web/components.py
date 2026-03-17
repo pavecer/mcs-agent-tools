@@ -949,7 +949,377 @@ def feedback_footer() -> rx.Component:
     )
 
 
-# ── Visualization panel ───────────────────────────────────────────────────────
+# ── Visualization panel — rich structured UI ─────────────────────────────────
+
+
+def _viz_channel_badge(ch: str) -> rx.Component:
+    return rx.badge(ch, color_scheme="blue", variant="soft", size="1")
+
+
+def _viz_config_pill(label: str, value: rx.Component) -> rx.Component:
+    """One config property pill — label above value."""
+    return rx.vstack(
+        rx.text(label, font_size="10px", font_weight="700", color="#605e5c", letter_spacing="0.06em"),
+        value,
+        spacing="1",
+        align="start",
+    )
+
+
+def _viz_count_block(count: rx.Var, label: str, color: str) -> rx.Component:
+    return rx.vstack(
+        rx.text(count, font_size="26px", font_weight="700", color=color, line_height="1"),
+        rx.text(label, font_size="11px", color="#605e5c", font_weight="500"),
+        spacing="1",
+        align="center",
+    )
+
+
+def _viz_cat_stat_row(stat: dict) -> rx.Component:
+    """One row in the category summary table inside the Components card."""
+    return rx.hstack(
+        rx.box(
+            width="8px",
+            height="8px",
+            border_radius="50%",
+            background=stat["color"],
+            flex_shrink="0",
+        ),
+        rx.text(stat["label"], font_size="13px", color="#201f1e", flex="1"),
+        rx.text(
+            stat["total"],
+            font_size="13px",
+            font_weight="600",
+            color="#201f1e",
+            min_width="32px",
+            text_align="right",
+        ),
+        rx.text(
+            stat["active"],
+            font_size="13px",
+            color="#107c10",
+            font_weight="500",
+            min_width="40px",
+            text_align="right",
+        ),
+        rx.text(
+            stat["inactive_display"],
+            font_size="13px",
+            color="#c7921e",
+            font_weight="500",
+            min_width="48px",
+            text_align="right",
+        ),
+        spacing="3",
+        width="100%",
+        align="center",
+        padding_y="5px",
+    )
+
+
+def _viz_component_row(row: dict) -> rx.Component:
+    """Render a section header or a component item row (topic / other)."""
+    return rx.match(
+        row["kind"],
+        (
+            "header",
+            rx.box(
+                rx.hstack(
+                    rx.box(
+                        width="3px",
+                        height="14px",
+                        background=row["color"],
+                        border_radius="2px",
+                        flex_shrink="0",
+                    ),
+                    rx.text(
+                        row["label"],
+                        font_size="11px",
+                        font_weight="700",
+                        color=row["color"],
+                        letter_spacing="0.05em",
+                    ),
+                    spacing="2",
+                    align="center",
+                ),
+                padding_top="14px",
+                padding_bottom="5px",
+                width="100%",
+            ),
+        ),
+        (
+            "topic",
+            rx.box(
+                rx.hstack(
+                    rx.text(row["name"], font_size="13px", color="#201f1e", flex="1"),
+                    rx.badge(row["trigger"], color_scheme="blue", variant="soft", size="1"),
+                    rx.badge(row["status_label"], color_scheme=row["status_scheme"], variant="soft", size="1"),
+                    spacing="2",
+                    align="center",
+                    width="100%",
+                    flex_wrap="wrap",
+                ),
+                padding="7px 12px",
+                border_left_width="3px",
+                border_left_style="solid",
+                border_left_color=row["row_border"],
+                background=row["row_bg"],
+                border_radius="0 6px 6px 0",
+                margin_bottom="4px",
+                width="100%",
+            ),
+        ),
+        (
+            "other",
+            rx.box(
+                rx.hstack(
+                    rx.text(row["name"], font_size="13px", color="#201f1e", flex="1"),
+                    rx.badge(row["status_label"], color_scheme=row["status_scheme"], variant="soft", size="1"),
+                    spacing="2",
+                    align="center",
+                    width="100%",
+                ),
+                padding="7px 12px",
+                border_left_width="3px",
+                border_left_style="solid",
+                border_left_color=row["row_border"],
+                background=row["row_bg"],
+                border_radius="0 6px 6px 0",
+                margin_bottom="4px",
+                width="100%",
+            ),
+        ),
+        rx.box(),
+    )
+
+
+def _viz_solution_panel() -> rx.Component:
+    """Rich card-based visualization for solution ZIP data."""
+    return rx.vstack(
+        # ── 1. Header card ──────────────────────────────────────────────────
+        card(
+            rx.hstack(
+                rx.vstack(
+                    rx.hstack(
+                        rx.icon("bot", color=PRIMARY, size=22),
+                        rx.heading(State.viz_display_name, size="5", color="#102548"),
+                        spacing="2",
+                        align="center",
+                    ),
+                    rx.hstack(
+                        rx.foreach(State.viz_channels, _viz_channel_badge),
+                        rx.cond(
+                            State.viz_model != "",
+                            rx.badge(State.viz_model, color_scheme="purple", variant="soft"),
+                            rx.box(),
+                        ),
+                        rx.badge(State.viz_recognizer, color_scheme="gray", variant="soft"),
+                        spacing="2",
+                        align="center",
+                        flex_wrap="wrap",
+                    ),
+                    spacing="3",
+                    align="start",
+                ),
+                rx.spacer(),
+                rx.hstack(
+                    _viz_count_block(State.viz_total, "total", "#102548"),
+                    rx.divider(orientation="vertical", height="40px"),
+                    _viz_count_block(State.viz_active_count, "active", "#107c10"),
+                    rx.cond(
+                        State.viz_inactive_count > 0,
+                        rx.hstack(
+                            rx.divider(orientation="vertical", height="40px"),
+                            _viz_count_block(State.viz_inactive_count, "inactive", "#c7921e"),
+                            spacing="4",
+                            align="center",
+                        ),
+                        rx.box(),
+                    ),
+                    spacing="4",
+                    align="center",
+                ),
+                align="center",
+                width="100%",
+                flex_wrap="wrap",
+                gap="20px",
+            ),
+            width="100%",
+        ),
+        # ── 2. AI Configuration card ────────────────────────────────────────
+        card(
+            rx.hstack(
+                rx.icon("cpu", color=PRIMARY, size=16),
+                rx.heading("AI Configuration", size="3", color="#102548"),
+                spacing="2",
+                align="center",
+                margin_bottom="14px",
+            ),
+            rx.hstack(
+                _viz_config_pill(
+                    "MODEL",
+                    rx.cond(
+                        State.viz_model != "",
+                        rx.badge(State.viz_model, color_scheme="purple", variant="soft"),
+                        rx.text("—", font_size="13px", color="#a19f9d"),
+                    ),
+                ),
+                rx.divider(orientation="vertical", height="36px"),
+                _viz_config_pill(
+                    "WEB BROWSING",
+                    rx.cond(
+                        State.viz_web_browsing,
+                        rx.badge("Enabled", color_scheme="green", variant="soft"),
+                        rx.badge("Disabled", color_scheme="gray", variant="soft"),
+                    ),
+                ),
+                rx.divider(orientation="vertical", height="36px"),
+                _viz_config_pill(
+                    "USE MODEL KNOWLEDGE",
+                    rx.cond(
+                        State.viz_use_model_knowledge,
+                        rx.badge("Yes", color_scheme="green", variant="soft"),
+                        rx.badge("No", color_scheme="gray", variant="soft"),
+                    ),
+                ),
+                spacing="5",
+                align="center",
+                flex_wrap="wrap",
+            ),
+            # Instructions preview
+            rx.cond(
+                State.viz_instructions_length > 0,
+                rx.vstack(
+                    rx.hstack(
+                        rx.icon("file-text", size=14, color="#605e5c"),
+                        rx.text(
+                            "System Instructions",
+                            font_size="12px",
+                            font_weight="700",
+                            color="#334a6d",
+                        ),
+                        rx.badge(
+                            State.viz_instructions_length_str + " chars",
+                            color_scheme="gray",
+                            variant="soft",
+                            size="1",
+                        ),
+                        spacing="2",
+                        align="center",
+                        margin_top="16px",
+                        margin_bottom="8px",
+                    ),
+                    rx.box(
+                        rx.text(
+                            State.viz_instructions_preview,
+                            font_size="12px",
+                            color="#3a3a3a",
+                            white_space="pre-wrap",
+                            font_family="'Cascadia Code', 'Consolas', monospace",
+                            line_height="1.65",
+                        ),
+                        background="#f7f8fa",
+                        border="1px solid #e0e4ed",
+                        border_left_width="4px",
+                        border_left_color=PRIMARY,
+                        border_radius="0 8px 8px 0",
+                        padding="14px 16px",
+                        width="100%",
+                    ),
+                    width="100%",
+                    spacing="0",
+                ),
+                rx.box(),
+            ),
+            width="100%",
+        ),
+        # ── 3. Components card ──────────────────────────────────────────────
+        card(
+            rx.hstack(
+                rx.icon("layout-grid", color=PRIMARY, size=16),
+                rx.heading("Components", size="3", color="#102548"),
+                spacing="2",
+                align="center",
+                margin_bottom="14px",
+            ),
+            # Category summary header
+            rx.hstack(
+                rx.text(
+                    "Category",
+                    font_size="10px",
+                    font_weight="700",
+                    color="#605e5c",
+                    letter_spacing="0.06em",
+                    flex="1",
+                ),
+                rx.text(
+                    "Total",
+                    font_size="10px",
+                    font_weight="700",
+                    color="#605e5c",
+                    letter_spacing="0.06em",
+                    min_width="32px",
+                    text_align="right",
+                ),
+                rx.text(
+                    "Active",
+                    font_size="10px",
+                    font_weight="700",
+                    color="#605e5c",
+                    letter_spacing="0.06em",
+                    min_width="40px",
+                    text_align="right",
+                ),
+                rx.text(
+                    "Inactive",
+                    font_size="10px",
+                    font_weight="700",
+                    color="#605e5c",
+                    letter_spacing="0.06em",
+                    min_width="48px",
+                    text_align="right",
+                ),
+                spacing="3",
+                width="100%",
+                align="center",
+                padding_bottom="6px",
+                border_bottom=f"1px solid {SURFACE_BORDER}",
+                margin_bottom="2px",
+            ),
+            rx.foreach(State.viz_category_stats, _viz_cat_stat_row),
+            rx.divider(margin_y="14px"),
+            # Per-component rows
+            rx.foreach(State.viz_component_rows, _viz_component_row),
+            width="100%",
+        ),
+        # ── 4. Topic graph ──────────────────────────────────────────────────
+        rx.cond(
+            State.viz_mermaid != "",
+            card(
+                rx.hstack(
+                    rx.icon("git-merge", color=PRIMARY, size=16),
+                    rx.heading("Topic Connection Graph", size="3", color="#102548"),
+                    spacing="2",
+                    align="center",
+                    margin_bottom="14px",
+                ),
+                rx.box(
+                    rx.el.pre(State.viz_mermaid, class_name="mermaid"),
+                    width="100%",
+                    overflow_x="auto",
+                    padding="22px",
+                    background="#f7fbff",
+                    border=f"1px solid {SURFACE_BORDER}",
+                    border_radius="16px",
+                    box_shadow="inset 0 1px 0 rgba(255,255,255,0.85)",
+                ),
+                width="100%",
+            ),
+            rx.box(),
+        ),
+        width="100%",
+        spacing="4",
+    )
 
 
 def visualization_panel() -> rx.Component:
@@ -976,10 +1346,16 @@ def visualization_panel() -> rx.Component:
             ),
             rx.cond(
                 State.has_visualization,
-                rx.vstack(
-                    rx.foreach(State.viz_segments, render_segment),
-                    width="100%",
-                    spacing="4",
+                rx.cond(
+                    State.viz_display_name != "",
+                    # Rich card UI for solution ZIPs
+                    _viz_solution_panel(),
+                    # Fallback markdown/mermaid rendering for snapshot ZIPs
+                    rx.vstack(
+                        rx.foreach(State.viz_segments, render_segment),
+                        width="100%",
+                        spacing="4",
+                    ),
                 ),
                 rx.center(
                     rx.vstack(

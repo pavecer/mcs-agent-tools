@@ -269,7 +269,10 @@ def render_topic_graph(profile: MCSBotProfile) -> str:
         "## Topic Redirect Graph",
         "",
         "```mermaid",
+        '%%{init: {"theme": "base", "themeVariables": {"fontFamily": "Segoe UI, Arial, sans-serif", "fontSize": "15px", "primaryTextColor": "#102548", "lineColor": "#6f86a8"}, "flowchart": {"curve": "basis", "nodeSpacing": 34, "rankSpacing": 44, "padding": 10}}}%%',
         "graph TD",
+        "    classDef default fill:#ffffff,stroke:#8bb8ff,stroke-width:1.6px,color:#102548;",
+        "    linkStyle default stroke:#6f86a8,stroke-width:1.4px;",
     ]
 
     seen_edges: set[tuple[str, str]] = set()
@@ -301,10 +304,10 @@ def render_topic_graph(profile: MCSBotProfile) -> str:
         did = _node_id_for(dst)
         if sid not in declared_node_ids:
             declared_node_ids.add(sid)
-            lines.append(f'    {sid}["{_escape_label(src)}"]')
+            lines.append(f'    {sid}("{_escape_label(src)}")')
         if did not in declared_node_ids:
             declared_node_ids.add(did)
-            lines.append(f'    {did}["{_escape_label(dst)}"]')
+            lines.append(f'    {did}("{_escape_label(dst)}")')
         lines.append(f"    {sid} --> {did}")
 
     lines += ["```", ""]

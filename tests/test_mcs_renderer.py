@@ -112,6 +112,7 @@ def test_render_topic_graph_escapes_labels_and_uses_safe_node_ids():
     graph = render_topic_graph(profile)
 
     assert "graph TD" in graph
-    assert 'N1["[CA] Ask \\"HR\\""]' in graph
-    assert 'N2["Employee/Benefits (EU)\\\\V2"]' in graph
+    assert "classDef default fill:#ffffff,stroke:#8bb8ff,stroke-width:1.6px,color:#102548;" in graph
+    assert 'N1("[CA] Ask \\"HR\\"")' in graph
+    assert 'N2("Employee/Benefits (EU)\\\\V2")' in graph
     assert "N1 --> N2" in graph
