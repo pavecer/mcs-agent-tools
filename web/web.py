@@ -20,6 +20,7 @@ from web.components import (
     result_panel,
     solution_check_panel,
     transcript_input_choice_area,
+    tutorial_dialog,
     unified_upload_area,
     validation_panel,
     visualization_panel,
@@ -188,6 +189,7 @@ def index() -> rx.Component:
     """Main page with a unified upload zone and context-sensitive tab layout."""
     return rx.vstack(
         mermaid_script(),
+        tutorial_dialog(),
         navbar(),
         rx.box(
             rx.cond(
