@@ -139,6 +139,18 @@ uv run reflex run
 
 Open `http://localhost:3000`.
 
+### Public Presentation (GitHub Pages)
+
+The static presentation in `presentation/` can be published automatically via GitHub Actions.
+
+1. Push this repository with the workflow `.github/workflows/publish-presentation.yml`.
+2. In GitHub, open **Settings > Pages** and set **Source** to **GitHub Actions**.
+3. Run the **Publish Presentation** workflow manually once (or push a change to `presentation/` on `main`).
+
+Published URL format:
+
+- `https://<github-username>.github.io/<repository-name>/`
+
 Bottom-right footer includes:
 
 - GitHub issue shortcut
