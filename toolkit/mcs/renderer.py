@@ -63,6 +63,15 @@ def render_bot_profile(profile: MCSBotProfile) -> str:
 
 
 def render_bot_metadata(profile: MCSBotProfile) -> str:
+    def _as_blockquote(markdown: str) -> str:
+        raw = markdown.strip()
+        if not raw:
+            return "> _(none)_"
+        quoted_lines: list[str] = []
+        for line in raw.splitlines():
+            quoted_lines.append(">" if line.strip() == "" else f"> {line}")
+        return "\n".join(quoted_lines)
+
     ai = profile.ai_settings
     model_hint = profile.gpt_info.model_hint if profile.gpt_info else None
     model_display = model_hint or "—"
@@ -84,9 +93,7 @@ def render_bot_metadata(profile: MCSBotProfile) -> str:
         lines += [
             f"### GPT Instructions ({gpt.display_name})",
             "",
-            "```",
-            gpt.instructions.strip() if gpt.instructions else "(none)",
-            "```",
+            _as_blockquote(gpt.instructions or ""),
             "",
         ]
     return "\n".join(lines)

@@ -594,14 +594,16 @@ def build_comparison_markdown(profile: MCSBotProfile) -> str:
             "",
             f"{model_data['recommendation']}",
             "",
-            "**Strengths:**",
+            "**Strengths**",
             "",
+            "| Area | Detail |",
+            "| --- | --- |",
         ]
         for s in model_data["strengths"]:
-            lines.append(f"- {s}")
-        lines += ["", "**Considerations:**", ""]
+            lines.append(f"| Strength | {s} |")
+        lines += ["", "**Considerations**", "", "| Area | Detail |", "| --- | --- |"]
         for lim in model_data["limitations"]:
-            lines.append(f"- {lim}")
+            lines.append(f"| Consideration | {lim} |")
         lines.append("")
     elif hint and hint in _LEGACY_HINTS:
         lines += [
