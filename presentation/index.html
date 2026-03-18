@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Power Platform Agent Toolkit</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,300;0,400;0,500;0,700;1,300&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <!-- Background -->
+  <div class="bg-layer" aria-hidden="true">
+    <div class="bg-grid"></div>
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+    <div class="orb orb-3"></div>
+  </div>
+
+  <!-- Header -->
+  <header>
+    <a class="brand" href="#top">
+      <span class="brand-dot"></span>
+      PP Agent Toolkit
+    </a>
+    <nav>
+      <a href="#flow">Flow</a>
+      <a href="#capabilities">Capabilities</a>
+      <a href="#gallery">Screens</a>
+      <a href="#architecture">Stack</a>
+    </nav>
+    <button class="theme-btn" id="theme-toggle">Light mode</button>
+  </header>
+
+  <main id="top">
+
+    <!-- ═══ HERO ═══ -->
+    <section class="hero wrap">
+      <div class="hero-inner">
+        <div class="reveal">
+          <p class="hero-badge">Fix Hack Learn Week · Microsoft CAPE + CAT</p>
+          <h1>Inspect.<br><em>Validate.</em><br>Ship.</h1>
+          <p class="hero-sub">One workflow for agent quality, risk visibility, and delivery confidence — built for Copilot Studio.</p>
+          <div class="cta-row">
+            <a class="btn btn-primary" href="#capabilities">Explore capabilities →</a>
+            <a class="btn btn-ghost" href="#gallery">See it in action</a>
+          </div>
+        </div>
+
+        <!-- Radar visual -->
+        <div class="hero-visual reveal">
+          <div class="glass radar-shell">
+            <div class="radar-sweep"></div>
+            <div class="radar-ring"></div>
+            <div class="radar-ring"></div>
+            <div class="radar-ring"></div>
+            <div class="radar-cross"></div>
+            <div class="radar-dot r-d1"></div>
+            <div class="radar-dot r-d2"></div>
+            <div class="radar-dot r-d3"></div>
+            <div class="radar-dot r-d4"></div>
+            <div class="radar-center"></div>
+          </div>
+          <div class="glass stat-chip chip-1">
+            <strong data-counter="76">76</strong> tests passing
+          </div>
+          <div class="glass stat-chip chip-2">
+            <strong>v0.4.0</strong> current release
+          </div>
+          <div class="glass stat-chip chip-3">
+            <strong>MIT</strong> open source
+          </div>
+        </div>
+      </div>
+
+      <!-- Stats strip -->
+      <div class="stats-strip reveal">
+        <div class="stat-item">
+          <div class="stat-num" data-counter="7">7</div>
+          <div class="stat-label">Capability pillars</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-num" data-counter="5">5</div>
+          <div class="stat-label">Check categories</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-num" data-counter="76">76</div>
+          <div class="stat-label">Automated tests</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-num">MIT</div>
+          <div class="stat-label">Open source license</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ TICKER ═══ -->
+    <div class="ticker-wrap" aria-hidden="true">
+      <div class="ticker-track">
+        <span class="ticker-item">Visualize Agent Structure</span>
+        <span class="ticker-item">Validate Instructions</span>
+        <span class="ticker-item">Run Solution Checks</span>
+        <span class="ticker-item">Analyse Conversations</span>
+        <span class="ticker-item">Score Eval Coverage</span>
+        <span class="ticker-item">Map Dependencies</span>
+        <span class="ticker-item">Safe Rename &amp; Export</span>
+        <span class="ticker-item">Model Performance Comparison</span>
+        <span class="ticker-item">Topic Graph Diagrams</span>
+        <span class="ticker-item">Security Posture Checks</span>
+        <!-- duplicate for seamless loop -->
+        <span class="ticker-item">Visualize Agent Structure</span>
+        <span class="ticker-item">Validate Instructions</span>
+        <span class="ticker-item">Run Solution Checks</span>
+        <span class="ticker-item">Analyse Conversations</span>
+        <span class="ticker-item">Score Eval Coverage</span>
+        <span class="ticker-item">Map Dependencies</span>
+        <span class="ticker-item">Safe Rename &amp; Export</span>
+        <span class="ticker-item">Model Performance Comparison</span>
+        <span class="ticker-item">Topic Graph Diagrams</span>
+        <span class="ticker-item">Security Posture Checks</span>
+      </div>
+    </div>
+
+    <!-- ═══ PROBLEM / SOLUTION ═══ -->
+    <section class="section wrap" id="problem-solution">
+      <div class="section-head reveal">
+        <p class="eyebrow">Problem → Solution</p>
+        <h2>From scattered signals<br>to decision-ready clarity</h2>
+      </div>
+      <div class="ps-grid glass">
+        <div class="ps-col problem reveal">
+          <h3>⚠ Before</h3>
+          <div class="ps-item">Signals scattered across exports and tools</div>
+          <div class="ps-item">Dependency and conversation insights hard to surface</div>
+          <div class="ps-item">Instruction quality checks inconsistent</div>
+          <div class="ps-item">Go/no-go decisions arrive late</div>
+        </div>
+        <div class="ps-col solution reveal">
+          <h3>✓ After</h3>
+          <div class="ps-item">Unified ingestion into one analysis workflow</div>
+          <div class="ps-item">Visual maps reveal bottlenecks instantly</div>
+          <div class="ps-item">Model-aware validation with transparent results</div>
+          <div class="ps-item">Decision-ready confidence with safe export flow</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ FLOW ═══ -->
+    <section class="section wrap" id="flow">
+      <div class="section-head reveal">
+        <p class="eyebrow">Animated Flow</p>
+        <h2>Six steps from upload<br>to confidence</h2>
+      </div>
+      <div class="glass flow-shell">
+        <div class="flow-grid" id="analysis-flow">
+          <div class="flow-step reveal">
+            <div class="flow-num">01</div>
+            <h3>Ingest</h3>
+            <p>Load solution ZIP, snapshot, or transcript</p>
+          </div>
+          <div class="flow-step reveal">
+            <div class="flow-num">02</div>
+            <h3>Detect</h3>
+            <p>Classify artifacts and extract components</p>
+          </div>
+          <div class="flow-step reveal">
+            <div class="flow-num">03</div>
+            <h3>Visualize</h3>
+            <p>Generate topic and dependency maps</p>
+          </div>
+          <div class="flow-step reveal">
+            <div class="flow-num">04</div>
+            <h3>Validate</h3>
+            <p>Run instruction and security quality gates</p>
+          </div>
+          <div class="flow-step reveal">
+            <div class="flow-num">05</div>
+            <h3>Analyse</h3>
+            <p>Score behavior and test-coverage fitness</p>
+          </div>
+          <div class="flow-step reveal">
+            <div class="flow-num">06</div>
+            <h3>Export</h3>
+            <p>Ship a safe renamed copy with confidence</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ CAPABILITIES ═══ -->
+    <section class="section wrap" id="capabilities">
+      <div class="section-head reveal">
+        <p class="eyebrow">Capabilities</p>
+        <h2>Seven actions.<br>One unified toolkit.</h2>
+      </div>
+      <div class="cap-grid">
+        <article class="cap-card glass reveal">
+          <div class="cap-icon">🗺</div>
+          <h3>Visualize</h3>
+          <p>Graph-first structure maps of any solution</p>
+          <span class="cap-tag">Solution ZIP</span>
+        </article>
+        <article class="cap-card glass reveal">
+          <div class="cap-icon">✓</div>
+          <h3>Validate</h3>
+          <p>Model-aware instruction quality checks</p>
+          <span class="cap-tag">Snapshot ZIP</span>
+        </article>
+        <article class="cap-card glass reveal">
+          <div class="cap-icon">🔍</div>
+          <h3>Check</h3>
+          <p>20+ security and compliance rules</p>
+          <span class="cap-tag">Solution ZIP</span>
+        </article>
+        <article class="cap-card glass reveal">
+          <div class="cap-icon">📊</div>
+          <h3>Analyse</h3>
+          <p>Conversation analytics with latency insights</p>
+          <span class="cap-tag">Transcript JSON</span>
+        </article>
+        <article class="cap-card glass reveal">
+          <div class="cap-icon">🧪</div>
+          <h3>Evals</h3>
+          <p>Score and improve test coverage fitness</p>
+          <span class="cap-tag">Solution ZIP</span>
+        </article>
+        <article class="cap-card glass reveal">
+          <div class="cap-icon">🔗</div>
+          <h3>Dependencies</h3>
+          <p>Visual dependency resolution at solution level</p>
+          <span class="cap-tag">Any ZIP</span>
+        </article>
+        <article class="cap-card glass reveal">
+          <div class="cap-icon">✏</div>
+          <h3>Rename</h3>
+          <p>Safe duplicate with publisher prefix rewriting</p>
+          <span class="cap-tag">Solution ZIP</span>
+        </article>
+        <article class="cap-card cap-card--highlight glass reveal">
+          <div class="cap-icon">⚡</div>
+          <h3>All in one</h3>
+          <p>Single entry point for all workflows and formats</p>
+          <span class="cap-tag cap-tag--green">v0.4.0</span>
+        </article>
+      </div>
+    </section>
+
+    <!-- ═══ GALLERY ═══ -->
+    <section class="section wrap" id="gallery">
+      <div class="section-head reveal">
+        <p class="eyebrow">Product Screens</p>
+        <h2>Real UI. Real flows.</h2>
+      </div>
+      <div class="gallery-grid">
+        <figure class="gallery-item g1 reveal">
+          <img src="LandingPage.png" alt="Landing page" loading="lazy" />
+          <figcaption>Landing &amp; entry flow</figcaption>
+        </figure>
+        <figure class="gallery-item g2 reveal">
+          <img src="SOL_Agent.png" alt="Solution agent" loading="lazy" />
+          <figcaption>Agent profile view</figcaption>
+        </figure>
+        <figure class="gallery-item g3 reveal">
+          <img src="SOL_Agent_Check.png" alt="Agent checks" loading="lazy" />
+          <figcaption>Quality &amp; security checks</figcaption>
+        </figure>
+        <figure class="gallery-item g4 reveal">
+          <img src="SOL_Agent_Evals.png" alt="Evals" loading="lazy" />
+          <figcaption>Evals fit scoring</figcaption>
+        </figure>
+        <figure class="gallery-item g5 reveal">
+          <img src="SNAP_Home.png" alt="Snapshot" loading="lazy" />
+          <figcaption>Snapshot analysis</figcaption>
+        </figure>
+        <figure class="gallery-item g6 reveal">
+          <img src="SNAP_Model.png" alt="Model" loading="lazy" />
+          <figcaption>Model insights</figcaption>
+        </figure>
+        <figure class="gallery-item g7 reveal">
+          <img src="SNAP_InstructionCheck.png" alt="Instruction check" loading="lazy" />
+          <figcaption>Instruction validation</figcaption>
+        </figure>
+        <figure class="gallery-item g8 reveal">
+          <img src="SNAP_TopicGraph.png" alt="Topic graph" loading="lazy" />
+          <figcaption>Topic graph</figcaption>
+        </figure>
+        <figure class="gallery-item g9 reveal">
+          <img src="SNAP_ConveAnaly.png" alt="Conversation analytics" loading="lazy" />
+          <figcaption>Conversation analytics</figcaption>
+        </figure>
+        <figure class="gallery-item g10 reveal">
+          <img src="JSON_Transcript.png" alt="Transcript" loading="lazy" />
+          <figcaption>Transcript analytics</figcaption>
+        </figure>
+        <figure class="gallery-item g11 reveal">
+          <img src="JSON_ConvDiagram.png" alt="Conversation diagram" loading="lazy" />
+          <figcaption>Sequence diagram</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <!-- ═══ WORKFLOW ═══ -->
+    <section class="section wrap" id="workflow">
+      <div class="section-head reveal">
+        <p class="eyebrow">Workflow</p>
+        <h2>Four moves to ship.</h2>
+      </div>
+      <div class="timeline">
+        <div class="tl-item reveal">
+          <div class="tl-num">01</div>
+          <h3>Upload</h3>
+          <p>Solution or snapshot ZIP, or transcript JSON</p>
+        </div>
+        <div class="tl-item reveal">
+          <div class="tl-num">02</div>
+          <h3>Inspect</h3>
+          <p>Instant structural and risk visibility</p>
+        </div>
+        <div class="tl-item reveal">
+          <div class="tl-num">03</div>
+          <h3>Harden</h3>
+          <p>Score, improve, and preview before export</p>
+        </div>
+        <div class="tl-item reveal">
+          <div class="tl-num">04</div>
+          <h3>Export</h3>
+          <p>Ship an import-safe copy in one step</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ ARCHITECTURE ═══ -->
+    <section class="section wrap" id="architecture">
+      <div class="section-head reveal">
+        <p class="eyebrow">Architecture</p>
+        <h2>Lean stack,<br>high signal.</h2>
+      </div>
+      <div class="split-grid">
+        <div class="arch-card glass reveal">
+          <h3>Technical stack</h3>
+          <ul class="arch-list">
+            <li>Web UI — Reflex single-page interface</li>
+            <li>CLI — Typer-based rename and fetch flows</li>
+            <li>Models — Pydantic v2 data contracts</li>
+            <li>Parsing — hardened ZIP, XML, and YAML</li>
+            <li>Deployment — containerized runtime</li>
+          </ul>
+        </div>
+        <div class="arch-card glass reveal">
+          <h3>Business impact</h3>
+          <ul class="arch-list">
+            <li>Reduce manual review with structured diagnostics</li>
+            <li>Increase delivery consistency across projects</li>
+            <li>Shift quality checks earlier in the lifecycle</li>
+            <li>Lower risk of overwrite and configuration drift</li>
+            <li>Improve confidence before environment import</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ PROOF ═══ -->
+    <section class="section wrap" id="proof">
+      <div class="section-head reveal">
+        <p class="eyebrow">Quality Signals</p>
+        <h2>Confidence you can demo.</h2>
+      </div>
+      <div class="proof-grid">
+        <article class="proof-card glass reveal">
+          <div class="proof-icon">🚀</div>
+          <h3>Release maturity</h3>
+          <p>v0.4.0 with dedicated release notes and summary</p>
+        </article>
+        <article class="proof-card glass reveal">
+          <div class="proof-icon">🛡</div>
+          <h3>Quality gates</h3>
+          <p>Linting, formatting, and 76 automated tests</p>
+        </article>
+        <article class="proof-card glass reveal">
+          <div class="proof-icon">🔒</div>
+          <h3>Security posture</h3>
+          <p>Prompt-injection and hardcoded-credential checks</p>
+        </article>
+        <article class="proof-card glass reveal">
+          <div class="proof-icon">⚖</div>
+          <h3>Open source trust</h3>
+          <p>MIT licensed with issue and feature request channels</p>
+        </article>
+      </div>
+    </section>
+
+    <!-- ═══ CTA ═══ -->
+    <section class="cta-section wrap">
+      <div class="cta-inner glass reveal">
+        <p class="eyebrow">Next Step</p>
+        <h2>Agent quality as a<br>repeatable system.</h2>
+        <p>Use this as your walkthrough layer for demos, internal alignment, and go/no-go delivery reviews.</p>
+        <div class="cta-row">
+          <a class="btn btn-primary" href="../README.md">Open README →</a>
+          <a class="btn btn-ghost" href="../RELEASE_NOTES_v0.4.0.md">Release notes</a>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="wrap">
+    <span>PP Agent Toolkit · v0.4.0 · MIT License</span>
+    <span>Fix Hack Learn Week · Microsoft CAPE + CAT</span>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
