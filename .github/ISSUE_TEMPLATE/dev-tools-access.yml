@@ -1,0 +1,69 @@
+name: Dev Tools Access Request
+description: Request access to the public dev PP Agent Toolkit instance.
+title: "[Access Request]: Dev tools instance"
+labels:
+  - triage
+  - access-request
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form to request access to the password-protected dev environment.
+
+  - type: input
+    id: requester_name
+    attributes:
+      label: Name
+      placeholder: Jane Doe
+    validations:
+      required: true
+
+  - type: input
+    id: contact
+    attributes:
+      label: Contact (email or Teams)
+      description: How should we contact you with access details?
+      placeholder: jane.doe@company.com
+    validations:
+      required: true
+
+  - type: input
+    id: organization
+    attributes:
+      label: Team / Organization
+      placeholder: CAPE - Solution Engineering
+    validations:
+      required: true
+
+  - type: textarea
+    id: reason
+    attributes:
+      label: Why do you need access?
+      description: Short description of your use case.
+      placeholder: I need access for a customer demo and internal validation of agent checks.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: access_type
+    attributes:
+      label: Access type
+      options:
+        - One-time demo access
+        - Temporary access (few days)
+        - Ongoing contributor access
+    validations:
+      required: true
+
+  - type: input
+    id: needed_by
+    attributes:
+      label: Needed by
+      description: Date or timeframe.
+      placeholder: 2026-03-25
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional notes
+      description: Optional context (environment, expected load, special constraints).

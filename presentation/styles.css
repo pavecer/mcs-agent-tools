@@ -534,6 +534,28 @@ html[data-theme="light"] .gallery-item figcaption {
 .proof-card p { font-size: 0.82rem; }
 
 /* ═══════════════════════════════════
+   DEV ACCESS
+═══════════════════════════════════ */
+.access-panel {
+  padding: 2rem;
+}
+.access-note {
+  font-size: 0.95rem;
+  max-width: 72ch;
+}
+.access-note a {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px dashed var(--border-bright);
+}
+.access-note a:hover {
+  color: var(--accent2);
+}
+.access-actions {
+  margin-top: 1.2rem;
+}
+
+/* ═══════════════════════════════════
    FINAL CTA
 ═══════════════════════════════════ */
 .cta-section { padding: 5rem 0 6rem; }
