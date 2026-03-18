@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import io
+import zipfile
 from pathlib import Path
 
 from mcs_models import MCSBotProfile, MCSConversationTimeline, MCSExternalTool, MCSKnowledgeSource
-from mcs_parser import parse_yaml
+from mcs_parser import parse_yaml, parse_zip_bytes
 from mcs_renderer import render_knowledge_sources_and_tools
 from mcs_renderer import render_report_sections
 
@@ -80,6 +82,27 @@ connectionReferences:
     http_tool = next(t for t in profile.external_tools if t.tool_type == "HTTP Request")
     assert http_tool.connector_id == "shared_http"
     assert http_tool.auth_mode == "User identity"
+
+
+
+def test_parse_zip_bytes_extracts_profile_from_snapshot_zip():
+    yml = """
+entity:
+  schemaName: copilots_test
+  displayName: Snapshot Agent
+  configuration:
+    channels: []
+components: []
+"""
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("snapshot/botContent.yml", yml)
+
+    profile = parse_zip_bytes(buf.getvalue())
+
+    assert profile.display_name == "Snapshot Agent"
+    assert profile.schema_name == "copilots_test"
 
 
 def test_render_knowledge_sources_and_tools_marks_access_and_auth(monkeypatch):

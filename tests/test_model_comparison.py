@@ -155,7 +155,7 @@ def test_build_comparison_markdown_known_model():
     assert "✅ *(current)*" in md
     assert "### Recommendation" in md
     assert "### Live API Comparison" in md
-    assert "MCS_ENABLE_MODEL_COMPARISON" in md
+    assert "OPENAI_API_KEY" in md
 
 
 def test_build_comparison_markdown_legacy_model():
@@ -180,14 +180,18 @@ def test_build_comparison_markdown_api_disabled_message():
     profile = _profile_with_hint("gpt41")
     with patch.dict("os.environ", {"MCS_ENABLE_MODEL_COMPARISON": "false", "OPENAI_API_KEY": ""}):
         md = build_comparison_markdown(profile)
-    assert "Live model comparison is disabled" in md or "MCS_ENABLE_MODEL_COMPARISON" in md
+    assert "OPENAI_API_KEY" in md
+    assert "not detected" in md or "missing" in md
 
 
 def test_build_comparison_markdown_api_enabled_no_key():
     profile = _profile_with_hint("gpt41")
     with patch.dict("os.environ", {"MCS_ENABLE_MODEL_COMPARISON": "true", "OPENAI_API_KEY": ""}):
         md = build_comparison_markdown(profile)
-    assert "`OPENAI_API_KEY` is not provided" in md
+    # API comparison is on-demand and should explain missing key clearly
+    assert "on-demand" in md or "Live API comparison is available" in md
+    assert "OPENAI_API_KEY" in md
+    assert "missing" in md or "not detected" in md
 
 
 def test_build_comparison_markdown_all_catalogue_models_shown():
@@ -206,7 +210,7 @@ def test_build_comparison_markdown_all_catalogue_models_shown():
 
 
 def test_build_comparison_markdown_api_enabled_with_mock(monkeypatch):
-    """With API enabled and a mocked HTTP call, comparison table should appear."""
+    """API comparison is now on-demand; build_comparison_markdown should show on-demand message."""
     profile = _profile_with_hint("gpt41")
 
     def fake_call_openai(model, system, user, api_key, timeout_s=30.0):
@@ -217,5 +221,6 @@ def test_build_comparison_markdown_api_enabled_with_mock(monkeypatch):
     with patch.dict("os.environ", {"MCS_ENABLE_MODEL_COMPARISON": "true", "OPENAI_API_KEY": "sk-test"}):
         md = build_comparison_markdown(profile)
 
-    assert "### API Comparison Summary" in md
-    assert "### Sample Query Comparison" in md
+    # API comparison is now on-demand, not automatic
+    assert "on-demand" in md or "Live API comparison is available" in md
+    assert "Environment detected" in md

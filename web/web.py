@@ -25,6 +25,7 @@ from web.components import (
     validation_panel,
     visualization_panel,
 )
+from web.loading import app_wrapper
 from web.mermaid import mermaid_script
 from web.state import State
 
@@ -187,10 +188,11 @@ def _deps_tab() -> rx.Component:
 
 def index() -> rx.Component:
     """Main page with a unified upload zone and context-sensitive tab layout."""
-    return rx.vstack(
-        mermaid_script(),
-        tutorial_dialog(),
-        navbar(),
+    return app_wrapper(
+        rx.vstack(
+            mermaid_script(),
+            tutorial_dialog(),
+            navbar(),
         rx.box(
             rx.cond(
                 ~State.has_upload,
@@ -356,12 +358,15 @@ def index() -> rx.Component:
         spacing="0",
         align="start",
         on_mount=State.check_auth,
+        ),
     )
 
 
 def login_page() -> rx.Component:
     """Login page at /login."""
-    return login_form()
+    return app_wrapper(
+        login_form(),
+    )
 
 
 app = rx.App(

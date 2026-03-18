@@ -21,9 +21,13 @@ import tempfile
 from pathlib import Path
 
 import typer
+from dotenv import load_dotenv
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+
+# Load environment variables from .env file before any imports that use them
+load_dotenv()
 
 from models import RenameConfig
 from remote_fetch import RemoteFetchError, fetch_agent_data

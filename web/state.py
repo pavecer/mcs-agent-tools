@@ -14,6 +14,9 @@ from pathlib import Path
 import reflex as rx
 from dotenv import load_dotenv
 
+# Load environment variables from .env file before any imports that use them
+load_dotenv()
+
 from evals_manager import analyze_evals_zip_bytes, export_solution_with_evals, preview_generated_evals
 from toolkit.mcs.credits import estimate_credits_from_activities
 from toolkit.mcs.models import MCSConversationTimeline as _MCSTl
@@ -263,6 +266,8 @@ class State(rx.State):
     result_filename: str = ""
     # base64-encoded output ZIP bytes – used by the download event
     _output_zip_b64: str = ""
+    # Private: MCS ZIP bytes persisted as base64 text for reactive state safety.
+    _mcs_zip_b64: str = ""
 
     # ── Authentication ────────────────────────────────────────────────────
     username: str = ""
@@ -320,8 +325,11 @@ class State(rx.State):
     mcs_section_topics: str = ""
     mcs_section_graph: str = ""
     mcs_section_model_comparison: str = ""
+    mcs_section_model_comparison_live: str = ""
     mcs_section_conversation: str = ""
     mcs_section_credits: str = ""
+    mcs_api_comparison_running: bool = False  # true while fetching live API comparison
+    mcs_api_comparison_available: bool = False  # true if a report exists to run comparison on
     mcs_credit_rows: list[dict] = []
     mcs_credit_total: float = 0.0
     mcs_credit_assumptions: list[str] = []
@@ -572,17 +580,38 @@ class State(rx.State):
     @rx.var
     def mcs_current_section_segments(self) -> list[dict]:
         """Segments for the currently active MCS analyse sub-tab."""
+        model_section = self.mcs_section_model_comparison
+        live_section = self.mcs_section_model_comparison_live
+        if live_section.strip():
+            if model_section.strip():
+                model_section = f"{model_section}\n\n---\n\n{live_section}"
+            else:
+                model_section = live_section
+
         section_map = {
             "profile": self.mcs_section_profile,
             "knowledge_tools": self.mcs_section_knowledge_tools,
             "topics": self.mcs_section_topics,
             "graph": self.mcs_section_graph,
-            "model_comparison": self.mcs_section_model_comparison,
+            "model_comparison": model_section,
             "conversation": self.mcs_section_conversation,
             "credits": self.mcs_section_credits,
         }
         md = section_map.get(self.mcs_analyse_tab, "")
         return _md_to_segments(md)
+
+    @rx.var
+    def mcs_env_api_key_present(self) -> bool:
+        """Whether OPENAI_API_KEY is available in the current process environment."""
+        return bool(os.getenv("OPENAI_API_KEY", "").strip())
+
+    @rx.var
+    def can_run_mcs_api_comparison(self) -> bool:
+        """Whether live API comparison can be executed for the current report state."""
+        has_snapshot_context = bool(self._mcs_zip_b64) or (
+            self.zip_type == "snapshot" and bool(self.zip_bytes_b64)
+        )
+        return self.mcs_api_comparison_available and has_snapshot_context
 
     # ── Setters for evals filter state (required — auto-setters deprecated) ──
 
@@ -733,8 +762,12 @@ class State(rx.State):
         self.mcs_section_topics = ""
         self.mcs_section_graph = ""
         self.mcs_section_model_comparison = ""
+        self.mcs_section_model_comparison_live = ""
         self.mcs_section_conversation = ""
         self.mcs_section_credits = ""
+        self.mcs_api_comparison_running = False
+        self.mcs_api_comparison_available = False
+        self._mcs_zip_b64 = ""
         self.mcs_credit_rows = []
         self.mcs_credit_total = 0.0
         self.mcs_credit_assumptions = []
@@ -1035,6 +1068,7 @@ class State(rx.State):
                     self.mcs_section_topics = sections["topics"]
                     self.mcs_section_graph = sections["graph"]
                     self.mcs_section_model_comparison = sections.get("model_comparison", "")
+                    self.mcs_section_model_comparison_live = ""
                     self.mcs_section_conversation = sections["conversation"]
                     estimate = estimate_credits_from_activities(
                         activities, profile.gpt_info.model_hint if profile.gpt_info else None
@@ -1089,9 +1123,13 @@ class State(rx.State):
                     self.mcs_conv_highlights = conv_summary.get("highlights", [])
                     self.mcs_source = "snapshot"
                     self.mcs_report_markdown = self._compose_mcs_report_markdown()
+                    self.mcs_api_comparison_available = True  # enable on-demand API comparison
+                    self._mcs_zip_b64 = base64.b64encode(file_bytes).decode("ascii")
                     self.mcs_upload_error = ""
                 except Exception as e:
                     self.mcs_upload_error = f"Snapshot analysis failed: {e}"
+                    self.mcs_api_comparison_available = False
+                    self._mcs_zip_b64 = ""
                 finally:
                     self.mcs_is_processing = False
 
@@ -1337,7 +1375,11 @@ class State(rx.State):
         self.mcs_section_graph = ""
         self.mcs_section_conversation = ""
         self.mcs_section_model_comparison = ""
+        self.mcs_section_model_comparison_live = ""
         self.mcs_section_credits = ""
+        self.mcs_api_comparison_running = False
+        self.mcs_api_comparison_available = False
+        self._mcs_zip_b64 = ""
         self.mcs_credit_rows = []
         self.mcs_credit_total = 0.0
         self.mcs_credit_assumptions = []
@@ -1526,6 +1568,54 @@ class State(rx.State):
     @rx.event
     def set_mcs_analyse_tab(self, tab: str):
         self.mcs_analyse_tab = tab
+
+    @rx.event
+    async def run_mcs_api_comparison(self):
+        """Run on-demand live API comparison for the current profile."""
+        self.mcs_analyse_tab = "model_comparison"
+        self.mcs_section_model_comparison_live = (
+            "### Live API Comparison\n\n"
+            "> ⏳ **Running analysis...**\n\n"
+            "Executing sample queries against configured models. "
+            "This can take up to 30 seconds.\n"
+        )
+        self.mcs_api_comparison_running = True
+        yield
+
+        try:
+            from model_comparison import run_live_api_comparison
+            from toolkit.mcs.parser import parse_zip_bytes
+
+            # Re-parse the profile from stored ZIP bytes
+            if not self.mcs_api_comparison_available:
+                self.mcs_section_model_comparison_live = (
+                    "### Live API Comparison\n\n"
+                    "> ⚠️ **Comparison unavailable**\n\n"
+                    "Upload and analyse a snapshot ZIP first to run live API comparison.\n"
+                )
+                return
+
+            source_b64 = self._mcs_zip_b64 or (self.zip_bytes_b64 if self.zip_type == "snapshot" else "")
+            if not source_b64:
+                self.mcs_section_model_comparison_live = (
+                    "### Live API Comparison\n\n"
+                    "> ⚠️ **Snapshot context missing**\n\n"
+                    "The snapshot context was not found in session state. "
+                    "Please re-upload the snapshot ZIP and try again.\n"
+                )
+                return
+
+            zip_bytes = base64.b64decode(source_b64)
+            profile = parse_zip_bytes(zip_bytes)
+            if not profile:
+                raise RuntimeError("Could not extract profile from snapshot")
+
+            result = run_live_api_comparison(profile)
+            self.mcs_section_model_comparison_live = result
+        except Exception as e:
+            self.mcs_section_model_comparison_live = f"> ⚠️ **API Comparison Failed**\n\n{str(e)}"
+        finally:
+            self.mcs_api_comparison_running = False
 
     @rx.event
     def set_mcs_landing_transcript_mode(self, value: str):
@@ -1934,6 +2024,9 @@ class State(rx.State):
         self.mcs_report_title = ""
         self.mcs_upload_error = ""
         self.mcs_is_processing = False
+        self.mcs_api_comparison_running = False
+        self.mcs_api_comparison_available = False
+        self._mcs_zip_b64 = ""
         self.mcs_source = ""
         self.mcs_section_profile = ""
         self.mcs_section_knowledge_tools = ""
@@ -1941,6 +2034,7 @@ class State(rx.State):
         self.mcs_section_graph = ""
         self.mcs_section_conversation = ""
         self.mcs_section_model_comparison = ""
+        self.mcs_section_model_comparison_live = ""
         self.mcs_section_credits = ""
         self.mcs_credit_rows = []
         self.mcs_credit_total = 0.0
@@ -2035,6 +2129,7 @@ class State(rx.State):
         )
         self.mcs_section_topics = "## Topics & Components\n\n_No snapshot loaded._\n"
         self.mcs_section_graph = "## Topic Redirect Graph\n\n_No snapshot loaded._\n"
+        self.mcs_section_model_comparison_live = ""
         self.mcs_section_conversation = transcript_report
         self.mcs_section_credits = credit_report
         self.mcs_report_title = title
@@ -2060,6 +2155,7 @@ class State(rx.State):
                 self.mcs_section_topics,
                 self.mcs_section_graph,
                 self.mcs_section_model_comparison,
+                self.mcs_section_model_comparison_live,
                 self.mcs_section_conversation,
                 self.mcs_section_credits,
             ]

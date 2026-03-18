@@ -5,7 +5,10 @@ Adapted from github.com/Roelzz/mcs-agent-analyser (MIT licence).
 
 from __future__ import annotations
 
+import io
 import json
+import tempfile
+import zipfile
 from pathlib import Path
 
 import yaml
@@ -20,6 +23,16 @@ from toolkit.mcs.models import (
     MCSTopicConnection,
 )
 from yaml_utils import sanitize_yaml
+
+
+def _safe_extractall(zf: zipfile.ZipFile, dest: Path) -> None:
+    """Extract ZIP content while preventing path traversal outside *dest*."""
+    dest_resolved = dest.resolve()
+    for info in zf.infolist():
+        target = (dest_resolved / info.filename).resolve()
+        if not target.is_relative_to(dest_resolved):
+            raise ValueError(f"Rejected unsafe ZIP entry: {info.filename!r}")
+    zf.extractall(dest)
 
 
 def _flatten_scalar(value: object) -> str | None:
@@ -554,3 +567,22 @@ def resolve_topic_name(schema_name: str, lookup: dict[str, str]) -> str:
     if len(parts) >= 2:
         return parts[-1]
     return schema_name
+
+
+def parse_zip_bytes(zip_bytes: bytes) -> MCSBotProfile:
+    """Parse snapshot ZIP bytes and return the extracted agent profile.
+
+    This helper is intentionally kept for backward compatibility with callers
+    that need to parse profile data directly from uploaded ZIP bytes.
+    """
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        extracted = Path(tmp_dir) / "extracted"
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+            _safe_extractall(zf, extracted)
+
+        bot_content = next((p for p in extracted.rglob("botContent.yml") if p.is_file()), None)
+        if bot_content is None:
+            raise ValueError("Could not find botContent.yml inside snapshot ZIP")
+
+        profile, _ = parse_yaml(bot_content)
+        return profile

@@ -387,7 +387,7 @@ def _resolve_comparison_models(configured_openai_model: str) -> list[str]:
     base_url = os.getenv("OPENAI_BASE_URL") or os.getenv("OPENAI_API_BASE")
     explicit_model = os.getenv("OPENAI_MODEL", "").strip()
     if base_url:
-        chosen = explicit_model or configured_openai_model or "gpt-4o"
+        chosen = explicit_model or configured_openai_model or "gpt-4.1"
         return [chosen]
 
     return _choose_comparison_models(None, configured_openai_model)
@@ -425,14 +425,21 @@ def _call_openai_chat(
     """Call OpenAI chat completions API and return content/error details."""
     try:
         client = _get_openai_client(api_key)
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
+        request_args: dict = {
+            "model": model,
+            "messages": [
                 {"role": "system", "content": system or "You are a helpful assistant. Keep answers concise."},
                 {"role": "user", "content": user},
             ],
-            timeout=timeout_s,
-        )
+            "timeout": timeout_s,
+        }
+
+        # OpenAI Logs UI shows stored Chat Completions. Keep storage opt-in.
+        should_store = os.getenv("OPENAI_STORE_REQUESTS", "").strip().lower() in {"1", "true", "yes", "on"}
+        if should_store:
+            request_args["store"] = True
+
+        response = client.chat.completions.create(**request_args)
         content = response.choices[0].message.content or ""
         return {
             "content": content.strip() or None,
@@ -445,6 +452,67 @@ def _call_openai_chat(
             "error": str(exc),
             "model": model,
         }
+
+
+def _run_simulated_api_comparison(
+    instructions: str,
+    comparison_models: list[str],
+    api_key: str,
+) -> list[dict]:
+    """Simulate model comparison using ONE actual model reasoning about all models.
+
+    Instead of making N API calls to N models (expensive), this makes 1 call per model
+    using system prompts that instruct the single model to respond "as if" it were that
+    model, using the model catalogue descriptions to inform its reasoning.
+
+    This is much more cost-efficient and avoids quota limits.
+    """
+    results: list[dict] = []
+    base_instructions = instructions.strip() if instructions else "You are a helpful assistant."
+
+    # Use the configured model for all calls
+    configured_openai = os.getenv("OPENAI_MODEL", "gpt-4.1").strip()
+    if not configured_openai or configured_openai.lower() in ("", "none"):
+        configured_openai = "gpt-4.1"
+
+    for model_name in comparison_models:
+        # Get the model catalogue entry to inform the prompt
+        catalogue_entry = _MODEL_CATALOGUE.get(model_name, {})
+        display_name = catalogue_entry.get("display", model_name)
+        tier = catalogue_entry.get("tier", "Unknown")
+        context_window = catalogue_entry.get("context_window", "Unknown")
+        strengths = ", ".join(catalogue_entry.get("strengths", [])[:3])
+        limitations = ", ".join(catalogue_entry.get("limitations", [])[:2])
+
+        # Build a system prompt that instructs the actual model to respond "as if" it were this model
+        sim_system = f"""{base_instructions}
+
+---
+
+For this response, simulate how the **{display_name}** model ({tier} tier, {context_window} context) would respond:
+
+**Strengths**: {strengths}
+**Limitations**: {limitations}
+
+Use these characteristics to inform your response style, depth, and reasoning. Respond as this model would.
+""".strip()
+
+        for query in _SAMPLE_QUERIES:
+            result = _call_openai_chat(configured_openai, sim_system, query, api_key)
+            response = result["content"]
+            results.append(
+                {
+                    "model": model_name,  # Report as the simulated model, not the actual one
+                    "query": query,
+                    "response": response or "",
+                    "length": len(response) if response else 0,
+                    "success": bool(response),
+                    "error": result.get("error") or "",
+                    "note": f"(simulated by {configured_openai})",
+                }
+            )
+
+    return results
 
 
 def _run_api_comparison(
@@ -691,61 +759,46 @@ def build_comparison_markdown(profile: MCSBotProfile) -> str:
             "",
         ]
 
-    # ── 4. API-Based Comparison (optional) ──────────────────────────────────
-    enable_api = os.getenv("MCS_ENABLE_MODEL_COMPARISON", "").strip().lower() in ("1", "true", "yes")
-    api_key = os.getenv("OPENAI_API_KEY", "").strip()
-
+    # ── 4. API-Based Comparison (optional, on-demand only) ──────────────────
     lines += ["### Live API Comparison", ""]
+    lines += [
+        "_Live API comparison is available on-demand. Navigate to the Model tab and click the "
+        "'Run Comparison' button to run sample queries against multiple models and compare responses._",
+        "",
+    ]
 
-    if not enable_api:
+    # On-demand comparison requires an API key. Keep this section explicit so
+    # users can quickly verify whether environment configuration was loaded.
+    api_key_present = bool(os.getenv("OPENAI_API_KEY", "").strip())
+    flag_enabled = os.getenv("MCS_ENABLE_MODEL_COMPARISON", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+    if api_key_present:
         lines += [
-            "_Live model comparison is disabled._  ",
-            "Set `MCS_ENABLE_MODEL_COMPARISON=true` and `OPENAI_API_KEY=<key>` in the environment "
-            "to run sample queries against multiple models and compare responses automatically.",
+            "✅ Environment detected: `OPENAI_API_KEY` is configured.",
             "",
-            "Alternatively, use [Copilot Studio's evaluation feature]"
-            "(https://www.microsoft.com/en-us/microsoft-copilot/blog/copilot-studio/"
-            "build-smarter-test-smarter-agent-evaluation-in-microsoft-copilot-studio/) to compare "
-            "agent performance across model configurations.",
+            "Use **Run Comparison** in the Model tab to execute live sample queries.",
             "",
         ]
-    elif not api_key:
-        lines += [
-            "> ⚠️ `MCS_ENABLE_MODEL_COMPARISON` is set but `OPENAI_API_KEY` is not provided. "
-            "Provide a valid OpenAI API key to enable live comparison.",
-            "",
-        ]
+        if flag_enabled:
+            lines += [
+                "`MCS_ENABLE_MODEL_COMPARISON=true` is also set.",
+                "",
+            ]
     else:
-        # Determine which models to compare
-        configured_openai = _HINT_TO_OPENAI_MODEL.get(hint, "gpt-4o") if hint else "gpt-4o"
-        comparison_models = _resolve_comparison_models(configured_openai)
-
-        instructions = (gpt_info.instructions or "") if gpt_info else ""
-
         lines += [
-            f"Running {len(_SAMPLE_QUERIES)} sample queries on "
-            f"{', '.join('**' + m + '**' for m in comparison_models)} …",
+            "⚠️ `OPENAI_API_KEY` is not detected in the current process environment.",
+            "",
+            "Set `OPENAI_API_KEY=<key>` and restart the app, then upload the snapshot again.",
             "",
         ]
-
-        base_url = os.getenv("OPENAI_BASE_URL") or os.getenv("OPENAI_API_BASE")
-        if base_url:
+        if flag_enabled:
             lines += [
-                f"> Using configured custom OpenAI base URL: `{base_url}`",
-                "",
-            ]
-        if os.getenv("MCS_COMPARISON_MODELS", "").strip():
-            lines += [
-                "> Comparison model list provided via `MCS_COMPARISON_MODELS`.",
-                "",
-            ]
-
-        try:
-            results = _run_api_comparison(instructions, comparison_models, api_key)
-            lines.append(_summarise_api_results(results, comparison_models))
-        except Exception as exc:  # noqa: BLE001
-            lines += [
-                f"> ⚠️ API comparison failed: {exc}",
+                "`MCS_ENABLE_MODEL_COMPARISON=true` is set, but the API key is still missing.",
                 "",
             ]
 
@@ -756,17 +809,99 @@ def _choose_comparison_models(catalogue_key: str | None, configured_openai_model
     """Choose a small set of OpenAI API models to compare against the configured one."""
     # Always include the configured model as the baseline
     models: list[str] = []
-    if configured_openai_model and configured_openai_model not in ("gpt-4o",):
+    if configured_openai_model and configured_openai_model not in ("gpt-4.1", "gpt-4.1-mini"):
         models.append(configured_openai_model)
-    # Add gpt-4o as a reference point if not already the configured model
-    if "gpt-4o" not in models:
-        models.append("gpt-4o")
-    # Add gpt-4o-mini as a cost-efficient alternative if not already present
-    if "gpt-4o-mini" not in models and len(models) < 3:
-        models.append("gpt-4o-mini")
+    # Add gpt-4.1 as the primary reference point if not already the configured model
+    if "gpt-4.1" not in models:
+        models.append("gpt-4.1")
+    # Add gpt-4.1-mini as a cost-efficient alternative if not already present
+    if "gpt-4.1-mini" not in models and len(models) < 3:
+        models.append("gpt-4.1-mini")
     # Ensure uniqueness and cap at 3 models to limit cost
     seen: list[str] = []
     for m in models:
         if m not in seen:
             seen.append(m)
     return seen[:3]
+
+
+def run_live_api_comparison(profile: MCSBotProfile) -> str:
+    """Run live API comparison and return formatted Markdown results.
+
+    Uses simulated mode by default (one model reasons about all models—cost-efficient).
+    Set ``MCS_COMPARISON_MODE=real`` to use actual multi-model API calls instead.
+
+    This function performs on-demand API comparison against sample queries.
+    It requires ``OPENAI_API_KEY`` to be set and validates that API credentials
+    are available before proceeding.
+
+    Args:
+        profile: Parsed ``MCSBotProfile`` containing GPT info and AI settings.
+
+    Returns:
+        Markdown string with API comparison results, or error message if API call fails.
+    """
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        return (
+            "> ⚠️ **API Key Missing**\n\n"
+            "Set `OPENAI_API_KEY=<your-key>` in the environment to enable live model comparison."
+        )
+
+    gpt_info = profile.gpt_info
+    hint = (gpt_info.model_hint or "").strip() if gpt_info else ""
+    configured_openai = _HINT_TO_OPENAI_MODEL.get(hint, "gpt-4.1") if hint else "gpt-4.1"
+    comparison_models = _resolve_comparison_models(configured_openai)
+
+    # Determine comparison mode: simulated (default) or real
+    mode = (os.getenv("MCS_COMPARISON_MODE", "simulated") or "simulated").strip().lower()
+    is_real = mode in ("real", "1", "true", "yes")
+
+    instructions = (gpt_info.instructions or "") if gpt_info else ""
+
+    lines: list[str] = ["### Live API Comparison", ""]
+    if is_real:
+        lines += [
+            f"Running {len(_SAMPLE_QUERIES)} sample queries on "
+            f"{', '.join('**' + m + '**' for m in comparison_models)} (live API mode) …",
+            "",
+        ]
+    else:
+        lines += [
+            f"Simulating {len(_SAMPLE_QUERIES)} sample queries using model characteristics …",
+            "",
+            "> 💡 **Simulated Mode** (cost-efficient): One model reasons about all models. "
+            "Set `MCS_COMPARISON_MODE=real` in .env for actual multi-model API calls.",
+            "",
+        ]
+
+    lines += [
+        "Using agent instructions as context.",
+        "",
+    ]
+
+    base_url = os.getenv("OPENAI_BASE_URL") or os.getenv("OPENAI_API_BASE")
+    if base_url:
+        lines += [
+            f"> Using configured custom OpenAI base URL: `{base_url}`",
+            "",
+        ]
+    if os.getenv("MCS_COMPARISON_MODELS", "").strip():
+        lines += [
+            "> Comparison model list provided via `MCS_COMPARISON_MODELS`.",
+            "",
+        ]
+
+    try:
+        if is_real:
+            results = _run_api_comparison(instructions, comparison_models, api_key)
+        else:
+            results = _run_simulated_api_comparison(instructions, comparison_models, api_key)
+        lines.append(_summarise_api_results(results, comparison_models))
+    except Exception as exc:  # noqa: BLE001
+        lines += [
+            f"> ⚠️ API comparison failed: {exc}",
+            "",
+        ]
+
+    return "\n".join(lines)
