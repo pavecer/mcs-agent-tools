@@ -10,6 +10,7 @@ import tempfile
 import traceback
 import zipfile
 from pathlib import Path
+from typing import Any
 
 import reflex as rx
 from dotenv import load_dotenv
@@ -1539,6 +1540,11 @@ class State(rx.State):
             self.password = ""  # clear password from state
             return rx.redirect("/")
         self.auth_error = "Invalid username or password."
+
+    @rx.event
+    def login_submit(self, _form_data: dict[str, Any]):
+        """Handle login form submit so Enter key triggers authentication."""
+        return self.login()
 
     @rx.event
     def logout(self):
