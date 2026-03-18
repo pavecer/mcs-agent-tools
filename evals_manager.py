@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import io
+import json
+import os
 import re
 import tempfile
 import uuid
@@ -561,7 +563,134 @@ def _generate_system_scenarios(blueprint: dict) -> list[dict]:
     return scenarios
 
 
+_LLM_MODEL_DEFAULT = "gpt-4o-mini"
+
+_LLM_SYSTEM_PROMPT = (
+    "You are a Power Platform Copilot Studio test engineer. "
+    "Generate concise, realistic test scenarios for the agent described below. "
+    "Return ONLY a JSON object with a single key 'scenarios' whose value is an array. "
+    "Each element must have exactly these keys: "
+    "  input     – the user message to send to the agent (string); "
+    "  expected  – a short description of the expected agent response or behaviour (string); "
+    "  category  – one of: Topic coverage, Instruction alignment, Guardrails, Edge cases; "
+    "  keywords  – list of 1–4 relevant lowercase tokens (list of strings)."
+)
+
+
+def _get_llm_client():
+    """Return an openai.OpenAI client when OPENAI_API_KEY is set, otherwise None."""
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return None
+    try:
+        import openai  # noqa: PLC0415
+    except ImportError:
+        return None
+    base_url: str | None = os.getenv("OPENAI_BASE_URL") or os.getenv("OPENAI_API_BASE")
+    kwargs: dict = {"api_key": api_key}
+    if base_url:
+        kwargs["base_url"] = base_url
+    return openai.OpenAI(**kwargs)
+
+
+def _generate_scenarios_with_llm(blueprint: dict, target_count: int, mode: str) -> list[dict] | None:
+    """Call an LLM to generate eval scenarios.
+
+    Returns a list of scenario dicts on success, or None when the LLM is not
+    configured or the call fails — the caller falls back to rule-based generation.
+
+    Required env vars:
+        OPENAI_API_KEY   – OpenAI (or Azure OpenAI / compatible) API key.
+    Optional env vars:
+        OPENAI_BASE_URL  – Override base URL (e.g. Azure OpenAI endpoint).
+        OPENAI_API_BASE  – Alias for OPENAI_BASE_URL.
+        OPENAI_MODEL     – Model name; defaults to gpt-4o-mini.
+    """
+    client = _get_llm_client()
+    if client is None:
+        return None
+
+    topics_text = "\n".join(
+        f"  - {t['display_name']}: {t.get('description', '')} | triggers: {', '.join(t.get('trigger_queries') or [])}"
+        for t in blueprint["topics"][:20]
+    )
+    expectations_text = "\n".join(
+        f"  - {exp['label']}: {exp['detail']}" for exp in blueprint["expectations"]
+    )
+    mode_hint = (
+        "Focus on filling coverage gaps; prefer edge cases and borderline scenarios."
+        if mode == "improve"
+        else "Cover a broad range of topics, instructions, and guardrails."
+    )
+
+    user_prompt = (
+        f"Agent name: {blueprint['display_name']}\n"
+        f"Description: {blueprint.get('description', '')}\n"
+        f"Instructions:\n{blueprint.get('instructions', '')}\n\n"
+        f"Topics ({len(blueprint['topics'])}):\n{topics_text}\n\n"
+        f"Knowledge sources: {', '.join(blueprint.get('knowledge_sources', []))}\n"
+        f"Inferred expectations:\n{expectations_text}\n\n"
+        f"Mode hint: {mode_hint}\n"
+        f"Generate exactly {target_count} test scenarios."
+    )
+
+    model = os.getenv("OPENAI_MODEL") or _LLM_MODEL_DEFAULT
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": _LLM_SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.7,
+            max_tokens=4096,
+            response_format={"type": "json_object"},
+        )
+        raw = response.choices[0].message.content or ""
+        parsed = json.loads(raw)
+    except Exception:
+        return None
+
+    # Normalise: accept either a bare list or {"scenarios": [...]}
+    if isinstance(parsed, list):
+        items = parsed
+    elif isinstance(parsed, dict):
+        items = next((v for v in parsed.values() if isinstance(v, list)), [])
+    else:
+        return None
+
+    valid_categories = {"Topic coverage", "Instruction alignment", "Guardrails", "Edge cases"}
+    scenarios: list[dict] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        input_text = str(item.get("input") or "").strip()
+        expected = str(item.get("expected") or "").strip()
+        if not input_text or not expected:
+            continue
+        category = str(item.get("category") or "Topic coverage")
+        if category not in valid_categories:
+            category = "Topic coverage"
+        raw_keywords = item.get("keywords") or []
+        if isinstance(raw_keywords, str):
+            raw_keywords = [kw.strip() for kw in raw_keywords.split(",") if kw.strip()]
+        scenarios.append(
+            {
+                "category": category,
+                "input": input_text,
+                "expected": expected,
+                "keywords": [str(k) for k in raw_keywords[:4]],
+            }
+        )
+    return scenarios or None
+
+
 def _balance_scenarios(blueprint: dict, target_count: int, mode: str, fit_report: dict) -> list[dict]:
+    # Try LLM-powered generation first; fall back to rule-based if unavailable.
+    llm_scenarios = _generate_scenarios_with_llm(blueprint, target_count, mode)
+    if llm_scenarios:
+        return llm_scenarios[: max(20, min(50, target_count))]
+
     scenarios: list[dict] = []
     topic_scenarios = _generate_topic_scenarios(blueprint, target_count)
     expectation_scenarios = _generate_expectation_scenarios(blueprint)
