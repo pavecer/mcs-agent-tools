@@ -3,7 +3,7 @@
 Complete walkthrough for setting up the Azure infrastructure and GitHub Actions
 deployment for PP Agent Toolkit entirely through the Azure Portal UI.
 
-**Estimated time:** ~30 minutes  
+**Estimated time:** ~30 minutes
 **Prerequisites:** An Azure account with Owner or Contributor access.
 
 ---

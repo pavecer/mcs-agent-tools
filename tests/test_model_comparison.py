@@ -5,7 +5,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 from mcs_models import MCSBotProfile, MCSGptInfo
-from model_comparison import (
+from toolkit.mcs.model_comparison import (
     _LEGACY_HINTS,
     _MODEL_CATALOGUE,
     _SAMPLE_QUERIES,
@@ -90,27 +90,46 @@ def test_summarise_api_results_empty():
 def test_summarise_api_results_produces_markdown_table():
     comparison_models = ["gpt-4o", "gpt-4o-mini"]
     results = [
-        {"model": "gpt-4o", "query": _SAMPLE_QUERIES[0], "response": "Long detailed answer here.", "length": 26},
+        {
+            "model": "gpt-4o",
+            "query": _SAMPLE_QUERIES[0],
+            "response": "Long detailed answer here.",
+            "length": 26,
+            "success": True,
+            "error": "",
+        },
         {
             "model": "gpt-4o-mini",
             "query": _SAMPLE_QUERIES[0],
             "response": "Short answer.",
             "length": 13,
+            "success": True,
+            "error": "",
         },
     ]
     md = _summarise_api_results(results, comparison_models)
     assert "### API Comparison Summary" in md
     assert "gpt-4o" in md
     assert "gpt-4o-mini" in md
+    assert "Successes" in md
+    assert "Sample Query Comparison" in md
 
 
 def test_summarise_api_results_handles_failures():
     comparison_models = ["gpt-4o"]
     results = [
-        {"model": "gpt-4o", "query": _SAMPLE_QUERIES[0], "response": "(no response)", "length": 0},
+        {
+            "model": "gpt-4o",
+            "query": _SAMPLE_QUERIES[0],
+            "response": "",
+            "length": 0,
+            "success": False,
+            "error": "401 Unauthorized",
+        },
     ]
     md = _summarise_api_results(results, comparison_models)
     assert "1/" in md or "Failures" in md
+    assert "401 Unauthorized" in md
 
 
 # ---------------------------------------------------------------------------
@@ -191,7 +210,7 @@ def test_build_comparison_markdown_api_enabled_with_mock(monkeypatch):
     profile = _profile_with_hint("gpt41")
 
     def fake_call_openai(model, system, user, api_key, timeout_s=30.0):
-        return f"Mock response for {model}: {user[:20]}"
+        return {"content": f"Mock response for {model}: {user[:20]}", "error": None, "model": model}
 
     monkeypatch.setattr("model_comparison._call_openai_chat", fake_call_openai)
 

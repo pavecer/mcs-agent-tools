@@ -96,7 +96,12 @@ def render_segment(segment: dict) -> rx.Component:
                 component_map={
                     "h1": lambda text: rx.heading(text, size="5", margin_bottom="10px", color="#102548"),
                     "h2": lambda text: rx.heading(
-                        text, size="4", margin_top="18px", margin_bottom="8px", color="#102548", letter_spacing="-0.01em"
+                        text,
+                        size="4",
+                        margin_top="18px",
+                        margin_bottom="8px",
+                        color="#102548",
+                        letter_spacing="-0.01em",
                     ),
                     "h3": lambda text: rx.heading(
                         text, size="3", margin_top="14px", margin_bottom="6px", color="#2a3f63"

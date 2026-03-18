@@ -13,10 +13,7 @@ skips the live test and only reports the configured model plus static guidance.
 
 from __future__ import annotations
 
-import json
 import os
-from urllib.error import URLError
-from urllib.request import Request, urlopen
 
 from toolkit.mcs.models import MCSBotProfile
 
@@ -332,7 +329,22 @@ _HINT_TO_OPENAI_MODEL: dict[str, str] = {
 }
 
 # Model keys that are below the GPT-4.1 threshold or retired (legacy / not in active catalogue).
-_LEGACY_HINTS = {"GPT4o", "gpt-4o", "gpt-4o-mini", "gpt-4", "GPT4", "gpt-35-turbo", "gpt-3.5-turbo", "o1", "o1-preview", "o1-mini", "o3", "o3-mini", "o4-mini", "o4mini"}
+_LEGACY_HINTS = {
+    "GPT4o",
+    "gpt-4o",
+    "gpt-4o-mini",
+    "gpt-4",
+    "GPT4",
+    "gpt-35-turbo",
+    "gpt-3.5-turbo",
+    "o1",
+    "o1-preview",
+    "o1-mini",
+    "o3",
+    "o3-mini",
+    "o4-mini",
+    "o4mini",
+}
 
 # Generic sample queries used for API-based comparison.
 _SAMPLE_QUERIES: list[str] = [
@@ -346,8 +358,39 @@ _SAMPLE_QUERIES: list[str] = [
 # Max tokens for sample query responses (kept short to limit cost).
 _MAX_TOKENS = 200
 
-# OpenAI chat completions endpoint.
-_OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
+
+def _get_openai_client(api_key: str):
+    """Return an OpenAI client configured like the eval generator path."""
+    try:
+        import openai  # noqa: PLC0415
+    except ImportError as exc:  # pragma: no cover - dependency is declared in pyproject
+        raise RuntimeError("openai package is not installed") from exc
+
+    base_url = os.getenv("OPENAI_BASE_URL") or os.getenv("OPENAI_API_BASE")
+    kwargs: dict = {"api_key": api_key}
+    if base_url:
+        kwargs["base_url"] = base_url
+    return openai.OpenAI(**kwargs)
+
+
+def _resolve_comparison_models(configured_openai_model: str) -> list[str]:
+    """Choose comparison models, respecting custom base URL / deployment configuration."""
+    custom_models = os.getenv("MCS_COMPARISON_MODELS", "").strip()
+    if custom_models:
+        models = [item.strip() for item in custom_models.split(",") if item.strip()]
+        deduped: list[str] = []
+        for model in models:
+            if model not in deduped:
+                deduped.append(model)
+        return deduped[:5]
+
+    base_url = os.getenv("OPENAI_BASE_URL") or os.getenv("OPENAI_API_BASE")
+    explicit_model = os.getenv("OPENAI_MODEL", "").strip()
+    if base_url:
+        chosen = explicit_model or configured_openai_model or "gpt-4o"
+        return [chosen]
+
+    return _choose_comparison_models(None, configured_openai_model)
 
 
 # ---------------------------------------------------------------------------
@@ -378,35 +421,30 @@ def _call_openai_chat(
     user: str,
     api_key: str,
     timeout_s: float = 30.0,
-) -> str | None:
-    """Call OpenAI chat completions API and return the assistant reply text, or None on failure."""
-    payload = json.dumps(
-        {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": system or "You are a helpful assistant."},
+) -> dict:
+    """Call OpenAI chat completions API and return content/error details."""
+    try:
+        client = _get_openai_client(api_key)
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system or "You are a helpful assistant. Keep answers concise."},
                 {"role": "user", "content": user},
             ],
-            "max_tokens": _MAX_TOKENS,
-            "temperature": 0.2,
+            timeout=timeout_s,
+        )
+        content = response.choices[0].message.content or ""
+        return {
+            "content": content.strip() or None,
+            "error": None,
+            "model": getattr(response, "model", model) or model,
         }
-    ).encode()
-
-    req = Request(
-        url=_OPENAI_API_URL,
-        data=payload,
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
-    try:
-        with urlopen(req, timeout=timeout_s) as resp:
-            body = json.loads(resp.read())
-            return body["choices"][0]["message"]["content"]
-    except (URLError, KeyError, json.JSONDecodeError, IndexError):
-        return None
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "content": None,
+            "error": str(exc),
+            "model": model,
+        }
 
 
 def _run_api_comparison(
@@ -422,13 +460,16 @@ def _run_api_comparison(
     system = instructions.strip() if instructions else "You are a helpful assistant."
     for query in _SAMPLE_QUERIES:
         for model in comparison_models:
-            response = _call_openai_chat(model, system, query, api_key)
+            result = _call_openai_chat(model, system, query, api_key)
+            response = result["content"]
             results.append(
                 {
-                    "model": model,
+                    "model": result.get("model") or model,
                     "query": query,
-                    "response": response or "(no response)",
+                    "response": response or "",
                     "length": len(response) if response else 0,
+                    "success": bool(response),
+                    "error": result.get("error") or "",
                 }
             )
     return results
@@ -442,13 +483,17 @@ def _summarise_api_results(results: list[dict], comparison_models: list[str]) ->
     lines: list[str] = []
 
     # Per-model aggregate stats
-    model_stats: dict[str, dict] = {m: {"total_len": 0, "count": 0, "failures": 0} for m in comparison_models}
+    model_stats: dict[str, dict] = {
+        m: {"total_len": 0, "count": 0, "failures": 0, "last_error": ""} for m in comparison_models
+    }
     for r in results:
         m = r["model"]
         if m not in model_stats:
             continue
-        if r["response"] == "(no response)":
+        if not r.get("success"):
             model_stats[m]["failures"] += 1
+            if r.get("error"):
+                model_stats[m]["last_error"] = r["error"]
         else:
             model_stats[m]["total_len"] += r["length"]
             model_stats[m]["count"] += 1
@@ -460,13 +505,21 @@ def _summarise_api_results(results: list[dict], comparison_models: list[str]) ->
     ]
 
     lines += [
-        "| Model | Avg response length | Failures |",
-        "| --- | --- | --- |",
+        "| Model | Avg response length | Successes | Failures | Status |",
+        "| --- | --- | --- | --- | --- |",
     ]
     for m in comparison_models:
         stats = model_stats[m]
         avg = stats["total_len"] // stats["count"] if stats["count"] > 0 else 0
-        lines.append(f"| {m} | {avg} chars | {stats['failures']}/{len(_SAMPLE_QUERIES)} |")
+        successes = stats["count"]
+        if successes > 0:
+            status = '<span style="color: #1b6b2f; font-weight: 600;">OK</span>'
+        else:
+            error_msg = stats["last_error"][:60] or "No response"
+            status = f'<span style="color: #c62828; font-weight: 600;">Failed: {error_msg}</span>'
+        lines.append(
+            f"| {m} | {avg} chars | {successes}/{len(_SAMPLE_QUERIES)} | {stats['failures']}/{len(_SAMPLE_QUERIES)} | {status} |"
+        )
     lines.append("")
 
     # Determine best model by average response length (simple heuristic)
@@ -481,7 +534,11 @@ def _summarise_api_results(results: list[dict], comparison_models: list[str]) ->
     if ranked:
         best_model, best_avg = ranked[0]
         other_avgs = [avg for _, avg in ranked[1:] if avg > 0]
-        if other_avgs:
+        if best_avg == 0:
+            lines.append(
+                "> Live comparison did not return any successful model responses. Review the status column above for the API error details."
+            )
+        elif other_avgs:
             pct_diff = round(((best_avg - other_avgs[0]) / other_avgs[0]) * 100) if other_avgs[0] > 0 else 0
             lines.append(
                 f"> **{best_model}** produced the longest responses on average ({best_avg} chars), "
@@ -494,14 +551,23 @@ def _summarise_api_results(results: list[dict], comparison_models: list[str]) ->
 
     # Sample Q&A table
     lines += ["### Sample Query Comparison", ""]
+    lines += [
+        "| Query | Model | Status | Preview |",
+        "| --- | --- | --- | --- |",
+    ]
     for query in _SAMPLE_QUERIES:
-        lines += [f"**Query:** _{query}_", ""]
         for m in comparison_models:
             row = next((r for r in results if r["model"] == m and r["query"] == query), None)
-            resp = row["response"] if row else "(no response)"
-            # Truncate for readability
-            short = resp[:200] + "…" if len(resp) > 200 else resp
-            lines += [f"- **{m}**: {short}", ""]
+            if row and row.get("success"):
+                status = '<span style="color: #1b6b2f; font-weight: 600;">Success</span>'
+            else:
+                status = '<span style="color: #c62828; font-weight: 600;">Failed</span>'
+            preview_source = (row.get("response") if row else "") or (row.get("error") if row else "") or "No response"
+            short = preview_source[:180] + "…" if len(preview_source) > 180 else preview_source
+            safe_query = query.replace("|", "\\|")
+            safe_short = short.replace("|", "\\|")
+            lines.append(f"| {safe_query} | {m} | {status} | {safe_short} |")
+    lines.append("")
     return "\n".join(lines)
 
 
@@ -652,7 +718,7 @@ def build_comparison_markdown(profile: MCSBotProfile) -> str:
     else:
         # Determine which models to compare
         configured_openai = _HINT_TO_OPENAI_MODEL.get(hint, "gpt-4o") if hint else "gpt-4o"
-        comparison_models = _choose_comparison_models(catalogue_key, configured_openai)
+        comparison_models = _resolve_comparison_models(configured_openai)
 
         instructions = (gpt_info.instructions or "") if gpt_info else ""
 
@@ -661,6 +727,18 @@ def build_comparison_markdown(profile: MCSBotProfile) -> str:
             f"{', '.join('**' + m + '**' for m in comparison_models)} …",
             "",
         ]
+
+        base_url = os.getenv("OPENAI_BASE_URL") or os.getenv("OPENAI_API_BASE")
+        if base_url:
+            lines += [
+                f"> Using configured custom OpenAI base URL: `{base_url}`",
+                "",
+            ]
+        if os.getenv("MCS_COMPARISON_MODELS", "").strip():
+            lines += [
+                "> Comparison model list provided via `MCS_COMPARISON_MODELS`.",
+                "",
+            ]
 
         try:
             results = _run_api_comparison(instructions, comparison_models, api_key)

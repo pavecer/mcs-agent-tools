@@ -3938,7 +3938,11 @@ _TUTORIAL_TOTAL = TUTORIAL_TOTAL_STEPS  # kept as a local alias for readability
 def _tut_step_welcome() -> rx.Component:
     """Step 0 – Welcome overview of all toolkit capabilities."""
     features = [
-        ("file-json", "JSON Transcript Analyser", "Analyse conversation transcripts for KPIs, latency, and credit usage"),
+        (
+            "file-json",
+            "JSON Transcript Analyser",
+            "Analyse conversation transcripts for KPIs, latency, and credit usage",
+        ),
         ("search", "Analyse", "Deep-dive into agent profile, topics, knowledge sources, and conversation flow"),
         ("git-branch", "Visualize", "Generate Mermaid diagrams of agent structure and topic relationships"),
         ("shield-check", "Validate", "Check agent instructions against AI model best practices"),
@@ -4059,12 +4063,30 @@ def _tut_step_transcript() -> rx.Component:
 def _tut_step_zip_upload() -> rx.Component:
     """Step 2 – Solution & Snapshot ZIP upload options."""
     zip_types = [
-        ("file-archive", "Any Solution ZIP", "#eaf4ea", SUCCESS, "#107c10",
-         "Unlocks the Dependencies tab — full component inventory and relation graph."),
-        ("file-archive", "Agent Solution ZIP", "#fff8ec", WARNING_AMBER, "#c7921e",
-         "Unlocks Visualize · Validate · Check · Evals · Rename workflows."),
-        ("file-archive", "Snapshot ZIP", "#eef4ff", PRIMARY, PRIMARY,
-         "Unlocks the full Analyse tab: Profile · Topics · Knowledge · Conversation · Credits."),
+        (
+            "file-archive",
+            "Any Solution ZIP",
+            "#eaf4ea",
+            SUCCESS,
+            "#107c10",
+            "Unlocks the Dependencies tab — full component inventory and relation graph.",
+        ),
+        (
+            "file-archive",
+            "Agent Solution ZIP",
+            "#fff8ec",
+            WARNING_AMBER,
+            "#c7921e",
+            "Unlocks Visualize · Validate · Check · Evals · Rename workflows.",
+        ),
+        (
+            "file-archive",
+            "Snapshot ZIP",
+            "#eef4ff",
+            PRIMARY,
+            PRIMARY,
+            "Unlocks the full Analyse tab: Profile · Topics · Knowledge · Conversation · Credits.",
+        ),
     ]
     return rx.vstack(
         rx.hstack(
@@ -4114,7 +4136,11 @@ def _tut_step_analyse() -> rx.Component:
     """Step 3 – Analyse Tab overview with sub-tab descriptions."""
     sub_tabs = [
         ("user", "Profile", "Agent display name, schema, description, channels, and GPT model configuration."),
-        ("book-open", "Knowledge & Tools", "Knowledge sources (SharePoint, websites, files) and integrated external tools."),
+        (
+            "book-open",
+            "Knowledge & Tools",
+            "Knowledge sources (SharePoint, websites, files) and integrated external tools.",
+        ),
         ("message-square", "Topics", "All topics with trigger phrases, dialog step count, and topic type badges."),
         ("share-2", "Topic Graph", "Mermaid diagram of BeginDialog connections between topics."),
         ("cpu", "Model", "Side-by-side comparison of AI models configured across the agent's model slots."),
@@ -4250,14 +4276,42 @@ def _tut_step_visualize() -> rx.Component:
 def _tut_step_validate() -> rx.Component:
     """Step 5 – Validate Tab with sample validation results."""
     results = [
-        ("circle-check", SUCCESS, "#f0fff0", "#107c1044",
-         "Instructions length is within the recommended range for GPT-4o-mini (3,200 tokens).", "PASS", "green"),
-        ("triangle-alert", WARNING_AMBER, "#fffbf0", "#c7921e44",
-         "Avoid exact phrases from training data in agent instructions to reduce hallucination risk.", "WARN", "yellow"),
-        ("triangle-alert", WARNING_AMBER, "#fffbf0", "#c7921e44",
-         "Consider adding citation requirements to knowledge source instructions.", "WARN", "yellow"),
-        ("circle-x", ERROR_COLOR, "#fff0f0", "#a4262c44",
-         "Instructions exceed the safe token limit for the o1 model (1,200 tokens).", "FAIL", "red"),
+        (
+            "circle-check",
+            SUCCESS,
+            "#f0fff0",
+            "#107c1044",
+            "Instructions length is within the recommended range for GPT-4o-mini (3,200 tokens).",
+            "PASS",
+            "green",
+        ),
+        (
+            "triangle-alert",
+            WARNING_AMBER,
+            "#fffbf0",
+            "#c7921e44",
+            "Avoid exact phrases from training data in agent instructions to reduce hallucination risk.",
+            "WARN",
+            "yellow",
+        ),
+        (
+            "triangle-alert",
+            WARNING_AMBER,
+            "#fffbf0",
+            "#c7921e44",
+            "Consider adding citation requirements to knowledge source instructions.",
+            "WARN",
+            "yellow",
+        ),
+        (
+            "circle-x",
+            ERROR_COLOR,
+            "#fff0f0",
+            "#a4262c44",
+            "Instructions exceed the safe token limit for the o1 model (1,200 tokens).",
+            "FAIL",
+            "red",
+        ),
     ]
     return rx.vstack(
         rx.hstack(
@@ -4276,7 +4330,9 @@ def _tut_step_validate() -> rx.Component:
             align="start",
         ),
         rx.divider(margin_y="2px"),
-        rx.text("Sample Validation Report", font_size="11px", font_weight="700", color=PRIMARY_DARK, letter_spacing="0.06em"),
+        rx.text(
+            "Sample Validation Report", font_size="11px", font_weight="700", color=PRIMARY_DARK, letter_spacing="0.06em"
+        ),
         rx.vstack(
             *[
                 rx.hstack(

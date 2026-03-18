@@ -2,8 +2,8 @@
 
 Claude Opus 4.5 is Anthropic's most capable model available in Copilot Studio, positioned in the Deep/Premium tier alongside GPT-5 reasoning. It excels at complex analysis, nuanced writing, multi-step reasoning, and sophisticated instruction following, with a 200 K-token context window. As an external (non-Microsoft) model it is subject to Anthropic's terms and data handling policies.
 
-> **Rate:** Premium &nbsp;|&nbsp; **Context:** 200 K tokens &nbsp;|&nbsp; **Status:** ⚠️ Experimental — subject to availability and preview terms.  
-> **External model:** Content moderation controls are not available. Data handling follows Anthropic terms.  
+> **Rate:** Premium &nbsp;|&nbsp; **Context:** 200 K tokens &nbsp;|&nbsp; **Status:** ⚠️ Experimental — subject to availability and preview terms.
+> **External model:** Content moderation controls are not available. Data handling follows Anthropic terms.
 > Replaces Claude Opus 4.1 (retired February 2026). Requires **Enable External Models** in the Power Platform admin centre.
 
 ---

@@ -1,9 +1,11 @@
 name: CI Security
 
+# ⚠ BACKUP CHECK ONLY — not required for push
+# All developers must run local validation before committing: bash scripts/validate-local.sh
+# This workflow is a final safety net for PRs to main, not a blocker.
 on:
-  push:
-    branches: ["**"]
   pull_request:
+    branches: [main]
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"

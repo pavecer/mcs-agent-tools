@@ -1,0 +1,15 @@
+# Pre-commit hooks — automatically run validation before committing
+# This config uses simple hooks that work with any Python version
+# Complex checks (Ruff, Bandit, tests) are run via: bash scripts/validate-local.sh
+
+repos:
+  # Basic file validators that work with any Python version
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.4.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+      - id: check-merge-conflict

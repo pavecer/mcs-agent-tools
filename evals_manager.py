@@ -614,9 +614,7 @@ def _generate_scenarios_with_llm(blueprint: dict, target_count: int, mode: str) 
         f"  - {t['display_name']}: {t.get('description', '')} | triggers: {', '.join(t.get('trigger_queries') or [])}"
         for t in blueprint["topics"][:20]
     )
-    expectations_text = "\n".join(
-        f"  - {exp['label']}: {exp['detail']}" for exp in blueprint["expectations"]
-    )
+    expectations_text = "\n".join(f"  - {exp['label']}: {exp['detail']}" for exp in blueprint["expectations"])
     mode_hint = (
         "Focus on filling coverage gaps; prefer edge cases and borderline scenarios."
         if mode == "improve"

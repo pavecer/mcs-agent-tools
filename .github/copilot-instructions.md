@@ -70,6 +70,80 @@ uv run pytest tests/test_renamer.py
 - Monkeypatching targets the top-level `mcs_*.py` wrappers, not `toolkit/mcs/` internals.
 - Test files in `tests/`; pytest discovers them automatically.
 
+## Local Validation (Before Every Commit)
+
+**All security checks run locally first** — GitHub Actions is a backup only, not a blocker.
+
+### Setup (one-time)
+
+```bash
+# Install pre-commit framework
+pip install pre-commit
+
+# Install git hooks into .git/hooks
+cd /Users/pavelvecer/GitHubRepos/pp-agent-renamer
+pre-commit install
+
+# (Optional) Run file validation checks manually
+pre-commit run --all-files
+```
+
+### Pre-commit Workflow (automatic on `git commit`)
+
+After `pre-commit install`, these basic checks **automatically run before each commit**:
+- **File validators** — YAML/JSON/TOML syntax, merge conflicts
+- **Trailing whitespace** — clean line endings
+- **End-of-file fixers** — consistent file endings
+
+For comprehensive validation (Ruff, tests, security), use the manual approach below.
+
+### Manual Validation (comprehensive - run before pushing)
+
+```bash
+# Run FULL validation suite (all security + code quality checks)
+bash scripts/validate-local.sh
+
+# This runs:
+# 1. Ruff linter — code style and import sorting
+# 2. Ruff formatter — consistent formatting (line length = 120)
+# 3. Pytest — all unit tests
+# 4. pip-audit — CVE vulnerability check
+# 5. Bandit — security issue scanning
+
+# Or run individual checks:
+uv run ruff check .                    # Lint only
+uv run ruff format .                   # Format (auto-fix)
+uv run pytest tests/ -v                # Tests only
+uv run pip-audit --strict              # CVE check
+uv run bandit -r .                     # Security linting
+```
+
+### Workflow Summary
+
+| Stage | Trigger | What Runs | Auto-fix? |
+|-------|---------|-----------|-----------|
+| **Pre-commit** | `git commit` | File syntax validators | Yes (whitespace, EOL) |
+| **Local validation** | `bash scripts/validate-local.sh` | Ruff + tests + security | Ruff only |
+| **GitHub CI** | PR to `main` | Full suite (backup only) | No |
+
+### Common Fixes
+
+| Issue | Fix |
+|-------|-----|
+| Ruff lint errors | `uv run ruff check . --fix` |
+| Format issues | `uv run ruff format .` |
+| Test failures | `uv run pytest tests/ -v` (debug, then fix code) |
+| CVE alerts | Update `pyproject.toml` dependency versions |
+| Bandit false positives | Review and update `.bandit` exclusions |
+
+### When to Bypass Pre-commit (Rare)
+
+```bash
+# Only when absolutely necessary (e.g., WIP branch, emergency fix):
+git commit --no-verify
+# ⚠ Use sparingly — always run bash scripts/validate-local.sh before final push.
+```
+
 ## Security Requirements
 
 - All ZIP/XML/YAML from uploaded files is untrusted input — use `defusedxml` and validate before processing.

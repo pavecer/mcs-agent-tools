@@ -2,8 +2,8 @@
 
 Claude Sonnet 4.5 is an external AI model from Anthropic, available in Copilot Studio as an experimental model. It offers strong conversational quality, nuanced writing, and accurate instruction adherence with a 200 K-token context window. As an external (non-Microsoft) model, it is subject to Anthropic's usage terms and data handling policies.
 
-> **Rate:** Standard &nbsp;|&nbsp; **Context:** 200 K tokens &nbsp;|&nbsp; **Status:** ⚠️ Experimental — subject to availability and preview terms.  
-> **External model:** Content moderation controls are not available. Data handling follows Anthropic terms.  
+> **Rate:** Standard &nbsp;|&nbsp; **Context:** 200 K tokens &nbsp;|&nbsp; **Status:** ⚠️ Experimental — subject to availability and preview terms.
+> **External model:** Content moderation controls are not available. Data handling follows Anthropic terms.
 > Requires **Enable External Models** to be enabled in the Power Platform admin centre.
 
 ---

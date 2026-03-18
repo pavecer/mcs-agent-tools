@@ -2,7 +2,7 @@
 
 GPT-5.2 Reasoning is an experimental next-generation deep-reasoning model in Copilot Studio. It provides the highest available reasoning depth in the Copilot Studio model catalogue. Like all reasoning models, it uses internal chain-of-thought — instructions must focus on goals, output requirements, and grounding constraints rather than directing the reasoning process.
 
-> **Rate:** Premium &nbsp;|&nbsp; **Context:** 400 K tokens &nbsp;|&nbsp; **Status:** ⚠️ Experimental — subject to availability, performance variability, and preview terms. Do not use in production.  
+> **Rate:** Premium &nbsp;|&nbsp; **Context:** 400 K tokens &nbsp;|&nbsp; **Status:** ⚠️ Experimental — subject to availability, performance variability, and preview terms. Do not use in production.
 > **Temperature:** not available.
 
 ---
