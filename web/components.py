@@ -1763,37 +1763,54 @@ def _mcs_section_tab_bar() -> rx.Component:
                 align="center",
             ),
             on_click=State.set_mcs_analyse_tab(tab_id),
-            padding="8px 16px",
+            padding="10px 14px",
             cursor="pointer",
             border_bottom=rx.cond(active, f"2px solid {PRIMARY}", "2px solid transparent"),
-            color=rx.cond(active, PRIMARY, "#605e5c"),
-            _hover={"color": PRIMARY},
+            background=rx.cond(active, "#f2f7ff", "transparent"),
+            color=rx.cond(active, PRIMARY, "#5d6f8f"),
+            _hover={"color": PRIMARY, "background": "#f7fbff"},
             transition="all 0.15s ease",
             user_select="none",
+            border_radius="10px 10px 0 0",
+            flex_shrink="0",
         )
 
     return rx.cond(
         State.mcs_source == "transcript",
-        rx.hstack(
-            _btn("credits", "coins", "Credits"),
-            _btn("conversation", "message-square", "Conversation"),
-            spacing="0",
-            border_bottom="1px solid #edebe9",
+        card(
+            rx.hstack(
+                _btn("credits", "coins", "Credits"),
+                _btn("conversation", "message-square", "Conversation"),
+                spacing="1",
+                border_bottom="1px solid #e4edf9",
+                width="100%",
+                overflow_x="auto",
+            ),
             width="100%",
-            overflow_x="auto",
+            padding="10px 12px 0",
+            background="#ffffff",
+            border="1px solid #dbe6f6",
+            box_shadow="0 8px 24px rgba(12, 33, 70, 0.08)",
         ),
-        rx.hstack(
-            _btn("profile", "user-round", "Profile"),
-            _btn("knowledge_tools", "database", "Knowledge & Tools"),
-            _btn("topics", "list", "Topics"),
-            _btn("graph", "git-branch", "Topic Graph"),
-            _btn("model_comparison", "bar-chart-2", "Model"),
-            _btn("credits", "coins", "Credits"),
-            _btn("conversation", "message-square", "Conversation"),
-            spacing="0",
-            border_bottom="1px solid #edebe9",
+        card(
+            rx.hstack(
+                _btn("profile", "user-round", "Profile"),
+                _btn("knowledge_tools", "database", "Knowledge & Tools"),
+                _btn("topics", "list", "Topics"),
+                _btn("graph", "git-branch", "Topic Graph"),
+                _btn("model_comparison", "bar-chart-2", "Model"),
+                _btn("credits", "coins", "Credits"),
+                _btn("conversation", "message-square", "Conversation"),
+                spacing="1",
+                border_bottom="1px solid #e4edf9",
+                width="100%",
+                overflow_x="auto",
+            ),
             width="100%",
-            overflow_x="auto",
+            padding="10px 12px 0",
+            background="#ffffff",
+            border="1px solid #dbe6f6",
+            box_shadow="0 8px 24px rgba(12, 33, 70, 0.08)",
         ),
     )
 
@@ -2206,13 +2223,50 @@ def _mcs_conversation_flow_panel() -> rx.Component:
 def _mcs_segment_block(segment: dict) -> rx.Component:
     """Render section segments as separated visual blocks for better readability."""
     return rx.box(
+        rx.hstack(
+            rx.badge(
+                rx.cond(segment["type"] == "mermaid", "Diagram", "Analysis"),
+                color_scheme=rx.cond(segment["type"] == "mermaid", "blue", "gray"),
+                variant="soft",
+                size="1",
+            ),
+            rx.spacer(),
+            width="100%",
+            align="center",
+            margin_bottom="8px",
+        ),
         render_segment(segment),
         width="100%",
-        border="1px solid #e2e9f5",
+        border="1px solid #dde8f7",
+        border_left_width="4px",
+        border_left_style="solid",
+        border_left_color=rx.cond(segment["type"] == "mermaid", "#0a66ff", "#17a2a4"),
+        border_radius="14px",
+        background="linear-gradient(180deg, #ffffff 0%, #fbfdff 100%)",
+        padding="12px 14px",
+        box_shadow="0 10px 24px rgba(9, 30, 66, 0.06)",
+    )
+
+
+def _mcs_overview_metric_card(label: str, value: rx.Component, detail: str, accent_color: str) -> rx.Component:
+    """Compact overview metric card to align MCS pages with eval-style dashboard cards."""
+    return rx.box(
+        rx.vstack(
+            rx.text(label, font_size="12px", font_weight="700", color="#2f466d"),
+            value,
+            rx.text(detail, font_size="12px", color="#5d6f8f", line_height="1.45"),
+            spacing="1",
+            align="start",
+            width="100%",
+        ),
+        border="1px solid #d7e2f2",
+        border_left_width="4px",
+        border_left_style="solid",
+        border_left_color=accent_color,
         border_radius="12px",
-        background="#ffffff",
+        background="#fbfdff",
         padding="14px",
-        box_shadow="0 6px 18px rgba(9, 30, 66, 0.05)",
+        width="100%",
     )
 
 
@@ -2541,42 +2595,154 @@ def mcs_analyse_panel() -> rx.Component:
             State.has_mcs_report,
             # ── Sub-tabbed report view ─────────────────────────────────────
             rx.vstack(
-                # Header
-                rx.hstack(
-                    rx.icon("file-check-2", color=PRIMARY, size=20),
-                    rx.heading(State.mcs_report_title, size="4", color="#201f1e"),
-                    rx.spacer(),
-                    rx.button(
-                        rx.hstack(
-                            rx.icon("download", size=14),
-                            rx.text("Download .md", font_size="13px"),
+                # ── Header card ───────────────────────────────────────────
+                card(
+                    rx.hstack(
+                        # Left: icon + title + source badge
+                        rx.vstack(
+                            rx.hstack(
+                                rx.icon("file-search", color=PRIMARY, size=20),
+                                rx.heading(State.mcs_report_title, size="4", color="#201f1e"),
+                                spacing="2",
+                                align="center",
+                            ),
+                            rx.hstack(
+                                rx.cond(
+                                    State.mcs_source == "snapshot",
+                                    rx.badge("Snapshot Analysis", color_scheme="blue", variant="soft"),
+                                    rx.badge("Transcript Analysis", color_scheme="cyan", variant="soft"),
+                                ),
+                                spacing="2",
+                                align="center",
+                                flex_wrap="wrap",
+                            ),
                             spacing="2",
-                            align="center",
+                            align="start",
                         ),
-                        on_click=State.download_mcs_report,
-                        variant="outline",
-                        color=PRIMARY,
-                        border_color=PRIMARY,
-                        size="2",
-                        cursor="pointer",
-                    ),
-                    rx.button(
-                        rx.hstack(
-                            rx.icon("x", size=14),
-                            rx.text("Clear", font_size="13px"),
+                        rx.spacer(),
+                        # Right: credit total + action buttons
+                        rx.vstack(
+                            rx.cond(
+                                State.mcs_credit_total > 0,
+                                rx.hstack(
+                                    rx.text(
+                                        State.mcs_credit_total,
+                                        font_size="20px",
+                                        font_weight="700",
+                                        color=PRIMARY,
+                                    ),
+                                    rx.text(
+                                        "est. credits",
+                                        font_size="12px",
+                                        color="#605e5c",
+                                        font_weight="500",
+                                    ),
+                                    spacing="1",
+                                    align="baseline",
+                                ),
+                                rx.box(),
+                            ),
+                            rx.hstack(
+                                rx.button(
+                                    rx.hstack(
+                                        rx.icon("download", size=14),
+                                        rx.text("Download .md", font_size="13px"),
+                                        spacing="2",
+                                        align="center",
+                                    ),
+                                    on_click=State.download_mcs_report,
+                                    variant="outline",
+                                    color=PRIMARY,
+                                    border_color=PRIMARY,
+                                    size="2",
+                                    cursor="pointer",
+                                ),
+                                rx.button(
+                                    rx.hstack(
+                                        rx.icon("x", size=14),
+                                        rx.text("Clear", font_size="13px"),
+                                        spacing="2",
+                                        align="center",
+                                    ),
+                                    on_click=State.clear_mcs_report,
+                                    variant="ghost",
+                                    color="#605e5c",
+                                    size="2",
+                                    cursor="pointer",
+                                ),
+                                spacing="2",
+                                align="center",
+                            ),
+                            align="end",
                             spacing="2",
-                            align="center",
                         ),
-                        on_click=State.clear_mcs_report,
-                        variant="ghost",
-                        color="#605e5c",
-                        size="2",
-                        cursor="pointer",
+                        align="center",
+                        width="100%",
+                        flex_wrap="wrap",
+                        gap="16px",
                     ),
-                    align="center",
                     width="100%",
-                    flex_wrap="wrap",
-                    gap="8px",
+                ),
+                card(
+                    sub_heading("ANALYSIS OVERVIEW"),
+                    rx.grid(
+                        _mcs_overview_metric_card(
+                            "Source",
+                            rx.text(
+                                rx.cond(State.mcs_source == "snapshot", "Snapshot", "Transcript"),
+                                font_size="36px",
+                                font_weight="800",
+                                color="#142a4f",
+                                line_height="1.05",
+                            ),
+                            "Current report origin",
+                            "#0a66ff",
+                        ),
+                        _mcs_overview_metric_card(
+                            "Section coverage",
+                            rx.text(
+                                State.mcs_current_section_segments.length(),
+                                font_size="36px",
+                                font_weight="800",
+                                color="#142a4f",
+                                line_height="1.05",
+                            ),
+                            "Visible blocks in selected section",
+                            "#107c10",
+                        ),
+                        _mcs_overview_metric_card(
+                            "Tools and flow",
+                            rx.text(
+                                rx.cond(
+                                    State.has_mcs_conversation_flow,
+                                    State.mcs_conversation_flow.length(),
+                                    "-",
+                                ),
+                                font_size="36px",
+                                font_weight="800",
+                                color="#142a4f",
+                                line_height="1.05",
+                            ),
+                            "Conversation timeline events available",
+                            "#a4262c",
+                        ),
+                        _mcs_overview_metric_card(
+                            "Credit estimate",
+                            rx.text(
+                                rx.cond(State.mcs_credit_total > 0, State.mcs_credit_total, "-"),
+                                font_size="36px",
+                                font_weight="800",
+                                color="#142a4f",
+                                line_height="1.05",
+                            ),
+                            "Predicted Copilot credits",
+                            "#0f6cbd",
+                        ),
+                        columns="repeat(auto-fit, minmax(220px, 1fr))",
+                        spacing="4",
+                        width="100%",
+                    ),
+                    width="100%",
                 ),
                 # Section tab bar
                 _mcs_section_tab_bar(),
