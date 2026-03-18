@@ -1,9 +1,6 @@
 name: Deploy Nightly
 
 on:
-  schedule:
-    # Run hourly and gate to local 03:00 Europe/Prague to handle CET/CEST.
-    - cron: "7 * * * *"
   workflow_dispatch:
 
 env:
@@ -26,26 +23,12 @@ jobs:
     outputs:
       deploy: ${{ steps.time_gate.outputs.deploy }}
     steps:
-      - name: Gate schedule to 03:00 Europe/Prague
+      - name: Enable deployment for manual run
         id: time_gate
         run: |
           set -euo pipefail
-
-          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-            echo "Manual run detected; deployment enabled."
-            echo "deploy=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          LOCAL_HOUR=$(TZ=Europe/Prague date +%H)
-          echo "Europe/Prague local hour is: ${LOCAL_HOUR}"
-
-          if [[ "${LOCAL_HOUR}" == "03" ]]; then
-            echo "deploy=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "deploy=false" >> "$GITHUB_OUTPUT"
-            echo "Not deployment hour; skipping deployment."
-          fi
+          echo "Manual run detected; deployment enabled."
+          echo "deploy=true" >> "$GITHUB_OUTPUT"
 
       - name: Validate required prod secrets
         if: steps.time_gate.outputs.deploy == 'true'
