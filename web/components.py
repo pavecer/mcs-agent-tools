@@ -1799,6 +1799,10 @@ def turnstile_script() -> rx.Component:
                 statusEl.textContent = message || '';
                 statusEl.style.color = color || '#605e5c';
             };
+            const clearToken = function() {
+                tokenInput.value = '';
+                tokenInput.dispatchEvent(new Event('change', { bubbles: true }));
+            };
             const ensureScript = function() {
                 if (w.turnstile) {
                     return;
@@ -1837,29 +1841,27 @@ def turnstile_script() -> rx.Component:
                 setTimeout(initTurnstileWidget, 250);
                 return;
             }
-            if (container.getAttribute('data-rendered') === 'true') {
+            // Guard against double-render: check both the DOM attribute and for an existing
+            // iframe child (the attribute is lost when React remounts the container element).
+            if (container.getAttribute('data-rendered') === 'true' || container.querySelector('iframe')) {
                 return;
             }
             try {
                 container.setAttribute('data-rendered', 'true');
                 setStatus('Loading Turnstile challenge...', '#605e5c');
-                const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-                const setReactValue = function(el, val) {
-                    nativeSetter.call(el, val);
-                    el.dispatchEvent(new Event('input', { bubbles: true }));
-                };
                 w.turnstile.render('#turnstile-widget', {
                     sitekey: siteKey,
                     callback: function(token) {
-                        setReactValue(tokenInput, token);
+                        tokenInput.value = token;
+                        tokenInput.dispatchEvent(new Event('change', { bubbles: true }));
                         setStatus('Captcha verified.', '#107c10');
                     },
                     'expired-callback': function() {
-                        setReactValue(tokenInput, '');
+                        clearToken();
                         setStatus('Captcha expired. Please complete it again.', '#c7921e');
                     },
                     'error-callback': function() {
-                        setReactValue(tokenInput, '');
+                        clearToken();
                         container.setAttribute('data-rendered', 'false');
                         setStatus('Turnstile could not render. Check hostname settings or reload the page.', '#a4262c');
                     },
@@ -2080,6 +2082,7 @@ def request_account_form() -> rx.Component:
                             label("Email"),
                             rx.input(
                                 id="request-email",
+                                name="email",
                                 type="email",
                                 placeholder="name@company.com",
                                 value=State.request_email,
@@ -2092,15 +2095,9 @@ def request_account_form() -> rx.Component:
                         rx.vstack(
                             rx.input(
                                 id="request-captcha-token",
-                                value=State.request_captcha_token,
-                                on_change=State.set_request_captcha_token,
-                                width="100%",
-                                display="none",
-                            ),
-                            rx.text(
-                                "The captcha token is filled automatically after successful verification.",
-                                font_size="11px",
-                                color="#605e5c",
+                                name="captcha_token",
+                                type="hidden",
+                                default_value="",
                             ),
                             spacing="1",
                             width="100%",

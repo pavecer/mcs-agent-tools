@@ -1658,17 +1658,28 @@ class State(rx.State):
             self.request_error = "Account requests are not enabled in this environment."
             return
 
-        email = (self.request_email or "").strip().lower()
+        email = (_form_data.get("email") or self.request_email or "").strip().lower()
         if not email or not re.fullmatch(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$", email):
             self.request_error = "Enter a valid email address."
             return
 
-        captcha_ok, captcha_msg = verify_turnstile(self.request_captcha_token)
+        # Prefer form_data value (current DOM value, bypasses React controlled-input
+        # reset race) and fall back to state in case form_data is unavailable.
+        captcha_token = (_form_data.get("captcha_token") or self.request_captcha_token or "").strip()
+        try:
+            captcha_ok, captcha_msg = verify_turnstile(captcha_token)
+        except Exception:
+            self.request_error = "Captcha verification is temporarily unavailable. Please try again."
+            return
         if not captcha_ok:
             self.request_error = captcha_msg or "Captcha validation failed."
             return
 
-        ok, message = create_account_request(email=email)
+        try:
+            ok, message = create_account_request(email=email)
+        except Exception:
+            self.request_error = "Unable to submit request. Please try again later."
+            return
         if not ok:
             self.request_error = message
             return
