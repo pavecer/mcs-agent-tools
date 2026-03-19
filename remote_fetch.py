@@ -10,7 +10,6 @@ The public entry point is ``fetch_agent_data``.
 from __future__ import annotations
 
 import json
-import os
 import re
 import shutil
 import subprocess
@@ -20,6 +19,8 @@ from pathlib import Path
 from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
+
+from env_config import read_env_config
 
 
 _GUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
@@ -178,13 +179,7 @@ def authenticate_dataverse(
 
 def has_dataverse_env_credentials() -> bool:
     """Return True when environment-based Dataverse credentials are configured."""
-    if os.getenv("MCS_DATAVERSE_TOKEN", "").strip():
-        return True
-    return bool(
-        os.getenv("MCS_AAD_TENANT_ID", "").strip()
-        and os.getenv("MCS_AAD_CLIENT_ID", "").strip()
-        and os.getenv("MCS_AAD_CLIENT_SECRET", "").strip()
-    )
+    return read_env_config().has_dataverse_env_credentials
 
 
 def begin_device_code_auth(
@@ -527,7 +522,8 @@ def _extract_template_with_pac(*, environment: str, agent_id: str) -> str:
 
 
 def _resolve_dataverse_url(*, environment: str, dataverse_url: str | None) -> str:
-    candidate = (dataverse_url or "").strip() or os.getenv("MCS_DATAVERSE_URL", "").strip()
+    env = read_env_config()
+    candidate = (dataverse_url or "").strip() or env.mcs_dataverse_url
     if not candidate and environment.startswith(("http://", "https://")):
         candidate = environment
     if not candidate and _looks_like_dataverse_host(environment):
@@ -612,13 +608,14 @@ def _build_dataverse_headers(*, base_url: str, auth: DataverseAuthConfig | None)
 
 
 def _resolve_dataverse_token(*, base_url: str, auth: DataverseAuthConfig | None = None) -> str:
-    token = ((auth.token if auth else "") or os.getenv("MCS_DATAVERSE_TOKEN", "")).strip()
+    env = read_env_config()
+    token = ((auth.token if auth else "") or env.mcs_dataverse_token).strip()
     if token:
         return token
 
-    tenant_id = ((auth.tenant_id if auth else "") or os.getenv("MCS_AAD_TENANT_ID", "")).strip()
-    client_id = ((auth.client_id if auth else "") or os.getenv("MCS_AAD_CLIENT_ID", "")).strip()
-    client_secret = ((auth.client_secret if auth else "") or os.getenv("MCS_AAD_CLIENT_SECRET", "")).strip()
+    tenant_id = ((auth.tenant_id if auth else "") or env.mcs_aad_tenant_id).strip()
+    client_id = ((auth.client_id if auth else "") or env.mcs_aad_client_id).strip()
+    client_secret = ((auth.client_secret if auth else "") or env.mcs_aad_client_secret).strip()
 
     if not (tenant_id and client_id and client_secret):
         raise RemoteFetchError(
@@ -626,7 +623,7 @@ def _resolve_dataverse_token(*, base_url: str, auth: DataverseAuthConfig | None 
             "MCS_AAD_TENANT_ID + MCS_AAD_CLIENT_ID + MCS_AAD_CLIENT_SECRET."
         )
 
-    scope = ((auth.scope if auth else "") or os.getenv("MCS_AAD_SCOPE", "")).strip() or f"{base_url}/.default"
+    scope = ((auth.scope if auth else "") or env.mcs_aad_scope).strip() or f"{base_url}/.default"
     form = urlencode(
         {
             "client_id": client_id,
@@ -892,8 +889,9 @@ def _fetch_transcripts_dataverse(
 
 
 def _fetch_transcripts_admin_api(*, agent_id: str, transcript_days: int) -> tuple[list[dict], dict]:
-    endpoint = os.getenv("MCS_ADMIN_SESSIONS_URL", "").strip()
-    token = os.getenv("MCS_ADMIN_API_TOKEN", "").strip() or os.getenv("MCS_DATAVERSE_TOKEN", "").strip()
+    env = read_env_config()
+    endpoint = env.mcs_admin_sessions_url
+    token = env.mcs_admin_api_token
 
     if not endpoint or not token:
         return [], {"transcript_days": transcript_days}
@@ -1099,13 +1097,8 @@ def _redact_secrets(text: str) -> str:
         return ""
 
     result = text
-    secret_vars = [
-        "MCS_DATAVERSE_TOKEN",
-        "MCS_AAD_CLIENT_SECRET",
-        "MCS_ADMIN_API_TOKEN",
-    ]
-    for env_name in secret_vars:
-        raw = os.getenv(env_name, "")
-        if raw:
-            result = result.replace(raw, "***")
+    env = read_env_config()
+    for secret in (env.mcs_dataverse_token, env.mcs_aad_client_secret, env.mcs_admin_api_token):
+        if secret:
+            result = result.replace(secret, "***")
     return result

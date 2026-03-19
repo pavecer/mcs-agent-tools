@@ -179,8 +179,7 @@ def json_upload_area() -> rx.Component:
                 align="center",
             ),
             id="mcs_landing_upload",
-            accept={"application/json": [".json"]},
-            # https://react-dropzone.js.org/#section-accepting-specific-file-types
+            accept={".json": ["application/json"]},
             multiple=False,
             border=f"2px dashed {PRIMARY}",
             border_radius="14px",
@@ -1713,10 +1712,10 @@ def login_form() -> rx.Component:
                     ),
                     rx.vstack(
                         rx.vstack(
-                            label("Email or username"),
+                            label("Username"),
                             rx.input(
                                 id="username",
-                                placeholder="Enter email or username",
+                                placeholder="Enter username",
                                 value=State.username,
                                 on_change=State.set_username,
                                 width="100%",
@@ -1750,24 +1749,6 @@ def login_form() -> rx.Component:
                         cursor="pointer",
                         _hover={"background_color": "#005a9e"},
                     ),
-                    rx.cond(
-                        State.signup_enabled,
-                        rx.hstack(
-                            rx.text("Need access?", font_size="12px", color="#605e5c"),
-                            rx.link(
-                                "Request an account",
-                                href="/request-account",
-                                color=PRIMARY,
-                                font_size="12px",
-                                font_weight="600",
-                            ),
-                            spacing="1",
-                            align="center",
-                            width="100%",
-                            justify="center",
-                        ),
-                        rx.box(),
-                    ),
                     spacing="4",
                     align="start",
                     width="320px",
@@ -1781,286 +1762,128 @@ def login_form() -> rx.Component:
     )
 
 
-def turnstile_script() -> rx.Component:
-    """Load and initialize Cloudflare Turnstile globally for any matching page content."""
-    return rx.script(
-        """
-        (function initTurnstileWidget() {
-            const w = window;
-            const siteKeyEl = document.getElementById('turnstile-site-key');
-            const tokenInput = document.getElementById('request-captcha-token');
-            const container = document.getElementById('turnstile-widget');
-            const statusEl = document.getElementById('turnstile-widget-status');
-            if (!siteKeyEl || !tokenInput || !container || !statusEl) {
-                setTimeout(initTurnstileWidget, 250);
-                return;
-            }
-            const setStatus = function(message, color) {
-                statusEl.textContent = message || '';
-                statusEl.style.color = color || '#605e5c';
-            };
-            const clearToken = function() {
-                tokenInput.value = '';
-                tokenInput.dispatchEvent(new Event('change', { bubbles: true }));
-            };
-            const ensureScript = function() {
-                if (w.turnstile) {
-                    return;
-                }
-                if (document.getElementById('cf-turnstile-api')) {
-                    return;
-                }
-                const script = document.createElement('script');
-                script.id = 'cf-turnstile-api';
-                script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
-                script.async = true;
-                script.defer = true;
-                script.onload = function() {
-                    setStatus('Turnstile script loaded. Preparing captcha...', '#605e5c');
-                    setTimeout(initTurnstileWidget, 50);
-                };
-                script.onerror = function() {
-                    setStatus('Turnstile script failed to load. Disable content blocking or allow challenges.cloudflare.com, then reload.', '#a4262c');
-                };
-                document.head.appendChild(script);
-                setStatus('Loading Turnstile script...', '#605e5c');
-            };
-            const siteKey = (siteKeyEl.textContent || '').trim();
-            if (!siteKey) {
-                setStatus('Turnstile site key is missing in this environment.', '#a4262c');
-                return;
-            }
-            if (!w.turnstile) {
-                ensureScript();
-                const attempts = Number(container.getAttribute('data-turnstile-attempts') || '0');
-                container.setAttribute('data-turnstile-attempts', String(attempts + 1));
-                if (attempts >= 20) {
-                    setStatus('Turnstile failed to initialize after loading. Reload the page and check browser privacy settings.', '#a4262c');
-                    return;
-                }
-                setTimeout(initTurnstileWidget, 250);
-                return;
-            }
-            // Guard against double-render: check both the DOM attribute and for an existing
-            // iframe child (the attribute is lost when React remounts the container element).
-            if (container.getAttribute('data-rendered') === 'true' || container.querySelector('iframe')) {
-                return;
-            }
-            try {
-                container.setAttribute('data-rendered', 'true');
-                setStatus('Loading Turnstile challenge...', '#605e5c');
-                w.turnstile.render('#turnstile-widget', {
-                    sitekey: siteKey,
-                    callback: function(token) {
-                        tokenInput.value = token;
-                        tokenInput.dispatchEvent(new Event('change', { bubbles: true }));
-                        setStatus('Captcha verified.', '#107c10');
-                    },
-                    'expired-callback': function() {
-                        clearToken();
-                        setStatus('Captcha expired. Please complete it again.', '#c7921e');
-                    },
-                    'error-callback': function() {
-                        clearToken();
-                        container.setAttribute('data-rendered', 'false');
-                        setStatus('Turnstile could not render. Check hostname settings or reload the page.', '#a4262c');
-                    },
-                });
-            } catch (error) {
-                container.setAttribute('data-rendered', 'false');
-                setStatus('Turnstile initialization failed. Open browser console for details.', '#a4262c');
-                console.error('Turnstile initialization failed', error);
-            }
-        })();
-        """
-    )
-
-
-def approval_prefill_script() -> rx.Component:
-    """Prefill the approval request ID from ?request_id=... in the URL."""
-    return rx.script(
-        """
-        (function prefillApprovalRequestId() {
-            const input = document.getElementById('approve-request-id');
-            if (!input) {
-                setTimeout(prefillApprovalRequestId, 200);
-                return;
-            }
-            const requestId = new URLSearchParams(window.location.search).get('request_id');
-            if (!requestId) {
-                return;
-            }
-            const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-            nativeSetter.call(input, requestId);
-            input.dispatchEvent(new Event('input', { bubbles: true }));
-        })();
-        """
-    )
-
-
-def admin_approval_panel() -> rx.Component:
-    """Approval panel used on the dedicated admin approval page."""
-    return rx.vstack(
-        rx.text(
-            "Admin approval",
-            font_size="12px",
-            color="#334a6d",
-            font_weight="700",
-        ),
-        rx.input(
-            id="approve-request-id",
-            placeholder="Pending request ID",
-            value=State.approve_request_id,
-            on_change=State.set_approve_request_id,
-            width="100%",
-        ),
-        rx.button(
-            "Approve and send credentials",
-            on_click=State.approve_pending_request,
-            width="100%",
-            variant="soft",
-            color_scheme="green",
-            cursor="pointer",
-        ),
-        rx.cond(
-            State.approval_error != "",
-            rx.callout(
-                State.approval_error,
-                icon="circle-alert",
-                color_scheme="red",
-                size="1",
+def admin_management_panel() -> rx.Component:
+    """Simple admin UI for DB-backed user management."""
+    return card(
+        rx.vstack(
+            rx.hstack(
+                rx.icon("users", color=PRIMARY, size=20),
+                rx.heading("User Management", size="4", color="#201f1e"),
+                spacing="2",
+                align="center",
             ),
-            rx.box(),
-        ),
-        rx.cond(
-            State.approval_info != "",
-            rx.callout(
-                State.approval_info,
-                icon="circle-check",
-                color_scheme="green",
-                size="1",
+            rx.text(
+                "Add and remove users stored in PostgreSQL. If password is left empty, a temporary password is generated and emailed when ACS is configured.",
+                font_size="13px",
+                color="#605e5c",
             ),
-            rx.box(),
-        ),
-        spacing="2",
-        width="100%",
-        align="start",
-    )
-
-
-def approval_page_form() -> rx.Component:
-    """Dedicated admin page for approving account requests from email links."""
-    return rx.center(
-        card(
-            approval_prefill_script(),
+            rx.cond(
+                State.admin_error != "",
+                rx.callout(State.admin_error, icon="circle-alert", color_scheme="red", size="1"),
+                rx.box(),
+            ),
+            rx.cond(
+                State.admin_message != "",
+                rx.callout(State.admin_message, icon="circle-check", color_scheme="green", size="1"),
+                rx.box(),
+            ),
+            rx.hstack(
+                rx.input(
+                    placeholder="user@company.com",
+                    value=State.add_user_email,
+                    on_change=State.set_add_user_email,
+                    width="50%",
+                ),
+                rx.input(
+                    placeholder="Password (optional)",
+                    type="password",
+                    value=State.add_user_password,
+                    on_change=State.set_add_user_password,
+                    width="50%",
+                ),
+                spacing="2",
+                width="100%",
+                flex_wrap="wrap",
+            ),
+            rx.hstack(
+                rx.button(
+                    "Add user",
+                    on_click=State.add_new_user,
+                    background_color=PRIMARY,
+                    color="white",
+                    cursor="pointer",
+                    _hover={"background_color": "#005a9e"},
+                ),
+                rx.button(
+                    "Reload",
+                    on_click=State.load_users,
+                    variant="outline",
+                    cursor="pointer",
+                ),
+                spacing="2",
+            ),
             rx.vstack(
-                rx.hstack(
-                    rx.icon("shield-check", color=PRIMARY, size=28),
-                    rx.heading(
-                        "Approve Account Request",
-                        size="5",
-                        color="#201f1e",
-                        font_weight="700",
-                    ),
-                    spacing="3",
-                    align="center",
-                ),
-                rx.text(
-                    "Use this page to approve pending signup requests and send temporary credentials.",
-                    font_size="13px",
-                    color="#605e5c",
-                ),
-                rx.cond(
-                    ~State.is_authenticated,
-                    rx.callout(
-                        "Sign in with the configured admin account to approve requests.",
-                        icon="circle-alert",
-                        color_scheme="amber",
-                        size="1",
-                    ),
-                    rx.cond(
-                        ~State.is_admin,
-                        rx.callout(
-                            "You are signed in, but only the configured admin account can approve requests.",
-                            icon="circle-alert",
-                            color_scheme="amber",
-                            size="1",
+                rx.foreach(
+                    State.users_list,
+                    lambda user: rx.hstack(
+                        rx.vstack(
+                            rx.text(user["email"], font_size="13px", font_weight="600", color="#201f1e"),
+                            rx.badge(
+                                rx.cond(user["is_active"], "Active", "Inactive"),
+                                color_scheme=rx.cond(user["is_active"], "green", "gray"),
+                                variant="soft",
+                                size="1",
+                            ),
+                            spacing="1",
+                            align="start",
                         ),
-                        admin_approval_panel(),
+                        rx.spacer(),
+                        rx.button(
+                            "Delete",
+                            on_click=State.delete_user_account(user["email"]),
+                            variant="ghost",
+                            color_scheme="red",
+                            cursor="pointer",
+                        ),
+                        width="100%",
+                        align="center",
+                        padding="8px 10px",
+                        border="1px solid #e1dfdd",
+                        border_radius="8px",
                     ),
                 ),
-                rx.hstack(
-                    rx.link("Go to sign in", href="/login", color=PRIMARY, font_size="12px", font_weight="600"),
-                    rx.text("•", color="#c8c6c4", font_size="12px"),
-                    rx.link("Back to request page", href="/request-account", color="#5d6f8f", font_size="12px"),
-                    spacing="2",
-                    align="center",
-                ),
-                spacing="4",
-                align="start",
-                width="380px",
+                spacing="2",
+                width="100%",
             ),
+            spacing="3",
+            width="100%",
+            align="start",
         ),
-        min_height="100vh",
-        background_color=BG,
         width="100%",
     )
 
 
-def request_account_form() -> rx.Component:
-    """Email-only account request card with Turnstile token input."""
+def reset_password_form() -> rx.Component:
+    """First-login password reset form for DB-backed users."""
     return rx.center(
         card(
             rx.form.root(
                 rx.vstack(
                     rx.hstack(
-                        rx.icon("mail-plus", color=PRIMARY, size=28),
-                        rx.heading(
-                            "Request Account Access",
-                            size="5",
-                            color="#201f1e",
-                            font_weight="700",
-                        ),
+                        rx.icon("key-round", color=PRIMARY, size=26),
+                        rx.heading("Set A New Password", size="5", color="#201f1e", font_weight="700"),
                         spacing="3",
                         align="center",
                     ),
                     rx.text(
-                        "Submit your work email. After admin approval, a temporary password is sent by email.",
+                        "Your temporary password was accepted. Choose a new password to continue.",
                         font_size="13px",
                         color="#605e5c",
                     ),
                     rx.cond(
-                        State.turnstile_site_key != "",
-                        rx.vstack(
-                            rx.callout(
-                                "Captcha is enabled. Complete the verification challenge before submitting.",
-                                icon="shield-check",
-                                color_scheme="blue",
-                                size="1",
-                            ),
-                            rx.text(State.turnstile_site_key, id="turnstile-site-key", display="none"),
-                            rx.box(id="turnstile-widget", width="100%"),
-                            rx.box(
-                                id="turnstile-widget-status",
-                                width="100%",
-                                font_size="12px",
-                                color="#605e5c",
-                            ),
-                            spacing="2",
-                            width="100%",
-                            align="start",
-                        ),
+                        State.password_reset_error != "",
                         rx.callout(
-                            "Captcha site key is not configured in this environment.",
-                            icon="triangle-alert",
-                            color_scheme="amber",
-                            size="1",
-                        ),
-                    ),
-                    rx.cond(
-                        State.request_error != "",
-                        rx.callout(
-                            State.request_error,
+                            State.password_reset_error,
                             icon="circle-alert",
                             color_scheme="red",
                             size="1",
@@ -2068,9 +1891,9 @@ def request_account_form() -> rx.Component:
                         rx.box(),
                     ),
                     rx.cond(
-                        State.request_info != "",
+                        State.password_reset_info != "",
                         rx.callout(
-                            State.request_info,
+                            State.password_reset_info,
                             icon="circle-check",
                             color_scheme="green",
                             size="1",
@@ -2079,25 +1902,27 @@ def request_account_form() -> rx.Component:
                     ),
                     rx.vstack(
                         rx.vstack(
-                            label("Email"),
+                            label("New Password"),
                             rx.input(
-                                id="request-email",
-                                name="email",
-                                type="email",
-                                placeholder="name@company.com",
-                                value=State.request_email,
-                                on_change=State.set_request_email,
+                                id="new-password",
+                                type="password",
+                                placeholder="At least 10 characters",
+                                value=State.new_password,
+                                on_change=State.set_new_password,
                                 width="100%",
                             ),
                             spacing="1",
                             width="100%",
                         ),
                         rx.vstack(
+                            label("Confirm Password"),
                             rx.input(
-                                id="request-captcha-token",
-                                name="captcha_token",
-                                type="hidden",
-                                default_value="",
+                                id="confirm-password",
+                                type="password",
+                                placeholder="Repeat new password",
+                                value=State.confirm_password,
+                                on_change=State.set_confirm_password,
+                                width="100%",
                             ),
                             spacing="1",
                             width="100%",
@@ -2106,7 +1931,7 @@ def request_account_form() -> rx.Component:
                         width="100%",
                     ),
                     rx.button(
-                        "Submit request",
+                        "Update Password",
                         type="submit",
                         width="100%",
                         background_color=PRIMARY,
@@ -2115,42 +1940,11 @@ def request_account_form() -> rx.Component:
                         cursor="pointer",
                         _hover={"background_color": "#005a9e"},
                     ),
-                    rx.link(
-                        "Back to sign in",
-                        href="/login",
-                        color="#5d6f8f",
-                        font_size="12px",
-                        width="100%",
-                        text_align="center",
-                    ),
-                    rx.cond(
-                        State.is_admin,
-                        rx.vstack(
-                            rx.divider(color_scheme="gray", margin_y="2"),
-                            rx.callout(
-                                "Signed in as admin. Open the dedicated approval page for pending requests.",
-                                icon="shield-check",
-                                color_scheme="green",
-                                size="1",
-                            ),
-                            rx.link(
-                                "Open approval page",
-                                href="/request-approval",
-                                color=PRIMARY,
-                                font_size="12px",
-                                font_weight="600",
-                            ),
-                            spacing="2",
-                            width="100%",
-                            align="start",
-                        ),
-                        rx.box(),
-                    ),
                     spacing="4",
                     align="start",
-                    width="360px",
+                    width="320px",
                 ),
-                on_submit=State.submit_account_request,
+                on_submit=State.submit_password_reset,
             ),
         ),
         min_height="100vh",
@@ -2251,7 +2045,7 @@ def _mcs_upload_form() -> rx.Component:
                 align="center",
             ),
             id="mcs_upload",
-            accept={"application/json": [".json"]},
+            accept={".json": ["application/json"]},
             multiple=False,
             border=f"2px dashed {PRIMARY}",
             border_radius="8px",

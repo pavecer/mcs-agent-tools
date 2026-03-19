@@ -1,15 +1,13 @@
 """Reflex app configuration."""
 
-import os
-
-from dotenv import load_dotenv
-
-load_dotenv()
+from env_config import read_env_config
 
 import reflex as rx  # noqa: E402
 
+_env = read_env_config()
+
 # Determine run mode from environment (matches mcs-agent-analyser pattern)
-is_prod = os.getenv("REFLEX_ENV", "dev") == "prod"
+is_prod = _env.is_prod
 
 if is_prod:
     # api_url is the public URL the BROWSER uses to connect WebSocket.
@@ -20,16 +18,16 @@ if is_prod:
     # On ACA, pass the HTTPS FQDN: --build-arg API_URL=https://<fqdn>
     config = rx.Config(
         app_name="web",
-        api_url=os.getenv("API_URL", "http://localhost:2009"),
+        api_url=_env.api_url,
         # Avoid common/default collisions in managed environments.
-        frontend_port=int(os.getenv("FRONTEND_PORT", "3100")),
-        backend_port=int(os.getenv("BACKEND_PORT", "8000")),
+        frontend_port=_env.frontend_port,
+        backend_port=_env.backend_port,
         disable_plugins=["reflex.plugins.sitemap.SitemapPlugin"],
     )
 else:
     config = rx.Config(
         app_name="web",
-        frontend_port=int(os.getenv("FRONTEND_PORT", "3000")),
-        backend_port=int(os.getenv("BACKEND_PORT", "8000")),
+        frontend_port=_env.frontend_port,
+        backend_port=_env.backend_port,
         disable_plugins=["reflex.plugins.sitemap.SitemapPlugin"],
     )

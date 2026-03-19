@@ -13,8 +13,7 @@ skips the live test and only reports the configured model plus static guidance.
 
 from __future__ import annotations
 
-import os
-
+from env_config import parse_env_bool, read_env_config
 from toolkit.mcs.models import MCSBotProfile
 
 # ---------------------------------------------------------------------------
@@ -366,7 +365,7 @@ def _get_openai_client(api_key: str):
     except ImportError as exc:  # pragma: no cover - dependency is declared in pyproject
         raise RuntimeError("openai package is not installed") from exc
 
-    base_url = os.getenv("OPENAI_BASE_URL") or os.getenv("OPENAI_API_BASE")
+    base_url = read_env_config().openai_base_url
     kwargs: dict = {"api_key": api_key}
     if base_url:
         kwargs["base_url"] = base_url
@@ -375,17 +374,13 @@ def _get_openai_client(api_key: str):
 
 def _resolve_comparison_models(configured_openai_model: str) -> list[str]:
     """Choose comparison models, respecting custom base URL / deployment configuration."""
-    custom_models = os.getenv("MCS_COMPARISON_MODELS", "").strip()
+    env = read_env_config()
+    custom_models = env.mcs_comparison_models
     if custom_models:
-        models = [item.strip() for item in custom_models.split(",") if item.strip()]
-        deduped: list[str] = []
-        for model in models:
-            if model not in deduped:
-                deduped.append(model)
-        return deduped[:5]
+        return custom_models
 
-    base_url = os.getenv("OPENAI_BASE_URL") or os.getenv("OPENAI_API_BASE")
-    explicit_model = os.getenv("OPENAI_MODEL", "").strip()
+    base_url = env.openai_base_url
+    explicit_model = env.openai_model
     if base_url:
         chosen = explicit_model or configured_openai_model or "gpt-4.1"
         return [chosen]
@@ -435,7 +430,7 @@ def _call_openai_chat(
         }
 
         # OpenAI Logs UI shows stored Chat Completions. Keep storage opt-in.
-        should_store = os.getenv("OPENAI_STORE_REQUESTS", "").strip().lower() in {"1", "true", "yes", "on"}
+        should_store = read_env_config().openai_store_requests
         if should_store:
             request_args["store"] = True
 
@@ -471,7 +466,7 @@ def _run_simulated_api_comparison(
     base_instructions = instructions.strip() if instructions else "You are a helpful assistant."
 
     # Use the configured model for all calls
-    configured_openai = os.getenv("OPENAI_MODEL", "gpt-4.1").strip()
+    configured_openai = read_env_config().openai_model or "gpt-4.1"
     if not configured_openai or configured_openai.lower() in ("", "none"):
         configured_openai = "gpt-4.1"
 
@@ -769,13 +764,9 @@ def build_comparison_markdown(profile: MCSBotProfile) -> str:
 
     # On-demand comparison requires an API key. Keep this section explicit so
     # users can quickly verify whether environment configuration was loaded.
-    api_key_present = bool(os.getenv("OPENAI_API_KEY", "").strip())
-    flag_enabled = os.getenv("MCS_ENABLE_MODEL_COMPARISON", "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
+    env = read_env_config()
+    api_key_present = bool(env.openai_api_key)
+    flag_enabled = env.mcs_enable_model_comparison
 
     if api_key_present:
         lines += [
@@ -841,7 +832,8 @@ def run_live_api_comparison(profile: MCSBotProfile) -> str:
     Returns:
         Markdown string with API comparison results, or error message if API call fails.
     """
-    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    env = read_env_config()
+    api_key = env.openai_api_key
     if not api_key:
         return (
             "> ⚠️ **API Key Missing**\n\n"
@@ -854,8 +846,8 @@ def run_live_api_comparison(profile: MCSBotProfile) -> str:
     comparison_models = _resolve_comparison_models(configured_openai)
 
     # Determine comparison mode: simulated (default) or real
-    mode = (os.getenv("MCS_COMPARISON_MODE", "simulated") or "simulated").strip().lower()
-    is_real = mode in ("real", "1", "true", "yes")
+    mode = env.mcs_comparison_mode
+    is_real = mode == "real" or parse_env_bool("MCS_COMPARISON_MODE")
 
     instructions = (gpt_info.instructions or "") if gpt_info else ""
 
@@ -880,13 +872,13 @@ def run_live_api_comparison(profile: MCSBotProfile) -> str:
         "",
     ]
 
-    base_url = os.getenv("OPENAI_BASE_URL") or os.getenv("OPENAI_API_BASE")
+    base_url = env.openai_base_url
     if base_url:
         lines += [
             f"> Using configured custom OpenAI base URL: `{base_url}`",
             "",
         ]
-    if os.getenv("MCS_COMPARISON_MODELS", "").strip():
+    if env.mcs_comparison_models:
         lines += [
             "> Comparison model list provided via `MCS_COMPARISON_MODELS`.",
             "",

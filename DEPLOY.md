@@ -128,14 +128,13 @@ az containerapp secret set \
 
 ---
 
-## Optional: Enable self-service account requests
+## Optional: Enable DB-backed user management
 
-This feature adds `/request-account` with:
+This feature adds DB-backed login and admin user management with:
 
-- email-only request form
-- Cloudflare Turnstile server-side verification
-- PostgreSQL storage for pending requests and user credentials
-- Azure Communication Services Email delivery of temporary credentials after approval
+- PostgreSQL storage for user credentials
+- admin login with `AUTH_ADMIN_EMAIL` / `AUTH_ADMIN_PASSWORD`
+- optional Azure Communication Services Email delivery of generated temporary credentials
 
 ### 2a — Create Azure Database for PostgreSQL (Flexible Server)
 
@@ -176,14 +175,9 @@ AUTH_DB_DSN="postgresql://${PG_ADMIN_USER}:${PG_ADMIN_PASSWORD}@${PG_SERVER}.pos
    - `ACS_EMAIL_CONNECTION_STRING`
    - verified sender address, for example `DoNotReply@notifications.contoso.com`
 
-### 2c — Configure Turnstile
+### 2c — Add app secrets and env vars
 
-Create a Cloudflare Turnstile site and capture:
-
-- `TURNSTILE_SITE_KEY`
-- `TURNSTILE_SECRET_KEY`
-
-### 2d — Add app secrets and env vars
+Set required DB-backed auth settings:
 
 ```bash
 az containerapp secret set \
@@ -191,7 +185,24 @@ az containerapp secret set \
   --resource-group $RESOURCE_GROUP \
   --secrets \
     "auth-db-dsn=${AUTH_DB_DSN}" \
-    "turnstile-secret=${TURNSTILE_SECRET_KEY}" \
+    "auth-admin-password=${AUTH_ADMIN_PASSWORD}"
+
+az containerapp update \
+  --name $APP_NAME \
+  --resource-group $RESOURCE_GROUP \
+  --set-env-vars \
+    "AUTH_DB_DSN=secretref:auth-db-dsn" \
+    "AUTH_ADMIN_EMAIL=${AUTH_ADMIN_EMAIL}" \
+    "AUTH_ADMIN_PASSWORD=secretref:auth-admin-password"
+```
+
+Optional email delivery settings:
+
+```bash
+az containerapp secret set \
+  --name $APP_NAME \
+  --resource-group $RESOURCE_GROUP \
+  --secrets \
     "acs-email-conn=${ACS_EMAIL_CONNECTION_STRING}" \
     "acs-email-sender=${ACS_EMAIL_SENDER}"
 
@@ -199,10 +210,6 @@ az containerapp update \
   --name $APP_NAME \
   --resource-group $RESOURCE_GROUP \
   --set-env-vars \
-    "AUTH_SIGNUP_ENABLED=true" \
-    "AUTH_DB_DSN=secretref:auth-db-dsn" \
-    "TURNSTILE_SITE_KEY=${TURNSTILE_SITE_KEY}" \
-    "TURNSTILE_SECRET_KEY=secretref:turnstile-secret" \
     "ACS_EMAIL_CONNECTION_STRING=secretref:acs-email-conn" \
     "ACS_EMAIL_SENDER=secretref:acs-email-sender"
 ```
@@ -293,6 +300,9 @@ az ad app federated-credential create \
 
 In your repository: **Settings → Secrets and variables → Actions → New repository secret**
 
+Create environment-scoped secrets for both `dev` and `prod` GitHub Environments if you deploy to both.
+The deploy workflow uses the selected GitHub Environment and validates secrets before deployment.
+
 | Secret name | Value |
 |-------------|-------|
 | `AZURE_CLIENT_ID` | Output of `echo $APP_ID` from Step 3a |
@@ -302,9 +312,26 @@ In your repository: **Settings → Secrets and variables → Actions → New rep
 | `AZURE_RESOURCE_GROUP` | e.g. `rg-pp-toolkit` |
 | `AZURE_CONTAINER_APP_NAME` | e.g. `pp-agent-toolkit` |
 
-> The workflow uses the `production` GitHub environment — create it at
-> **Settings → Environments → New environment → production** (optional but
-> allows you to add required reviewers before production deploys).
+Optional (only when enabling DB-backed auth):
+
+| Secret name | Value |
+|-------------|-------|
+| `AUTH_DB_DSN` | PostgreSQL DSN built in Step 2a |
+| `AUTH_ADMIN_EMAIL` | Admin email address |
+| `AUTH_ADMIN_PASSWORD` | Admin password |
+| `ACS_EMAIL_CONNECTION_STRING` | ACS email connection string (optional) |
+| `ACS_EMAIL_SENDER` | Verified ACS sender address (optional) |
+
+Recommended GitHub Environments:
+
+- `dev` for manual development deployments
+- `prod` for scheduled or production deployments
+
+The workflow preflight validates email settings when `AUTH_DB_DSN` is set:
+
+- both `ACS_EMAIL_CONNECTION_STRING` and `ACS_EMAIL_SENDER` must be present together
+- `ACS_EMAIL_CONNECTION_STRING` must include `endpoint=` and `accesskey=`
+- `ACS_EMAIL_SENDER` must look like a valid email address
 
 ---
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import reflex as rx
 
 from web.components import (
-    approval_page_form,
+    admin_management_panel,
     action_bar,
     deps_panel,
     detected_info_panel,
@@ -18,9 +18,8 @@ from web.components import (
     navbar,
     no_agent_warning_banner,
     process_error_banner,
-    request_account_form,
+    reset_password_form,
     result_panel,
-    turnstile_script,
     solution_check_panel,
     transcript_input_choice_area,
     tutorial_dialog,
@@ -194,7 +193,6 @@ def index() -> rx.Component:
     return app_wrapper(
         rx.vstack(
             mermaid_script(),
-            turnstile_script(),
             tutorial_dialog(),
             navbar(),
         rx.box(
@@ -373,18 +371,17 @@ def login_page() -> rx.Component:
     )
 
 
-def request_account_page() -> rx.Component:
-    """Self-service account request page."""
+def admin_page() -> rx.Component:
+    """Admin page for managing DB-backed users."""
     return app_wrapper(
-        turnstile_script(),
-        request_account_form(),
+        admin_management_panel(),
     )
 
 
-def request_approval_page() -> rx.Component:
-    """Dedicated admin approval page for pending account requests."""
+def reset_password_page() -> rx.Component:
+    """First-login password reset page for DB-backed users."""
     return app_wrapper(
-        approval_page_form(),
+        reset_password_form(),
     )
 
 
@@ -393,5 +390,5 @@ app = rx.App(
 )
 app.add_page(index, route="/", title="PP Agent Toolkit")
 app.add_page(login_page, route="/login", title="Sign in — PP Agent Toolkit", on_load=State.check_already_authed)
-app.add_page(request_account_page, route="/request-account", title="Request account — PP Agent Toolkit")
-app.add_page(request_approval_page, route="/request-approval", title="Approve request — PP Agent Toolkit")
+app.add_page(admin_page, route="/admin", title="User Management — PP Agent Toolkit", on_load=State.load_users)
+app.add_page(reset_password_page, route="/reset-password", title="Set new password — PP Agent Toolkit", on_load=State.check_auth)

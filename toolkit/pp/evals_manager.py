@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import io
 import json
-import os
 import re
 import tempfile
 import uuid
@@ -13,6 +12,7 @@ from pathlib import Path
 import defusedxml.ElementTree as ET
 import yaml
 
+from env_config import read_env_config
 from renamer import safe_extractall
 from toolkit.pp.solution_checker import _check_agent_config, _check_topics
 from toolkit.pp.visualizer import parse_evals_zip, parse_solution_zip
@@ -579,14 +579,15 @@ _LLM_SYSTEM_PROMPT = (
 
 def _get_llm_client():
     """Return an openai.OpenAI client when OPENAI_API_KEY is set, otherwise None."""
-    api_key = os.getenv("OPENAI_API_KEY")
+    env = read_env_config()
+    api_key = env.openai_api_key
     if not api_key:
         return None
     try:
         import openai  # noqa: PLC0415
     except ImportError:
         return None
-    base_url: str | None = os.getenv("OPENAI_BASE_URL") or os.getenv("OPENAI_API_BASE")
+    base_url: str | None = env.openai_base_url or None
     kwargs: dict = {"api_key": api_key}
     if base_url:
         kwargs["base_url"] = base_url
@@ -632,7 +633,7 @@ def _generate_scenarios_with_llm(blueprint: dict, target_count: int, mode: str) 
         f"Generate exactly {target_count} test scenarios."
     )
 
-    model = os.getenv("OPENAI_MODEL") or _LLM_MODEL_DEFAULT
+    model = read_env_config().openai_model or _LLM_MODEL_DEFAULT
     try:
         response = client.chat.completions.create(
             model=model,

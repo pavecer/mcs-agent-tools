@@ -6,7 +6,6 @@ import base64
 import hashlib
 import io
 import os
-import re
 import tempfile
 import traceback
 import zipfile
@@ -14,22 +13,19 @@ from pathlib import Path
 from typing import Any
 
 import reflex as rx
-from dotenv import load_dotenv
-
-# Load environment variables from .env file before any imports that use them
-load_dotenv()
+from env_config import read_env_config
 
 from toolkit.pp.evals_manager import analyze_evals_zip_bytes, export_solution_with_evals, preview_generated_evals
 from auth_services import (
-    approve_account_request,
+    add_user,
     authenticate_env_admin,
     authenticate_db_user,
-    create_account_request,
+    delete_user,
     ensure_auth_schema,
     is_admin_login_enabled,
     is_db_auth_enabled,
-    is_signup_enabled,
-    verify_turnstile,
+    list_users,
+    reset_user_password,
 )
 from toolkit.mcs.credits import estimate_credits_from_activities
 from toolkit.mcs.models import MCSConversationTimeline as _MCSTl
@@ -65,8 +61,6 @@ from toolkit.pp.solution_checker import check_solution_zip
 from toolkit.pp.validator import validate_instructions, validate_zip_bytes
 from toolkit.pp.visualizer import visualize_zip_bytes, get_evals_data
 
-load_dotenv()
-
 _MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB — maximum accepted upload size
 TUTORIAL_TOTAL_STEPS = 8  # number of tutorial steps; must match _TUTORIAL_TOTAL in components.py
 
@@ -98,7 +92,7 @@ def _load_users() -> dict[str, str]:
     Format: ``USERS=admin:pass1,analyst:pass2``
     Returns an empty dict if the env var is absent or empty, which disables auth.
     """
-    raw = os.getenv("USERS", "").strip()
+    raw = read_env_config().users_raw
     if not raw:
         return {}
     users: dict[str, str] = {}
@@ -290,16 +284,17 @@ class State(rx.State):
     auth_error: str = ""
     auth_info: str = ""
     requires_password_reset: bool = False
+    new_password: str = ""
+    confirm_password: str = ""
+    password_reset_error: str = ""
+    password_reset_info: str = ""
 
-    request_email: str = ""
-    request_captcha_token: str = ""
-    request_error: str = ""
-    request_info: str = ""
-    request_success: bool = False
-
-    approve_request_id: str = ""
-    approval_error: str = ""
-    approval_info: str = ""
+    # Admin user management
+    users_list: list[dict] = []
+    add_user_email: str = ""
+    add_user_password: str = ""
+    admin_message: str = ""
+    admin_error: str = ""
 
     # ── Tutorial ──────────────────────────────────────────────────────────────
     tutorial_open: bool = False
@@ -400,16 +395,8 @@ class State(rx.State):
         return bool(self.zip_bytes_b64) or self.mcs_source == "transcript"
 
     @rx.var
-    def signup_enabled(self) -> bool:
-        return is_signup_enabled() and is_db_auth_enabled()
-
-    @rx.var
     def admin_login_enabled(self) -> bool:
         return is_admin_login_enabled()
-
-    @rx.var
-    def turnstile_site_key(self) -> str:
-        return os.getenv("TURNSTILE_SITE_KEY", "").strip()
 
     @rx.var
     def has_detection(self) -> bool:
@@ -641,7 +628,7 @@ class State(rx.State):
     @rx.var
     def mcs_env_api_key_present(self) -> bool:
         """Whether OPENAI_API_KEY is available in the current process environment."""
-        return bool(os.getenv("OPENAI_API_KEY", "").strip())
+        return bool(read_env_config().openai_api_key)
 
     @rx.var
     def can_run_mcs_api_comparison(self) -> bool:
@@ -1568,16 +1555,18 @@ class State(rx.State):
         self.auth_info = ""
 
     @rx.event
-    def set_request_email(self, value: str):
-        self.request_email = value
-        self.request_error = ""
-        self.request_info = ""
-        self.request_success = False
+    def set_new_password(self, value: str):
+        self.new_password = value
+        self.password_reset_error = ""
+        self.password_reset_info = ""
 
     @rx.event
-    def set_request_captcha_token(self, value: str):
-        self.request_captcha_token = value
-        self.request_error = ""
+    def set_confirm_password(self, value: str):
+        self.confirm_password = value
+        self.password_reset_error = ""
+        self.password_reset_info = ""
+
+    # Removed set_request_email and set_request_captcha_token
 
     @rx.event
     def login(self):
@@ -1593,7 +1582,7 @@ class State(rx.State):
             self.auth_info = ""
             self.requires_password_reset = False
             self.password = ""
-            return rx.redirect("/request-approval")
+            return rx.redirect("/")
         if admin_result.message:
             self.auth_error = admin_result.message
             self.auth_info = ""
@@ -1617,7 +1606,8 @@ class State(rx.State):
                 self.requires_password_reset = db_result.requires_password_reset
                 self.password = ""
                 if self.requires_password_reset:
-                    self.auth_info = "Your temporary password was accepted. Please contact admin to reset password support flow."
+                    self.auth_info = "Temporary password accepted. Please set a new password to continue."
+                    return rx.redirect("/reset-password")
                 return rx.redirect("/")
 
             if db_result.message:
@@ -1648,72 +1638,117 @@ class State(rx.State):
         return self.login()
 
     @rx.event
-    def submit_account_request(self, _form_data: dict[str, Any]):
-        """Validate captcha and store account request as pending approval."""
-        self.request_error = ""
-        self.request_info = ""
-        self.request_success = False
-
-        if not (is_signup_enabled() and is_db_auth_enabled()):
-            self.request_error = "Account requests are not enabled in this environment."
-            return
-
-        email = (_form_data.get("email") or self.request_email or "").strip().lower()
-        if not email or not re.fullmatch(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$", email):
-            self.request_error = "Enter a valid email address."
-            return
-
-        # Prefer form_data value (current DOM value, bypasses React controlled-input
-        # reset race) and fall back to state in case form_data is unavailable.
-        captcha_token = (_form_data.get("captcha_token") or self.request_captcha_token or "").strip()
+    def load_users(self):
+        """Load all users from the database."""
+        self.admin_error = ""
+        self.admin_message = ""
         try:
-            captcha_ok, captcha_msg = verify_turnstile(captcha_token)
-        except Exception:
-            self.request_error = "Captcha verification is temporarily unavailable. Please try again."
-            return
-        if not captcha_ok:
-            self.request_error = captcha_msg or "Captcha validation failed."
-            return
-
-        try:
-            ok, message = create_account_request(email=email)
-        except Exception:
-            self.request_error = "Unable to submit request. Please try again later."
-            return
-        if not ok:
-            self.request_error = message
-            return
-
-        self.request_success = True
-        self.request_info = message
-        self.request_email = ""
-        self.request_captcha_token = ""
+            self.users_list = list_users()
+            if self.users_list:
+                self.admin_message = f"Loaded {len(self.users_list)} user(s)."
+        except Exception as exc:
+            self.admin_error = f"Failed to load users: {exc}"
 
     @rx.event
-    def set_approve_request_id(self, value: str):
-        self.approve_request_id = value
-        self.approval_error = ""
-        self.approval_info = ""
+    def set_add_user_email(self, value: str):
+        self.add_user_email = value
+        self.admin_error = ""
 
     @rx.event
-    def approve_pending_request(self):
-        """Approve a pending account request and send credentials via ACS."""
-        self.approval_error = ""
-        self.approval_info = ""
+    def set_add_user_password(self, value: str):
+        self.add_user_password = value
+        self.admin_error = ""
+
+    @rx.event
+    def add_new_user(self):
+        """Add a new user account."""
+        self.admin_error = ""
+        self.admin_message = ""
+
+        if not self.is_authenticated or not self.is_admin:
+            self.admin_error = "Only admins can add users."
+            return
+
+        email = self.add_user_email.strip().lower()
+        password = self.add_user_password.strip()
+
+        if not email:
+            self.admin_error = "Email is required."
+            return
+
+        try:
+            ok, message, generated_pwd = add_user(email, password)
+            if ok:
+                self.admin_message = message
+                if generated_pwd:
+                    self.admin_message += f" Temporary password: {generated_pwd}"
+                self.add_user_email = ""
+                self.add_user_password = ""
+                self.load_users()
+            else:
+                self.admin_error = message
+        except Exception as exc:
+            self.admin_error = f"Failed to add user: {exc}"
+
+    @rx.event
+    def delete_user_account(self, email: str):
+        """Delete a user account."""
+        self.admin_error = ""
+        self.admin_message = ""
+
+        if not self.is_authenticated or not self.is_admin:
+            self.admin_error = "Only admins can delete users."
+            return
+
+        if not email:
+            self.admin_error = "Email is required."
+            return
+
+        try:
+            ok, message = delete_user(email)
+            if ok:
+                self.admin_message = message
+                self.load_users()
+            else:
+                self.admin_error = message
+        except Exception as exc:
+            self.admin_error = f"Failed to delete user: {exc}"
+
+    @rx.event
+    def submit_password_reset(self):
+        """Finalize first-login password change for DB-backed users."""
+        self.password_reset_error = ""
+        self.password_reset_info = ""
 
         if not self.is_authenticated:
-            self.approval_error = "Sign in as an admin before approving requests."
-            return
-        if not self.is_admin:
-            self.approval_error = "Only the configured admin account can approve requests."
+            self.password_reset_error = "Sign in first."
+            return rx.redirect("/login")
+        if not self.requires_password_reset:
+            return rx.redirect("/")
+        if self.is_admin:
+            self.password_reset_error = "Admin account reset is managed through environment configuration."
             return
 
-        ok, message = approve_account_request(self.approve_request_id, self.username)
-        if not ok:
-            self.approval_error = message
+        new_password = (self.new_password or "").strip()
+        confirm_password = (self.confirm_password or "").strip()
+        if len(new_password) < 10:
+            self.password_reset_error = "New password must be at least 10 characters long."
             return
-        self.approval_info = message
-        self.approve_request_id = ""
+        if new_password != confirm_password:
+            self.password_reset_error = "Passwords do not match."
+            return
+
+        ok, message = reset_user_password(self.username, new_password)
+        if not ok:
+            self.password_reset_error = message
+            return
+
+        self.requires_password_reset = False
+        self.new_password = ""
+        self.confirm_password = ""
+        self.password_reset_info = message
+        self.auth_info = "Password changed successfully."
+        return rx.redirect("/")
 
     @rx.event
     def logout(self):
@@ -1721,15 +1756,21 @@ class State(rx.State):
         self.is_admin = False
         self.username = ""
         self.password = ""
+        self.new_password = ""
+        self.confirm_password = ""
         self.auth_error = ""
         self.auth_info = ""
         self.requires_password_reset = False
+        self.password_reset_error = ""
+        self.password_reset_info = ""
         return rx.redirect("/login")
 
     @rx.event
     def check_auth(self):
         """Redirect to /login when any authentication mode is configured."""
-        env_auth_enabled = bool(os.getenv("USERS", "").strip())
+        env_auth_enabled = bool(read_env_config().users_raw)
+        if self.is_authenticated and self.requires_password_reset:
+            return rx.redirect("/reset-password")
         if (env_auth_enabled or is_db_auth_enabled()) and not self.is_authenticated:
             return rx.redirect("/login")
 
@@ -1737,6 +1778,8 @@ class State(rx.State):
     def check_already_authed(self):
         """Redirect away from the login page if already authenticated."""
         if self.is_authenticated:
+            if self.requires_password_reset:
+                return rx.redirect("/reset-password")
             return rx.redirect("/")
 
     # ── MCS Analyse handlers ──────────────────────────────────────────────
@@ -2347,3 +2390,4 @@ class State(rx.State):
             self.derived_solution_unique = derive_solution_unique_name(self.new_solution_display_name.strip())
         else:
             self.derived_solution_unique = ""
+

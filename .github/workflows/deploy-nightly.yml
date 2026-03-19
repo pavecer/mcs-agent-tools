@@ -2,6 +2,15 @@ name: Deploy Nightly
 
 on:
   workflow_dispatch:
+    inputs:
+      target_environment:
+        description: "GitHub Environment to deploy"
+        type: choice
+        required: true
+        default: dev
+        options:
+          - dev
+          - prod
 
   schedule:
     - cron: "0 3 * * 1-5"
@@ -13,27 +22,36 @@ permissions:
   contents: read
 
 concurrency:
-  group: deploy-prod-main
+  group: deploy-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.target_environment || 'prod' }}-main
   cancel-in-progress: false
 
 jobs:
   preflight:
     name: Preflight Checks
-    if: github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment:
-      name: prod
+      name: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.target_environment || 'prod' }}
     outputs:
       deploy: ${{ steps.time_gate.outputs.deploy }}
+      target_env: ${{ steps.resolve_env.outputs.target_env }}
     steps:
+      - name: Resolve deployment environment
+        id: resolve_env
+        run: |
+          set -euo pipefail
+          TARGET_ENV="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.target_environment || 'prod' }}"
+          echo "target_env=${TARGET_ENV}" >> "$GITHUB_OUTPUT"
+          echo "Target environment: ${TARGET_ENV}"
+
       - name: Enable deployment for manual run
         id: time_gate
         run: |
           set -euo pipefail
-          echo "Manual run detected; deployment enabled."
+          echo "Deployment gate passed."
           echo "deploy=true" >> "$GITHUB_OUTPUT"
 
-      - name: Validate required prod secrets
+      - name: Validate required environment secrets
         if: steps.time_gate.outputs.deploy == 'true'
         env:
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
@@ -42,10 +60,9 @@ jobs:
           AZURE_CONTAINER_APP_NAME: ${{ secrets.AZURE_CONTAINER_APP_NAME }}
           AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
           ACR_NAME: ${{ secrets.ACR_NAME }}
-          AUTH_SIGNUP_ENABLED: ${{ secrets.AUTH_SIGNUP_ENABLED }}
           AUTH_DB_DSN: ${{ secrets.AUTH_DB_DSN }}
-          TURNSTILE_SITE_KEY: ${{ secrets.TURNSTILE_SITE_KEY }}
-          TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
+          AUTH_ADMIN_EMAIL: ${{ secrets.AUTH_ADMIN_EMAIL }}
+          AUTH_ADMIN_PASSWORD: ${{ secrets.AUTH_ADMIN_PASSWORD }}
           ACS_EMAIL_CONNECTION_STRING: ${{ secrets.ACS_EMAIL_CONNECTION_STRING }}
           ACS_EMAIL_SENDER: ${{ secrets.ACS_EMAIL_SENDER }}
         run: |
@@ -66,38 +83,61 @@ jobs:
           done
 
           if [[ "$missing" -ne 0 ]]; then
-            echo "Preflight failed. Configure missing secrets in GitHub Environment 'prod'."
+            echo "Preflight failed. Configure missing secrets in GitHub Environment '${{ steps.resolve_env.outputs.target_env }}'."
             exit 1
           fi
 
-          if [[ "${AUTH_SIGNUP_ENABLED,,}" == "true" ]]; then
-            signup_missing=0
+          if [[ -n "${AUTH_DB_DSN:-}" ]]; then
+            auth_missing=0
             for key in \
-              AUTH_DB_DSN \
-              TURNSTILE_SITE_KEY \
-              TURNSTILE_SECRET_KEY \
-              ACS_EMAIL_CONNECTION_STRING \
-              ACS_EMAIL_SENDER; do
+              AUTH_ADMIN_EMAIL \
+              AUTH_ADMIN_PASSWORD; do
               if [[ -z "${!key:-}" ]]; then
-                echo "ERROR: AUTH_SIGNUP_ENABLED=true requires prod secret: ${key}"
-                signup_missing=1
+                echo "ERROR: AUTH_DB_DSN requires prod secret: ${key}"
+                auth_missing=1
               fi
             done
-            if [[ "$signup_missing" -ne 0 ]]; then
-              echo "Preflight failed for signup feature secrets."
+
+            if [[ "$auth_missing" -ne 0 ]]; then
+              echo "Preflight failed for DB-backed authentication secrets."
               exit 1
+            fi
+
+            if [[ -n "${ACS_EMAIL_CONNECTION_STRING:-}" && -z "${ACS_EMAIL_SENDER:-}" ]]; then
+              echo "ERROR: ACS_EMAIL_CONNECTION_STRING is set but ACS_EMAIL_SENDER is missing."
+              exit 1
+            fi
+
+            if [[ -z "${ACS_EMAIL_CONNECTION_STRING:-}" && -n "${ACS_EMAIL_SENDER:-}" ]]; then
+              echo "ERROR: ACS_EMAIL_SENDER is set but ACS_EMAIL_CONNECTION_STRING is missing."
+              exit 1
+            fi
+
+            if [[ -n "${ACS_EMAIL_CONNECTION_STRING:-}" ]]; then
+              lowered="${ACS_EMAIL_CONNECTION_STRING,,}"
+              if [[ "$lowered" != *"endpoint="* || "$lowered" != *"accesskey="* ]]; then
+                echo "ERROR: ACS_EMAIL_CONNECTION_STRING does not look valid (expected endpoint=...;accesskey=...)."
+                exit 1
+              fi
+            fi
+
+            if [[ -n "${ACS_EMAIL_SENDER:-}" ]]; then
+              if [[ ! "${ACS_EMAIL_SENDER}" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]]; then
+                echo "ERROR: ACS_EMAIL_SENDER does not look like a valid email address."
+                exit 1
+              fi
             fi
           fi
 
-          echo "Preflight passed: all required prod secrets are present."
+          echo "Preflight passed: required secrets are present and email settings are valid."
 
   deploy:
     name: Build & Deploy to Azure Container App
-    if: github.ref == 'refs/heads/main' && needs.preflight.outputs.deploy == 'true'
+    if: needs.preflight.outputs.deploy == 'true'
     needs: preflight
     runs-on: ubuntu-latest
     environment:
-      name: prod
+      name: ${{ needs.preflight.outputs.target_env }}
     permissions:
       id-token: write
       contents: read
@@ -160,10 +200,9 @@ jobs:
 
       - name: Sync optional auth and email secrets
         env:
-          AUTH_SIGNUP_ENABLED: ${{ secrets.AUTH_SIGNUP_ENABLED }}
           AUTH_DB_DSN: ${{ secrets.AUTH_DB_DSN }}
-          TURNSTILE_SITE_KEY: ${{ secrets.TURNSTILE_SITE_KEY }}
-          TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
+          AUTH_ADMIN_EMAIL: ${{ secrets.AUTH_ADMIN_EMAIL }}
+          AUTH_ADMIN_PASSWORD: ${{ secrets.AUTH_ADMIN_PASSWORD }}
           ACS_EMAIL_CONNECTION_STRING: ${{ secrets.ACS_EMAIL_CONNECTION_STRING }}
           ACS_EMAIL_SENDER: ${{ secrets.ACS_EMAIL_SENDER }}
         run: |
@@ -171,30 +210,32 @@ jobs:
           APP="${{ secrets.AZURE_CONTAINER_APP_NAME }}"
           RG="${{ secrets.AZURE_RESOURCE_GROUP }}"
 
-          if [[ "${AUTH_SIGNUP_ENABLED,,}" != "true" ]]; then
-            echo "Signup flow disabled. Skipping auth/email secret sync."
+          if [[ -z "${AUTH_DB_DSN:-}" ]]; then
+            echo "AUTH_DB_DSN is not set. Skipping DB-backed auth/email sync."
             exit 0
+          fi
+
+          secret_args=("auth-db-dsn=${AUTH_DB_DSN}" "auth-admin-password=${AUTH_ADMIN_PASSWORD}")
+          env_args=(
+            "AUTH_DB_DSN=secretref:auth-db-dsn"
+            "AUTH_ADMIN_EMAIL=${AUTH_ADMIN_EMAIL}"
+            "AUTH_ADMIN_PASSWORD=secretref:auth-admin-password"
+          )
+
+          if [[ -n "${ACS_EMAIL_CONNECTION_STRING:-}" && -n "${ACS_EMAIL_SENDER:-}" ]]; then
+            secret_args+=("acs-email-conn=${ACS_EMAIL_CONNECTION_STRING}" "acs-email-sender=${ACS_EMAIL_SENDER}")
+            env_args+=("ACS_EMAIL_CONNECTION_STRING=secretref:acs-email-conn" "ACS_EMAIL_SENDER=secretref:acs-email-sender")
           fi
 
           az containerapp secret set \
             --name "$APP" \
             --resource-group "$RG" \
-            --secrets \
-              "auth-db-dsn=${AUTH_DB_DSN}" \
-              "turnstile-secret=${TURNSTILE_SECRET_KEY}" \
-              "acs-email-conn=${ACS_EMAIL_CONNECTION_STRING}" \
-              "acs-email-sender=${ACS_EMAIL_SENDER}" || exit 1
+            --secrets "${secret_args[@]}"
 
           az containerapp update \
             --name "$APP" \
             --resource-group "$RG" \
-            --set-env-vars \
-              "AUTH_SIGNUP_ENABLED=true" \
-              "AUTH_DB_DSN=secretref:auth-db-dsn" \
-              "TURNSTILE_SITE_KEY=${TURNSTILE_SITE_KEY}" \
-              "TURNSTILE_SECRET_KEY=secretref:turnstile-secret" \
-              "ACS_EMAIL_CONNECTION_STRING=secretref:acs-email-conn" \
-              "ACS_EMAIL_SENDER=secretref:acs-email-sender"
+            --set-env-vars "${env_args[@]}"
 
       - name: Wait for healthy revision
         run: |
