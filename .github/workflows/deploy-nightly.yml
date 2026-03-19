@@ -42,6 +42,12 @@ jobs:
           AZURE_CONTAINER_APP_NAME: ${{ secrets.AZURE_CONTAINER_APP_NAME }}
           AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
           ACR_NAME: ${{ secrets.ACR_NAME }}
+          AUTH_SIGNUP_ENABLED: ${{ secrets.AUTH_SIGNUP_ENABLED }}
+          AUTH_DB_DSN: ${{ secrets.AUTH_DB_DSN }}
+          TURNSTILE_SITE_KEY: ${{ secrets.TURNSTILE_SITE_KEY }}
+          TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
+          ACS_EMAIL_CONNECTION_STRING: ${{ secrets.ACS_EMAIL_CONNECTION_STRING }}
+          ACS_EMAIL_SENDER: ${{ secrets.ACS_EMAIL_SENDER }}
         run: |
           set -euo pipefail
 
@@ -62,6 +68,25 @@ jobs:
           if [[ "$missing" -ne 0 ]]; then
             echo "Preflight failed. Configure missing secrets in GitHub Environment 'prod'."
             exit 1
+          fi
+
+          if [[ "${AUTH_SIGNUP_ENABLED,,}" == "true" ]]; then
+            signup_missing=0
+            for key in \
+              AUTH_DB_DSN \
+              TURNSTILE_SITE_KEY \
+              TURNSTILE_SECRET_KEY \
+              ACS_EMAIL_CONNECTION_STRING \
+              ACS_EMAIL_SENDER; do
+              if [[ -z "${!key:-}" ]]; then
+                echo "ERROR: AUTH_SIGNUP_ENABLED=true requires prod secret: ${key}"
+                signup_missing=1
+              fi
+            done
+            if [[ "$signup_missing" -ne 0 ]]; then
+              echo "Preflight failed for signup feature secrets."
+              exit 1
+            fi
           fi
 
           echo "Preflight passed: all required prod secrets are present."
@@ -132,6 +157,44 @@ jobs:
             --name "$APP" \
             --resource-group "$RG" \
             --image "$IMAGE"
+
+      - name: Sync optional auth and email secrets
+        env:
+          AUTH_SIGNUP_ENABLED: ${{ secrets.AUTH_SIGNUP_ENABLED }}
+          AUTH_DB_DSN: ${{ secrets.AUTH_DB_DSN }}
+          TURNSTILE_SITE_KEY: ${{ secrets.TURNSTILE_SITE_KEY }}
+          TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
+          ACS_EMAIL_CONNECTION_STRING: ${{ secrets.ACS_EMAIL_CONNECTION_STRING }}
+          ACS_EMAIL_SENDER: ${{ secrets.ACS_EMAIL_SENDER }}
+        run: |
+          set -euo pipefail
+          APP="${{ secrets.AZURE_CONTAINER_APP_NAME }}"
+          RG="${{ secrets.AZURE_RESOURCE_GROUP }}"
+
+          if [[ "${AUTH_SIGNUP_ENABLED,,}" != "true" ]]; then
+            echo "Signup flow disabled. Skipping auth/email secret sync."
+            exit 0
+          fi
+
+          az containerapp secret set \
+            --name "$APP" \
+            --resource-group "$RG" \
+            --secrets \
+              "auth-db-dsn=${AUTH_DB_DSN}" \
+              "turnstile-secret=${TURNSTILE_SECRET_KEY}" \
+              "acs-email-conn=${ACS_EMAIL_CONNECTION_STRING}" \
+              "acs-email-sender=${ACS_EMAIL_SENDER}" || exit 1
+
+          az containerapp update \
+            --name "$APP" \
+            --resource-group "$RG" \
+            --set-env-vars \
+              "AUTH_SIGNUP_ENABLED=true" \
+              "AUTH_DB_DSN=secretref:auth-db-dsn" \
+              "TURNSTILE_SITE_KEY=${TURNSTILE_SITE_KEY}" \
+              "TURNSTILE_SECRET_KEY=secretref:turnstile-secret" \
+              "ACS_EMAIL_CONNECTION_STRING=secretref:acs-email-conn" \
+              "ACS_EMAIL_SENDER=secretref:acs-email-sender"
 
       - name: Wait for healthy revision
         run: |

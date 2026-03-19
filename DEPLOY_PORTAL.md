@@ -218,6 +218,45 @@ Grant the App Registration permission to push images and update the Container Ap
 1. Go to your GitHub repository → **Settings** → **Secrets and variables** → **Actions**.
 2. Click **New repository secret** for each of the following:
 
+### Optional secrets for self-service account requests
+
+If you want `/request-account` enabled, add these secrets in the same GitHub environment:
+
+| Secret | Purpose |
+|--------|---------|
+| `AUTH_SIGNUP_ENABLED` | Set to `true` to enable feature wiring in deploy workflow |
+| `AUTH_DB_DSN` | PostgreSQL connection string (Azure Database for PostgreSQL Flexible Server) |
+| `TURNSTILE_SITE_KEY` | Cloudflare Turnstile client key |
+| `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile server key |
+| `ACS_EMAIL_CONNECTION_STRING` | Azure Communication Services email connection string |
+| `ACS_EMAIL_SENDER` | Verified ACS sender address |
+
+When `AUTH_SIGNUP_ENABLED=true`, deployment validates all secrets above and injects them into Container App.
+
+---
+
+## Optional Part 9 — Provision services for account requests
+
+### PostgreSQL (Flexible Server)
+
+Create an Azure Database for PostgreSQL Flexible Server and database, then build DSN in this format:
+
+`postgresql://<admin>:<password>@<server>.postgres.database.azure.com:5432/<db>?sslmode=require`
+
+### Cloudflare Turnstile
+
+Create a Turnstile widget for your app hostname and copy:
+
+- site key -> `TURNSTILE_SITE_KEY`
+- secret key -> `TURNSTILE_SECRET_KEY`
+
+### Azure Communication Services Email
+
+1. Create ACS resource.
+2. Connect Email Communication Service.
+3. Add and verify a sender domain (DNS records required).
+4. Use connection string and verified sender in GitHub secrets.
+
    | Secret name | Where to find the value |
    |-------------|------------------------|
    | `AZURE_CLIENT_ID` | App Registration overview → **Application (client) ID** |

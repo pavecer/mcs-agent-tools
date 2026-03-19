@@ -5,6 +5,7 @@ from __future__ import annotations
 import reflex as rx
 
 from web.components import (
+    approval_page_form,
     action_bar,
     deps_panel,
     detected_info_panel,
@@ -17,7 +18,9 @@ from web.components import (
     navbar,
     no_agent_warning_banner,
     process_error_banner,
+    request_account_form,
     result_panel,
+    turnstile_script,
     solution_check_panel,
     transcript_input_choice_area,
     tutorial_dialog,
@@ -191,6 +194,7 @@ def index() -> rx.Component:
     return app_wrapper(
         rx.vstack(
             mermaid_script(),
+            turnstile_script(),
             tutorial_dialog(),
             navbar(),
         rx.box(
@@ -369,8 +373,25 @@ def login_page() -> rx.Component:
     )
 
 
+def request_account_page() -> rx.Component:
+    """Self-service account request page."""
+    return app_wrapper(
+        turnstile_script(),
+        request_account_form(),
+    )
+
+
+def request_approval_page() -> rx.Component:
+    """Dedicated admin approval page for pending account requests."""
+    return app_wrapper(
+        approval_page_form(),
+    )
+
+
 app = rx.App(
     theme=rx.theme(appearance="light", accent_color="cyan"),
 )
 app.add_page(index, route="/", title="PP Agent Toolkit")
 app.add_page(login_page, route="/login", title="Sign in — PP Agent Toolkit", on_load=State.check_already_authed)
+app.add_page(request_account_page, route="/request-account", title="Request account — PP Agent Toolkit")
+app.add_page(request_approval_page, route="/request-approval", title="Approve request — PP Agent Toolkit")

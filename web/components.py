@@ -179,7 +179,8 @@ def json_upload_area() -> rx.Component:
                 align="center",
             ),
             id="mcs_landing_upload",
-            accept={".json": ["application/json"]},
+            accept={"application/json": [".json"]},
+            # https://react-dropzone.js.org/#section-accepting-specific-file-types
             multiple=False,
             border=f"2px dashed {PRIMARY}",
             border_radius="14px",
@@ -1700,12 +1701,22 @@ def login_form() -> rx.Component:
                         ),
                         rx.box(),
                     ),
+                    rx.cond(
+                        State.auth_info != "",
+                        rx.callout(
+                            State.auth_info,
+                            icon="circle-check",
+                            color_scheme="green",
+                            size="1",
+                        ),
+                        rx.box(),
+                    ),
                     rx.vstack(
                         rx.vstack(
-                            label("Username"),
+                            label("Email or username"),
                             rx.input(
                                 id="username",
-                                placeholder="Enter username",
+                                placeholder="Enter email or username",
                                 value=State.username,
                                 on_change=State.set_username,
                                 width="100%",
@@ -1739,11 +1750,410 @@ def login_form() -> rx.Component:
                         cursor="pointer",
                         _hover={"background_color": "#005a9e"},
                     ),
+                    rx.cond(
+                        State.signup_enabled,
+                        rx.hstack(
+                            rx.text("Need access?", font_size="12px", color="#605e5c"),
+                            rx.link(
+                                "Request an account",
+                                href="/request-account",
+                                color=PRIMARY,
+                                font_size="12px",
+                                font_weight="600",
+                            ),
+                            spacing="1",
+                            align="center",
+                            width="100%",
+                            justify="center",
+                        ),
+                        rx.box(),
+                    ),
                     spacing="4",
                     align="start",
                     width="320px",
                 ),
                 on_submit=State.login_submit,
+            ),
+        ),
+        min_height="100vh",
+        background_color=BG,
+        width="100%",
+    )
+
+
+def turnstile_script() -> rx.Component:
+    """Load and initialize Cloudflare Turnstile globally for any matching page content."""
+    return rx.script(
+        """
+        (function initTurnstileWidget() {
+            const w = window;
+            const siteKeyEl = document.getElementById('turnstile-site-key');
+            const tokenInput = document.getElementById('request-captcha-token');
+            const container = document.getElementById('turnstile-widget');
+            const statusEl = document.getElementById('turnstile-widget-status');
+            if (!siteKeyEl || !tokenInput || !container || !statusEl) {
+                setTimeout(initTurnstileWidget, 250);
+                return;
+            }
+            const setStatus = function(message, color) {
+                statusEl.textContent = message || '';
+                statusEl.style.color = color || '#605e5c';
+            };
+            const ensureScript = function() {
+                if (w.turnstile) {
+                    return;
+                }
+                if (document.getElementById('cf-turnstile-api')) {
+                    return;
+                }
+                const script = document.createElement('script');
+                script.id = 'cf-turnstile-api';
+                script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+                script.async = true;
+                script.defer = true;
+                script.onload = function() {
+                    setStatus('Turnstile script loaded. Preparing captcha...', '#605e5c');
+                    setTimeout(initTurnstileWidget, 50);
+                };
+                script.onerror = function() {
+                    setStatus('Turnstile script failed to load. Disable content blocking or allow challenges.cloudflare.com, then reload.', '#a4262c');
+                };
+                document.head.appendChild(script);
+                setStatus('Loading Turnstile script...', '#605e5c');
+            };
+            const siteKey = (siteKeyEl.textContent || '').trim();
+            if (!siteKey) {
+                setStatus('Turnstile site key is missing in this environment.', '#a4262c');
+                return;
+            }
+            if (!w.turnstile) {
+                ensureScript();
+                const attempts = Number(container.getAttribute('data-turnstile-attempts') || '0');
+                container.setAttribute('data-turnstile-attempts', String(attempts + 1));
+                if (attempts >= 20) {
+                    setStatus('Turnstile failed to initialize after loading. Reload the page and check browser privacy settings.', '#a4262c');
+                    return;
+                }
+                setTimeout(initTurnstileWidget, 250);
+                return;
+            }
+            if (container.getAttribute('data-rendered') === 'true') {
+                return;
+            }
+            try {
+                container.setAttribute('data-rendered', 'true');
+                setStatus('Loading Turnstile challenge...', '#605e5c');
+                const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                const setReactValue = function(el, val) {
+                    nativeSetter.call(el, val);
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                };
+                w.turnstile.render('#turnstile-widget', {
+                    sitekey: siteKey,
+                    callback: function(token) {
+                        setReactValue(tokenInput, token);
+                        setStatus('Captcha verified.', '#107c10');
+                    },
+                    'expired-callback': function() {
+                        setReactValue(tokenInput, '');
+                        setStatus('Captcha expired. Please complete it again.', '#c7921e');
+                    },
+                    'error-callback': function() {
+                        setReactValue(tokenInput, '');
+                        container.setAttribute('data-rendered', 'false');
+                        setStatus('Turnstile could not render. Check hostname settings or reload the page.', '#a4262c');
+                    },
+                });
+            } catch (error) {
+                container.setAttribute('data-rendered', 'false');
+                setStatus('Turnstile initialization failed. Open browser console for details.', '#a4262c');
+                console.error('Turnstile initialization failed', error);
+            }
+        })();
+        """
+    )
+
+
+def approval_prefill_script() -> rx.Component:
+    """Prefill the approval request ID from ?request_id=... in the URL."""
+    return rx.script(
+        """
+        (function prefillApprovalRequestId() {
+            const input = document.getElementById('approve-request-id');
+            if (!input) {
+                setTimeout(prefillApprovalRequestId, 200);
+                return;
+            }
+            const requestId = new URLSearchParams(window.location.search).get('request_id');
+            if (!requestId) {
+                return;
+            }
+            const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+            nativeSetter.call(input, requestId);
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+        })();
+        """
+    )
+
+
+def admin_approval_panel() -> rx.Component:
+    """Approval panel used on the dedicated admin approval page."""
+    return rx.vstack(
+        rx.text(
+            "Admin approval",
+            font_size="12px",
+            color="#334a6d",
+            font_weight="700",
+        ),
+        rx.input(
+            id="approve-request-id",
+            placeholder="Pending request ID",
+            value=State.approve_request_id,
+            on_change=State.set_approve_request_id,
+            width="100%",
+        ),
+        rx.button(
+            "Approve and send credentials",
+            on_click=State.approve_pending_request,
+            width="100%",
+            variant="soft",
+            color_scheme="green",
+            cursor="pointer",
+        ),
+        rx.cond(
+            State.approval_error != "",
+            rx.callout(
+                State.approval_error,
+                icon="circle-alert",
+                color_scheme="red",
+                size="1",
+            ),
+            rx.box(),
+        ),
+        rx.cond(
+            State.approval_info != "",
+            rx.callout(
+                State.approval_info,
+                icon="circle-check",
+                color_scheme="green",
+                size="1",
+            ),
+            rx.box(),
+        ),
+        spacing="2",
+        width="100%",
+        align="start",
+    )
+
+
+def approval_page_form() -> rx.Component:
+    """Dedicated admin page for approving account requests from email links."""
+    return rx.center(
+        card(
+            approval_prefill_script(),
+            rx.vstack(
+                rx.hstack(
+                    rx.icon("shield-check", color=PRIMARY, size=28),
+                    rx.heading(
+                        "Approve Account Request",
+                        size="5",
+                        color="#201f1e",
+                        font_weight="700",
+                    ),
+                    spacing="3",
+                    align="center",
+                ),
+                rx.text(
+                    "Use this page to approve pending signup requests and send temporary credentials.",
+                    font_size="13px",
+                    color="#605e5c",
+                ),
+                rx.cond(
+                    ~State.is_authenticated,
+                    rx.callout(
+                        "Sign in with the configured admin account to approve requests.",
+                        icon="circle-alert",
+                        color_scheme="amber",
+                        size="1",
+                    ),
+                    rx.cond(
+                        ~State.is_admin,
+                        rx.callout(
+                            "You are signed in, but only the configured admin account can approve requests.",
+                            icon="circle-alert",
+                            color_scheme="amber",
+                            size="1",
+                        ),
+                        admin_approval_panel(),
+                    ),
+                ),
+                rx.hstack(
+                    rx.link("Go to sign in", href="/login", color=PRIMARY, font_size="12px", font_weight="600"),
+                    rx.text("•", color="#c8c6c4", font_size="12px"),
+                    rx.link("Back to request page", href="/request-account", color="#5d6f8f", font_size="12px"),
+                    spacing="2",
+                    align="center",
+                ),
+                spacing="4",
+                align="start",
+                width="380px",
+            ),
+        ),
+        min_height="100vh",
+        background_color=BG,
+        width="100%",
+    )
+
+
+def request_account_form() -> rx.Component:
+    """Email-only account request card with Turnstile token input."""
+    return rx.center(
+        card(
+            rx.form.root(
+                rx.vstack(
+                    rx.hstack(
+                        rx.icon("mail-plus", color=PRIMARY, size=28),
+                        rx.heading(
+                            "Request Account Access",
+                            size="5",
+                            color="#201f1e",
+                            font_weight="700",
+                        ),
+                        spacing="3",
+                        align="center",
+                    ),
+                    rx.text(
+                        "Submit your work email. After admin approval, a temporary password is sent by email.",
+                        font_size="13px",
+                        color="#605e5c",
+                    ),
+                    rx.cond(
+                        State.turnstile_site_key != "",
+                        rx.vstack(
+                            rx.callout(
+                                "Captcha is enabled. Complete the verification challenge before submitting.",
+                                icon="shield-check",
+                                color_scheme="blue",
+                                size="1",
+                            ),
+                            rx.text(State.turnstile_site_key, id="turnstile-site-key", display="none"),
+                            rx.box(id="turnstile-widget", width="100%"),
+                            rx.box(
+                                id="turnstile-widget-status",
+                                width="100%",
+                                font_size="12px",
+                                color="#605e5c",
+                            ),
+                            spacing="2",
+                            width="100%",
+                            align="start",
+                        ),
+                        rx.callout(
+                            "Captcha site key is not configured in this environment.",
+                            icon="triangle-alert",
+                            color_scheme="amber",
+                            size="1",
+                        ),
+                    ),
+                    rx.cond(
+                        State.request_error != "",
+                        rx.callout(
+                            State.request_error,
+                            icon="circle-alert",
+                            color_scheme="red",
+                            size="1",
+                        ),
+                        rx.box(),
+                    ),
+                    rx.cond(
+                        State.request_info != "",
+                        rx.callout(
+                            State.request_info,
+                            icon="circle-check",
+                            color_scheme="green",
+                            size="1",
+                        ),
+                        rx.box(),
+                    ),
+                    rx.vstack(
+                        rx.vstack(
+                            label("Email"),
+                            rx.input(
+                                id="request-email",
+                                type="email",
+                                placeholder="name@company.com",
+                                value=State.request_email,
+                                on_change=State.set_request_email,
+                                width="100%",
+                            ),
+                            spacing="1",
+                            width="100%",
+                        ),
+                        rx.vstack(
+                            rx.input(
+                                id="request-captcha-token",
+                                value=State.request_captcha_token,
+                                on_change=State.set_request_captcha_token,
+                                width="100%",
+                                display="none",
+                            ),
+                            rx.text(
+                                "The captcha token is filled automatically after successful verification.",
+                                font_size="11px",
+                                color="#605e5c",
+                            ),
+                            spacing="1",
+                            width="100%",
+                        ),
+                        spacing="3",
+                        width="100%",
+                    ),
+                    rx.button(
+                        "Submit request",
+                        type="submit",
+                        width="100%",
+                        background_color=PRIMARY,
+                        color="white",
+                        size="3",
+                        cursor="pointer",
+                        _hover={"background_color": "#005a9e"},
+                    ),
+                    rx.link(
+                        "Back to sign in",
+                        href="/login",
+                        color="#5d6f8f",
+                        font_size="12px",
+                        width="100%",
+                        text_align="center",
+                    ),
+                    rx.cond(
+                        State.is_admin,
+                        rx.vstack(
+                            rx.divider(color_scheme="gray", margin_y="2"),
+                            rx.callout(
+                                "Signed in as admin. Open the dedicated approval page for pending requests.",
+                                icon="shield-check",
+                                color_scheme="green",
+                                size="1",
+                            ),
+                            rx.link(
+                                "Open approval page",
+                                href="/request-approval",
+                                color=PRIMARY,
+                                font_size="12px",
+                                font_weight="600",
+                            ),
+                            spacing="2",
+                            width="100%",
+                            align="start",
+                        ),
+                        rx.box(),
+                    ),
+                    spacing="4",
+                    align="start",
+                    width="360px",
+                ),
+                on_submit=State.submit_account_request,
             ),
         ),
         min_height="100vh",
@@ -1844,7 +2254,7 @@ def _mcs_upload_form() -> rx.Component:
                 align="center",
             ),
             id="mcs_upload",
-            accept={".json": ["application/json"]},
+            accept={"application/json": [".json"]},
             multiple=False,
             border=f"2px dashed {PRIMARY}",
             border_radius="8px",

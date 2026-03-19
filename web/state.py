@@ -6,6 +6,7 @@ import base64
 import hashlib
 import io
 import os
+import re
 import tempfile
 import traceback
 import zipfile
@@ -19,6 +20,17 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from evals_manager import analyze_evals_zip_bytes, export_solution_with_evals, preview_generated_evals
+from auth_services import (
+    approve_account_request,
+    authenticate_env_admin,
+    authenticate_db_user,
+    create_account_request,
+    ensure_auth_schema,
+    is_admin_login_enabled,
+    is_db_auth_enabled,
+    is_signup_enabled,
+    verify_turnstile,
+)
 from toolkit.mcs.credits import estimate_credits_from_activities
 from toolkit.mcs.models import MCSConversationTimeline as _MCSTl
 from toolkit.mcs.parser import parse_dialog_json as mcs_parse_dialog_json
@@ -274,7 +286,20 @@ class State(rx.State):
     username: str = ""
     password: str = ""
     is_authenticated: bool = False
+    is_admin: bool = False
     auth_error: str = ""
+    auth_info: str = ""
+    requires_password_reset: bool = False
+
+    request_email: str = ""
+    request_captcha_token: str = ""
+    request_error: str = ""
+    request_info: str = ""
+    request_success: bool = False
+
+    approve_request_id: str = ""
+    approval_error: str = ""
+    approval_info: str = ""
 
     # ── Tutorial ──────────────────────────────────────────────────────────────
     tutorial_open: bool = False
@@ -373,6 +398,18 @@ class State(rx.State):
     @rx.var
     def has_upload(self) -> bool:
         return bool(self.zip_bytes_b64) or self.mcs_source == "transcript"
+
+    @rx.var
+    def signup_enabled(self) -> bool:
+        return is_signup_enabled() and is_db_auth_enabled()
+
+    @rx.var
+    def admin_login_enabled(self) -> bool:
+        return is_admin_login_enabled()
+
+    @rx.var
+    def turnstile_site_key(self) -> str:
+        return os.getenv("TURNSTILE_SITE_KEY", "").strip()
 
     @rx.var
     def has_detection(self) -> bool:
@@ -1521,25 +1558,89 @@ class State(rx.State):
     @rx.event
     def set_username(self, value: str):
         self.username = value
+        self.auth_error = ""
+        self.auth_info = ""
 
     @rx.event
     def set_password(self, value: str):
         self.password = value
+        self.auth_error = ""
+        self.auth_info = ""
+
+    @rx.event
+    def set_request_email(self, value: str):
+        self.request_email = value
+        self.request_error = ""
+        self.request_info = ""
+        self.request_success = False
+
+    @rx.event
+    def set_request_captcha_token(self, value: str):
+        self.request_captcha_token = value
+        self.request_error = ""
 
     @rx.event
     def login(self):
-        """Validate credentials against USERS env var and set authenticated."""
+        """Validate credentials against DB-backed users first, then USERS env var."""
+        username = (self.username or "").strip().lower()
+
+        admin_result = authenticate_env_admin(username, self.password)
+        if admin_result.success:
+            self.is_authenticated = True
+            self.is_admin = True
+            self.username = username
+            self.auth_error = ""
+            self.auth_info = ""
+            self.requires_password_reset = False
+            self.password = ""
+            return rx.redirect("/request-approval")
+        if admin_result.message:
+            self.auth_error = admin_result.message
+            self.auth_info = ""
+            return
+
+        if is_db_auth_enabled():
+            try:
+                ensure_auth_schema()
+                db_result = authenticate_db_user(username, self.password)
+            except Exception:
+                self.auth_error = "Authentication is temporarily unavailable."
+                self.auth_info = ""
+                return
+
+            if db_result.success:
+                self.is_authenticated = True
+                self.is_admin = False
+                self.username = username
+                self.auth_error = ""
+                self.auth_info = ""
+                self.requires_password_reset = db_result.requires_password_reset
+                self.password = ""
+                if self.requires_password_reset:
+                    self.auth_info = "Your temporary password was accepted. Please contact admin to reset password support flow."
+                return rx.redirect("/")
+
+            if db_result.message:
+                self.auth_error = db_result.message
+                self.auth_info = ""
+                return
+
         users = _load_users()
         if not users:
             self.auth_error = "No users configured. Set the USERS environment variable."
+            self.auth_info = ""
             return
-        pw_hash = hashlib.pbkdf2_hmac("sha256", self.password.encode(), self.username.encode(), 100_000).hex()
-        if users.get(self.username) == pw_hash:
+        pw_hash = hashlib.pbkdf2_hmac("sha256", self.password.encode(), username.encode(), 100_000).hex()
+        if users.get(username) == pw_hash:
             self.is_authenticated = True
+            self.is_admin = False
+            self.username = username
             self.auth_error = ""
+            self.auth_info = ""
             self.password = ""  # clear password from state
             return rx.redirect("/")
         self.auth_error = "Invalid username or password."
+        self.auth_info = ""
 
     @rx.event
     def login_submit(self, _form_data: dict[str, Any]):
@@ -1547,16 +1648,78 @@ class State(rx.State):
         return self.login()
 
     @rx.event
+    def submit_account_request(self, _form_data: dict[str, Any]):
+        """Validate captcha and store account request as pending approval."""
+        self.request_error = ""
+        self.request_info = ""
+        self.request_success = False
+
+        if not (is_signup_enabled() and is_db_auth_enabled()):
+            self.request_error = "Account requests are not enabled in this environment."
+            return
+
+        email = (self.request_email or "").strip().lower()
+        if not email or not re.fullmatch(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$", email):
+            self.request_error = "Enter a valid email address."
+            return
+
+        captcha_ok, captcha_msg = verify_turnstile(self.request_captcha_token)
+        if not captcha_ok:
+            self.request_error = captcha_msg or "Captcha validation failed."
+            return
+
+        ok, message = create_account_request(email=email)
+        if not ok:
+            self.request_error = message
+            return
+
+        self.request_success = True
+        self.request_info = message
+        self.request_email = ""
+        self.request_captcha_token = ""
+
+    @rx.event
+    def set_approve_request_id(self, value: str):
+        self.approve_request_id = value
+        self.approval_error = ""
+        self.approval_info = ""
+
+    @rx.event
+    def approve_pending_request(self):
+        """Approve a pending account request and send credentials via ACS."""
+        self.approval_error = ""
+        self.approval_info = ""
+
+        if not self.is_authenticated:
+            self.approval_error = "Sign in as an admin before approving requests."
+            return
+        if not self.is_admin:
+            self.approval_error = "Only the configured admin account can approve requests."
+            return
+
+        ok, message = approve_account_request(self.approve_request_id, self.username)
+        if not ok:
+            self.approval_error = message
+            return
+        self.approval_info = message
+        self.approve_request_id = ""
+
+    @rx.event
     def logout(self):
         self.is_authenticated = False
+        self.is_admin = False
         self.username = ""
         self.password = ""
+        self.auth_error = ""
+        self.auth_info = ""
+        self.requires_password_reset = False
         return rx.redirect("/login")
 
     @rx.event
     def check_auth(self):
-        """Redirect to /login if USERS is configured and user is not authenticated."""
-        if os.getenv("USERS", "").strip() and not self.is_authenticated:
+        """Redirect to /login when any authentication mode is configured."""
+        env_auth_enabled = bool(os.getenv("USERS", "").strip())
+        if (env_auth_enabled or is_db_auth_enabled()) and not self.is_authenticated:
             return rx.redirect("/login")
 
     @rx.event

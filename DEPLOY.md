@@ -128,6 +128,89 @@ az containerapp secret set \
 
 ---
 
+## Optional: Enable self-service account requests
+
+This feature adds `/request-account` with:
+
+- email-only request form
+- Cloudflare Turnstile server-side verification
+- PostgreSQL storage for pending requests and user credentials
+- Azure Communication Services Email delivery of temporary credentials after approval
+
+### 2a — Create Azure Database for PostgreSQL (Flexible Server)
+
+```bash
+PG_SERVER="pp-toolkit-pg"
+PG_DB="pp_agent_toolkit"
+PG_ADMIN_USER="pgadmin"
+PG_ADMIN_PASSWORD="<STRONG_PASSWORD>"
+
+az postgres flexible-server create \
+  --name $PG_SERVER \
+  --resource-group $RESOURCE_GROUP \
+  --location $LOCATION \
+  --admin-user $PG_ADMIN_USER \
+  --admin-password $PG_ADMIN_PASSWORD \
+  --sku-name Standard_B1ms \
+  --tier Burstable \
+  --storage-size 32
+
+az postgres flexible-server db create \
+  --resource-group $RESOURCE_GROUP \
+  --server-name $PG_SERVER \
+  --database-name $PG_DB
+```
+
+Build DSN:
+
+```bash
+AUTH_DB_DSN="postgresql://${PG_ADMIN_USER}:${PG_ADMIN_PASSWORD}@${PG_SERVER}.postgres.database.azure.com:5432/${PG_DB}?sslmode=require"
+```
+
+### 2b — Provision Azure Communication Services Email
+
+1. Create an Azure Communication Services resource.
+2. Configure an Email Communication Service and connect it to ACS.
+3. Provision a custom sender domain, publish required DNS records, and wait for verification.
+4. Capture:
+   - `ACS_EMAIL_CONNECTION_STRING`
+   - verified sender address, for example `DoNotReply@notifications.contoso.com`
+
+### 2c — Configure Turnstile
+
+Create a Cloudflare Turnstile site and capture:
+
+- `TURNSTILE_SITE_KEY`
+- `TURNSTILE_SECRET_KEY`
+
+### 2d — Add app secrets and env vars
+
+```bash
+az containerapp secret set \
+  --name $APP_NAME \
+  --resource-group $RESOURCE_GROUP \
+  --secrets \
+    "auth-db-dsn=${AUTH_DB_DSN}" \
+    "turnstile-secret=${TURNSTILE_SECRET_KEY}" \
+    "acs-email-conn=${ACS_EMAIL_CONNECTION_STRING}" \
+    "acs-email-sender=${ACS_EMAIL_SENDER}"
+
+az containerapp update \
+  --name $APP_NAME \
+  --resource-group $RESOURCE_GROUP \
+  --set-env-vars \
+    "AUTH_SIGNUP_ENABLED=true" \
+    "AUTH_DB_DSN=secretref:auth-db-dsn" \
+    "TURNSTILE_SITE_KEY=${TURNSTILE_SITE_KEY}" \
+    "TURNSTILE_SECRET_KEY=secretref:turnstile-secret" \
+    "ACS_EMAIL_CONNECTION_STRING=secretref:acs-email-conn" \
+    "ACS_EMAIL_SENDER=secretref:acs-email-sender"
+```
+
+The app auto-creates auth tables on first request when `AUTH_DB_DSN` is configured.
+
+---
+
 ## Step 3 — Configure GitHub Actions credentials (OIDC)
 
 OIDC federated credentials allow GitHub Actions to authenticate to Azure

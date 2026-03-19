@@ -122,6 +122,27 @@ What is updated:
 - Solution display name (`solution.xml` localized name)
 - Folder names: `bots/{schema}` and `botcomponents/{schema}.*`
 
+### 8. Account Request + DB-backed Login (optional)
+
+The login experience can be extended with a self-service `/request-account` flow:
+
+- user submits email address
+- Cloudflare Turnstile captcha is validated server-side
+- request is stored in PostgreSQL as `pending`
+- admin approval provisions temporary password
+- credentials are delivered via Azure Communication Services Email
+
+Required environment variables:
+
+- `AUTH_SIGNUP_ENABLED=true`
+- `AUTH_DB_DSN=postgresql://...`
+- `TURNSTILE_SITE_KEY=...`
+- `TURNSTILE_SECRET_KEY=...`
+- `ACS_EMAIL_CONNECTION_STRING=...`
+- `ACS_EMAIL_SENDER=DoNotReply@<verified-domain>`
+
+If these are not configured, existing `USERS` env-based authentication continues to work.
+
 ## Supported Inputs
 
 - **Power Platform solution ZIP** (contains `bots/`)
