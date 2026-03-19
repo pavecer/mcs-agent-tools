@@ -504,7 +504,9 @@ def _sanitize_mermaid(text: str) -> str:
 
 def _make_node_id(name: str) -> str:
     clean = "".join(c for c in name if c.isalnum() or c == "_")
-    return clean or "Unknown"
+    # Mermaid parser is stricter when node ids begin with non-letters.
+    # Keep ids predictable and always start with a stable alpha prefix.
+    return f"N_{clean}" if clean else "N_Unknown"
 
 
 # ── Component classification ─────────────────────────────────────────────────
@@ -705,8 +707,7 @@ def _render_topic_graph(profile: BotProfile) -> str:
     lines = [
         "## Topic Connection Graph\n",
         "```mermaid",
-        '%%{init: {"useMaxWidth": false, "theme": "base", "themeVariables": {"fontFamily": "Segoe UI, Arial, sans-serif", "fontSize": "14px", "primaryTextColor": "#102548", "lineColor": "#6f86a8"}, "flowchart": {"htmlLabels": false, "curve": "basis", "nodeSpacing": 60, "rankSpacing": 80, "padding": 16}}}%%',
-        "graph TD",
+        "flowchart TD",
         "    classDef default fill:#ffffff,stroke:#8bb8ff,stroke-width:1.6px,color:#102548;",
         "    linkStyle default stroke:#6f86a8,stroke-width:1.4px;",
     ]

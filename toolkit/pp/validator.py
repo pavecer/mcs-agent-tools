@@ -12,7 +12,7 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-from visualizer import parse_solution_zip
+from toolkit.pp.visualizer import parse_solution_zip
 from renamer import safe_extractall
 
 BEST_PRACTICES_DIR = Path(__file__).parent / "best_practices"

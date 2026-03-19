@@ -19,7 +19,7 @@ from dotenv import load_dotenv
 # Load environment variables from .env file before any imports that use them
 load_dotenv()
 
-from evals_manager import analyze_evals_zip_bytes, export_solution_with_evals, preview_generated_evals
+from toolkit.pp.evals_manager import analyze_evals_zip_bytes, export_solution_with_evals, preview_generated_evals
 from auth_services import (
     approve_account_request,
     authenticate_env_admin,
@@ -50,7 +50,7 @@ from renamer import (
     rename_solution_from_bytes,
     safe_extractall,
 )
-from deps_analyzer import analyze_deps_zip_bytes_report
+from toolkit.pp.deps_analyzer import analyze_deps_zip_bytes_report
 from remote_fetch import (
     authenticate_dataverse,
     begin_device_code_auth,
@@ -61,9 +61,9 @@ from remote_fetch import (
     RemoteFetchError,
     fetch_transcript_by_id,
 )
-from solution_checker import check_solution_zip
-from validator import validate_instructions, validate_zip_bytes
-from visualizer import visualize_zip_bytes, get_evals_data
+from toolkit.pp.solution_checker import check_solution_zip
+from toolkit.pp.validator import validate_instructions, validate_zip_bytes
+from toolkit.pp.visualizer import visualize_zip_bytes, get_evals_data
 
 load_dotenv()
 

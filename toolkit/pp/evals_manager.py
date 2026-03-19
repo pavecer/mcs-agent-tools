@@ -14,8 +14,8 @@ import defusedxml.ElementTree as ET
 import yaml
 
 from renamer import safe_extractall
-from solution_checker import _check_agent_config, _check_topics
-from visualizer import parse_evals_zip, parse_solution_zip
+from toolkit.pp.solution_checker import _check_agent_config, _check_topics
+from toolkit.pp.visualizer import parse_evals_zip, parse_solution_zip
 from yaml_utils import sanitize_yaml
 
 

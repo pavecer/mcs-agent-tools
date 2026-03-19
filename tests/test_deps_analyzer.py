@@ -5,7 +5,7 @@ from __future__ import annotations
 import io
 import zipfile
 
-from deps_analyzer import _truncate_middle, analyze_deps_zip_bytes_report
+from toolkit.pp.deps_analyzer import _truncate_middle, analyze_deps_zip_bytes_report
 
 
 def test_truncate_middle_keeps_short_text_unchanged():

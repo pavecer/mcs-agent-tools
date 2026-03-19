@@ -4,8 +4,8 @@ import io
 import json
 import zipfile
 
-from evals_manager import analyze_evals_zip_bytes, export_solution_with_evals, preview_generated_evals
-from visualizer import get_evals_data
+from toolkit.pp.evals_manager import analyze_evals_zip_bytes, export_solution_with_evals, preview_generated_evals
+from toolkit.pp.visualizer import get_evals_data
 
 
 def _solution_zip_bytes(include_existing_evals: bool) -> bytes:
