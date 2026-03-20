@@ -1,0 +1,53 @@
+name: Copilot Setup Steps
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+      - pyproject.toml
+      - uv.lock
+      - scripts/download-assets.sh
+  pull_request:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+      - pyproject.toml
+      - uv.lock
+      - scripts/download-assets.sh
+
+jobs:
+  # Job name is required by Copilot coding agent.
+  copilot-setup-steps:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install Python dependencies (deterministic)
+        run: uv sync --dev --frozen
+
+      - name: Pre-bundle external web assets
+        shell: bash
+        run: bash scripts/download-assets.sh
+
+      - name: Verify mermaid bundle exists
+        shell: bash
+        run: test -f assets/external/mermaid.min.js
