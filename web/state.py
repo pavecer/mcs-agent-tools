@@ -847,119 +847,6 @@ class State(rx.State):
                         self.viz_mermaid = ""
                     finally:
                         self.is_visualizing = False
-
-                if not self.inspect_error:
-                    self.is_validating = True
-                    yield
-                    try:
-                        report = validate_zip_bytes(file_bytes)
-                        self.validation_model_key = report["model_key"]
-                        self.validation_model_display = report["model_display"]
-                        self.validation_results = report["results"]
-                        self.validation_best_practices = report.get("best_practices_md", "")
-                        self.validation_instructions_length = report.get("instructions_length", 0)
-                        self.validation_ran = True
-                        self.validation_error = ""
-                    except Exception as val_exc:
-                        self.validation_error = str(val_exc)
-                        self.validation_results = []
-                        self.validation_ran = False
-                    finally:
-                        self.is_validating = False
-
-                if not self.inspect_error:
-                    self.is_checking = True
-                    yield
-                    try:
-                        check_report = check_solution_zip(file_bytes)
-                        if check_report["error"]:
-                            self.check_error = check_report["error"]
-                            self.check_ran = False
-                        else:
-                            self.check_results = check_report["results"]
-                            self.check_pass_count = check_report["pass_count"]
-                            self.check_warn_count = check_report["warn_count"]
-                            self.check_fail_count = check_report["fail_count"]
-                            self.check_info_count = check_report["info_count"]
-                            self.check_agent_name = check_report["agent_name"]
-                            self.check_solution_name = check_report["solution_name"]
-                            self.check_ran = True
-                            self.check_error = ""
-                    except Exception as chk_exc:
-                        self.check_error = str(chk_exc)
-                        self.check_ran = False
-                    finally:
-                        self.is_checking = False
-
-                if not self.inspect_error:
-                    self.evals_is_analyzing = True
-                    yield
-                    try:
-                        evals = get_evals_data(file_bytes)
-                        test_sets_summary = []
-                        all_test_cases = []
-                        for ts in evals.get("test_sets", []):
-                            test_sets_summary.append(
-                                {
-                                    "schema_name": ts["schema_name"],
-                                    "display_name": ts["display_name"],
-                                    "test_count": len(ts.get("test_cases", [])),
-                                }
-                            )
-                            for tc in ts.get("test_cases", []):
-                                all_test_cases.append(
-                                    {
-                                        "set_schema": ts["schema_name"],
-                                        "set_name": ts["display_name"],
-                                        "input": tc["input"],
-                                        "expected_response": tc["expected_response"],
-                                        "score_threshold": tc["score_threshold"],
-                                        "origin_type": tc["origin_type"],
-                                    }
-                                )
-                        eval_sets_summary = []
-                        all_eval_rows = []
-                        for es in evals.get("eval_sets", []):
-                            eval_sets_summary.append(
-                                {
-                                    "schema_name": es["schema_name"],
-                                    "display_name": es["display_name"],
-                                    "graders": ", ".join(es.get("graders", [])) or "None",
-                                    "row_count": len(es.get("rows", [])),
-                                }
-                            )
-                            for row in es.get("rows", []):
-                                all_eval_rows.append(
-                                    {
-                                        "set_schema": es["schema_name"],
-                                        "set_name": es["display_name"],
-                                        "input": row["input"],
-                                        "expected_output": row["expected_output"],
-                                        "keywords": " · ".join(row.get("keywords", [])),
-                                        "source": row["source"],
-                                    }
-                                )
-                        self.evals_test_sets = test_sets_summary
-                        self.evals_all_test_cases = all_test_cases
-                        self.evals_eval_sets = eval_sets_summary
-                        self.evals_all_eval_rows = all_eval_rows
-                    except Exception:
-                        pass  # evals are non-critical; silently skip on error
-
-                    try:
-                        fit_report = analyze_evals_zip_bytes(file_bytes)
-                        self.evals_fit_score = fit_report.get("score", 0)
-                        self.evals_fit_dimensions = _decorate_fit_dimensions(fit_report.get("fit_dimensions", []))
-                        self.evals_fit_gaps = fit_report.get("gaps", [])
-                        self.evals_fit_recommendations = fit_report.get("recommendations", [])
-                        self.evals_should_offer_improve = bool(fit_report.get("should_offer_improve", False))
-                        self.evals_fit_error = ""
-                        self.evals_fit_ran = True
-                    except Exception as eval_exc:
-                        self.evals_fit_error = str(eval_exc)
-                        self.evals_fit_ran = False
-                    finally:
-                        self.evals_is_analyzing = False
             else:
                 # Generic solution ZIP (no Copilot agent assets): run dependencies only.
                 self.is_inspecting = False
@@ -1431,8 +1318,165 @@ class State(rx.State):
         self.mcs_upload_error = ""
 
     @rx.event
-    def set_active_tab(self, tab: str):
+    async def set_active_tab(self, tab: str):
         self.active_tab = tab
+
+        # Skip if there's an inspection error
+        if self.inspect_error:
+            return
+        if not self.zip_bytes_b64:
+            return
+
+        file_bytes = base64.b64decode(self.zip_bytes_b64)
+
+        # Run solution checks lazily when entering the Check tab
+        if tab == "check":
+            if self.is_checking or self.check_ran:
+                return
+            if self.zip_type != "solution" or not self.solution_has_agent_assets:
+                return
+
+            self.is_checking = True
+            self.check_error = ""
+            self.check_results = []
+            self.check_pass_count = 0
+            self.check_warn_count = 0
+            self.check_fail_count = 0
+            self.check_info_count = 0
+            self.check_agent_name = ""
+            self.check_solution_name = ""
+            self.check_active_category = ""
+            yield
+
+            try:
+                check_report = check_solution_zip(file_bytes)
+                if check_report["error"]:
+                    self.check_error = check_report["error"]
+                    self.check_ran = False
+                else:
+                    self.check_results = check_report["results"]
+                    self.check_pass_count = check_report["pass_count"]
+                    self.check_warn_count = check_report["warn_count"]
+                    self.check_fail_count = check_report["fail_count"]
+                    self.check_info_count = check_report["info_count"]
+                    self.check_agent_name = check_report["agent_name"]
+                    self.check_solution_name = check_report["solution_name"]
+                    self.check_ran = True
+                    self.check_error = ""
+            except Exception as chk_exc:
+                self.check_error = str(chk_exc)
+                self.check_ran = False
+            finally:
+                self.is_checking = False
+
+        # Run validation lazily when entering the Validate tab
+        elif tab == "validate":
+            if self.is_validating or self.validation_ran:
+                return
+            if self.zip_type != "solution" or not self.solution_has_agent_assets:
+                return
+
+            self.is_validating = True
+            self.validation_error = ""
+            self.validation_results = []
+            self.validation_model_key = ""
+            self.validation_model_display = ""
+            self.validation_instructions_length = 0
+            yield
+
+            try:
+                report = validate_zip_bytes(file_bytes)
+                self.validation_model_key = report["model_key"]
+                self.validation_model_display = report["model_display"]
+                self.validation_results = report["results"]
+                self.validation_best_practices = report.get("best_practices_md", "")
+                self.validation_instructions_length = report.get("instructions_length", 0)
+                self.validation_ran = True
+                self.validation_error = ""
+            except Exception as val_exc:
+                self.validation_error = str(val_exc)
+                self.validation_results = []
+                self.validation_ran = False
+            finally:
+                self.is_validating = False
+
+        # Run evals analysis lazily when entering the Evals tab
+        elif tab == "evals":
+            if self.evals_is_analyzing or self.evals_fit_ran or self.evals_test_sets:
+                return
+            if self.zip_type != "solution" or not self.solution_has_agent_assets:
+                return
+
+            self.evals_is_analyzing = True
+            self.evals_fit_error = ""
+            yield
+
+            try:
+                evals = get_evals_data(file_bytes)
+                test_sets_summary = []
+                all_test_cases = []
+                for ts in evals.get("test_sets", []):
+                    test_sets_summary.append(
+                        {
+                            "schema_name": ts["schema_name"],
+                            "display_name": ts["display_name"],
+                            "test_count": len(ts.get("test_cases", [])),
+                        }
+                    )
+                    for tc in ts.get("test_cases", []):
+                        all_test_cases.append(
+                            {
+                                "set_schema": ts["schema_name"],
+                                "set_name": ts["display_name"],
+                                "input": tc["input"],
+                                "expected_response": tc["expected_response"],
+                                "score_threshold": tc["score_threshold"],
+                                "origin_type": tc["origin_type"],
+                            }
+                        )
+                eval_sets_summary = []
+                all_eval_rows = []
+                for es in evals.get("eval_sets", []):
+                    eval_sets_summary.append(
+                        {
+                            "schema_name": es["schema_name"],
+                            "display_name": es["display_name"],
+                            "graders": ", ".join(es.get("graders", [])) or "None",
+                            "row_count": len(es.get("rows", [])),
+                        }
+                    )
+                    for row in es.get("rows", []):
+                        all_eval_rows.append(
+                            {
+                                "set_schema": es["schema_name"],
+                                "set_name": es["display_name"],
+                                "input": row["input"],
+                                "expected_output": row["expected_output"],
+                                "keywords": " · ".join(row.get("keywords", [])),
+                                "source": row["source"],
+                            }
+                        )
+                self.evals_test_sets = test_sets_summary
+                self.evals_all_test_cases = all_test_cases
+                self.evals_eval_sets = eval_sets_summary
+                self.evals_all_eval_rows = all_eval_rows
+            except Exception:
+                pass  # evals data parsing non-critical
+
+            try:
+                fit_report = analyze_evals_zip_bytes(file_bytes)
+                self.evals_fit_score = fit_report.get("score", 0)
+                self.evals_fit_dimensions = _decorate_fit_dimensions(fit_report.get("fit_dimensions", []))
+                self.evals_fit_gaps = fit_report.get("gaps", [])
+                self.evals_fit_recommendations = fit_report.get("recommendations", [])
+                self.evals_should_offer_improve = bool(fit_report.get("should_offer_improve", False))
+                self.evals_fit_error = ""
+                self.evals_fit_ran = True
+            except Exception as eval_exc:
+                self.evals_fit_error = str(eval_exc)
+                self.evals_fit_ran = False
+            finally:
+                self.evals_is_analyzing = False
 
     @rx.event
     def toggle_best_practices(self):
