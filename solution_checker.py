@@ -11,6 +11,10 @@ Rules are grouped into five categories:
   - Knowledge  : knowledge sources and capabilities
   - Security   : security and injection risks
 
+Check parameters, patterns, required system topics, and rule message templates are
+loaded from ``solution_checks.yaml`` (co-located with this module).  Edit that file
+to update check behaviour without touching Python code.
+
 Returns a structured result dict suitable for storing in Reflex state.
 """
 
@@ -23,15 +27,14 @@ import zipfile
 from pathlib import Path
 
 import defusedxml.ElementTree as ET
+import yaml as _yaml  # type: ignore[import-untyped]
 
 from renamer import safe_extractall
 
 try:
-    import yaml as _yaml  # type: ignore[import-untyped]
-
     _YAML_AVAILABLE = True
-except ImportError:  # pragma: no cover
-    _YAML_AVAILABLE = False
+except Exception:  # pragma: no cover
+    _YAML_AVAILABLE = True  # yaml is a hard dependency; always available
 
 
 # ── Category labels ────────────────────────────────────────────────────────────
@@ -46,41 +49,48 @@ _CAT_ICONS: dict[str, str] = {
     "Security": "shield-alert",
 }
 
+
+# ── Load solution_checks.yaml config ──────────────────────────────────────────
+
+_CHECKS_CONFIG_PATH = Path(__file__).parent / "solution_checks.yaml"
+
+
+def _load_checks_config() -> dict:
+    """Load and return the solution checks configuration from solution_checks.yaml."""
+    try:
+        raw = _CHECKS_CONFIG_PATH.read_text(encoding="utf-8")
+        config = _yaml.safe_load(raw)
+        if not isinstance(config, dict):  # pragma: no cover
+            raise ValueError("solution_checks.yaml must contain a top-level mapping")
+        return config
+    except FileNotFoundError as exc:  # pragma: no cover
+        raise FileNotFoundError(
+            f"solution_checks.yaml not found at {_CHECKS_CONFIG_PATH}. This file is required by the solution checker."
+        ) from exc
+
+
+_CHECKS_CONFIG: dict = _load_checks_config()
+
+# ── Derived constants from YAML config ────────────────────────────────────────
+
+_PARAMS: dict = _CHECKS_CONFIG.get("parameters", {})
+
 # System topics that every production agent should have
-_REQUIRED_SYSTEM_TOPICS: dict[str, tuple[str, str]] = {
-    # trigger → (display label, severity if absent)
-    "OnError": ("On Error", "fail"),
-    "OnUnknownIntent": ("Fallback (Unknown Intent)", "warning"),
-    "OnConversationStart": ("Conversation Start", "warning"),
-    "OnEscalate": ("Escalate", "warning"),
-    "OnSignIn": ("Sign-In", "warning"),
-}
+# Loaded from required_system_topics in solution_checks.yaml.
+# Each entry: trigger → {label, rule_id, missing_outcome}
+_REQUIRED_SYSTEM_TOPICS: dict[str, dict] = _CHECKS_CONFIG.get("required_system_topics", {})
 
-# Patterns that look like hardcoded secrets / credentials
-_SECRET_PATTERNS: list[re.Pattern] = [
-    re.compile(r"(?i)(password|passwd|pwd)\s*[=:]\s*\S+"),
-    re.compile(r"(?i)(api[_-]?key|apikey|api[_-]?secret)\s*[=:]\s*\S+"),
-    re.compile(r"(?i)(client[_-]?secret|clientsecret)\s*[=:]\s*\S+"),
-    re.compile(r"(?i)(bearer\s+[A-Za-z0-9\-._~+/]+=*)"),
-    re.compile(r"(?i)(access[_-]?token)\s*[=:]\s*\S+"),
-    re.compile(r"(?i)(connection[_-]?string)\s*[=:]\s*.{10,}"),
-    # Typical Azure SAS / storage keys length
-    re.compile(r"[A-Za-z0-9+/]{64,}={0,2}"),
-]
+# Trigger kinds treated as system topics (not counted towards user-topic totals)
+_SYSTEM_TOPIC_TRIGGERS: set[str] = set(_CHECKS_CONFIG.get("system_topic_triggers", []))
 
-# Prompt injection patterns (same set as validator.py rule 11)
-_INJECTION_PATTERNS: list[re.Pattern] = [
-    re.compile(r"ignore (all |previous |above |prior |system |original )?instructions", re.I),
-    re.compile(r"disregard (all |previous |above |prior )?instructions", re.I),
-    re.compile(r"override (all |previous |above |prior )?instructions", re.I),
-    re.compile(r"forget (all |your |previous )?instructions", re.I),
-    re.compile(r"new (role|persona|objective):", re.I),
-    re.compile(r"you are now (a |an )?(?!legal|financial|hr|support)", re.I),
-    re.compile(r"pretend (you are|to be)", re.I),
-    re.compile(r"act as (?!a |an |the )", re.I),
-    re.compile(r"jailbreak", re.I),
-    re.compile(r"DAN mode", re.I),
-]
+# Compiled regex patterns from YAML (all injection patterns use IGNORECASE)
+_INJECTION_PATTERNS: list[re.Pattern] = [re.compile(p, re.I) for p in _CHECKS_CONFIG.get("injection_patterns", [])]
+
+# Secret patterns include their own inline (?i) flags where needed
+_SECRET_PATTERNS: list[re.Pattern] = [re.compile(p) for p in _CHECKS_CONFIG.get("secret_patterns", [])]
+
+# Rule definitions: rule_id → {category, outcomes: {outcome_name: {severity, title, detail}}}
+_RULES: dict[str, dict] = _CHECKS_CONFIG.get("rules", {})
 
 
 # ── Internal helpers ───────────────────────────────────────────────────────────
@@ -96,8 +106,8 @@ def _read_xml(path: Path, *tags: str) -> dict[str, str]:
 
 
 def _load_yaml(path: Path) -> dict:
-    """Load a YAML file (Power Platform 'data'); return {} on any failure."""
-    if not _YAML_AVAILABLE or not path.exists():
+    """Load a Power Platform YAML 'data' file; return {} on any failure."""
+    if not path.exists():
         return {}
     try:
         raw = path.read_text(encoding="utf-8", errors="replace")
@@ -116,20 +126,28 @@ def _load_yaml(path: Path) -> dict:
         return {}
 
 
-def _pass(rule_id: str, category: str, title: str, detail: str) -> dict:
-    return {"rule_id": rule_id, "category": category, "title": title, "severity": "pass", "detail": detail}
+def _rule(rule_id: str, outcome: str, **kwargs: object) -> dict:
+    """Build a result dict from the YAML rule definition.
 
-
-def _warn(rule_id: str, category: str, title: str, detail: str) -> dict:
-    return {"rule_id": rule_id, "category": category, "title": title, "severity": "warning", "detail": detail}
-
-
-def _fail(rule_id: str, category: str, title: str, detail: str) -> dict:
-    return {"rule_id": rule_id, "category": category, "title": title, "severity": "fail", "detail": detail}
-
-
-def _info(rule_id: str, category: str, title: str, detail: str) -> dict:
-    return {"rule_id": rule_id, "category": category, "title": title, "severity": "info", "detail": detail}
+    Looks up ``rule_id`` and ``outcome`` in the loaded ``_RULES`` config,
+    formats title/detail templates with ``kwargs``, and returns a result dict
+    suitable for inclusion in the check results list.
+    """
+    rule_def = _RULES.get(rule_id, {})
+    outcome_def = rule_def.get("outcomes", {}).get(outcome, {})
+    severity = outcome_def.get("severity", "info")
+    category = rule_def.get("category", "")
+    title_tpl: str = outcome_def.get("title", rule_id)
+    detail_tpl: str = outcome_def.get("detail", "")
+    try:
+        title = title_tpl.format_map(kwargs)
+    except (KeyError, ValueError):
+        title = title_tpl
+    try:
+        detail = detail_tpl.format_map(kwargs)
+    except (KeyError, ValueError):
+        detail = detail_tpl
+    return {"rule_id": rule_id, "category": category, "title": title, "severity": severity, "detail": detail}
 
 
 # ── Rule implementations ───────────────────────────────────────────────────────
@@ -140,137 +158,49 @@ def _check_solution_xml(work_dir: Path) -> list[dict]:
     sol_path = work_dir / "solution.xml"
 
     if not sol_path.exists():
-        results.append(
-            _fail(
-                "SOL001",
-                "Solution",
-                "solution.xml is missing",
-                "The ZIP does not contain a solution.xml at the root level. This is required for "
-                "all Power Platform solution imports.",
-            )
-        )
+        results.append(_rule("SOL001", "missing"))
         # No point running further solution checks
         return results
 
     try:
         root = ET.parse(sol_path).getroot()
     except Exception as exc:
-        results.append(
-            _fail(
-                "SOL001",
-                "Solution",
-                "solution.xml could not be parsed",
-                f"The solution.xml could not be parsed as XML: {exc}. The file may be corrupt.",
-            )
-        )
+        results.append(_rule("SOL001", "unparseable", error=str(exc)))
         return results
 
-    results.append(
-        _pass(
-            "SOL001",
-            "Solution",
-            "solution.xml is present and valid",
-            "solution.xml exists and is well-formed XML.",
-        )
-    )
+    results.append(_rule("SOL001", "pass"))
 
     # SOL002 — Publisher prefix not "new" (default publisher)
     manifest = root.find("SolutionManifest")
     if manifest is not None:
         prefix = (manifest.findtext("Publisher/CustomizationPrefix") or "").strip().lower()
         if prefix in ("new", "default", ""):
-            results.append(
-                _warn(
-                    "SOL002",
-                    "Solution",
-                    f"Default publisher prefix detected ('{prefix or 'empty'}')",
-                    "The solution uses the default publisher prefix. This is acceptable for development "
-                    "but for production solutions you should create a dedicated publisher with a unique "
-                    "prefix (e.g., your organisation abbreviation). Clashing prefixes cause import "
-                    "conflicts when multiple solutions share the default publisher.",
-                )
-            )
+            results.append(_rule("SOL002", "warn", prefix=prefix or "empty"))
         else:
-            results.append(
-                _pass(
-                    "SOL002",
-                    "Solution",
-                    f"Custom publisher prefix in use ('{prefix}')",
-                    f"The solution uses the publisher prefix '{prefix}', which is not the default. "
-                    "This reduces the risk of naming conflicts with other solutions.",
-                )
-            )
+            results.append(_rule("SOL002", "pass", prefix=prefix))
 
     # SOL003 — Version is still 1.0.0.0
     version = (manifest.findtext("Version") if manifest is not None else None) or ""
     if version == "1.0.0.0":
-        results.append(
-            _warn(
-                "SOL003",
-                "Solution",
-                "Solution version is the default (1.0.0.0)",
-                "The solution version has not been incremented from the initial default. Before "
-                "promoting to a Test or Production environment, update the version to reflect the "
-                "release state (e.g., 1.1.0.0 or 2.0.0.0).",
-            )
-        )
+        results.append(_rule("SOL003", "warn"))
     elif version:
-        results.append(
-            _pass(
-                "SOL003",
-                "Solution",
-                f"Solution version is set ({version})",
-                f"The solution carries version {version}, indicating it has been versioned for promotion.",
-            )
-        )
+        results.append(_rule("SOL003", "pass", version=version))
 
     # SOL004 — Solution description
     if manifest is not None:
         desc_node = manifest.find("Descriptions/Description")
         desc = (desc_node.get("description") or "").strip() if desc_node is not None else ""
         if not desc:
-            results.append(
-                _warn(
-                    "SOL004",
-                    "Solution",
-                    "Solution has no description",
-                    "Adding a description to the solution helps administrators understand its purpose "
-                    "without opening each component. Edit this in your Power Platform environment under "
-                    "Solutions → Properties.",
-                )
-            )
+            results.append(_rule("SOL004", "warn"))
         else:
-            results.append(
-                _pass(
-                    "SOL004",
-                    "Solution",
-                    "Solution description is present",
-                    f'Solution description: "{desc}"',
-                )
-            )
+            results.append(_rule("SOL004", "pass", desc=desc))
 
     # SOL005 — Managed vs unmanaged
     managed = (manifest.findtext("Managed") if manifest is not None else None) or "0"
     if managed == "1":
-        results.append(
-            _info(
-                "SOL005",
-                "Solution",
-                "Solution is managed",
-                "This is a managed solution. Components cannot be edited directly in the target "
-                "environment. This is the expected state for production deployments.",
-            )
-        )
+        results.append(_rule("SOL005", "managed"))
     else:
-        results.append(
-            _info(
-                "SOL005",
-                "Solution",
-                "Solution is unmanaged",
-                "This is an unmanaged solution, which allows components to be edited after import. "
-                "Consider exporting as managed for production environments to prevent accidental changes.",
-            )
-        )
+        results.append(_rule("SOL005", "unmanaged"))
 
     return results
 
@@ -280,14 +210,7 @@ def _check_agent_config(work_dir: Path, schema: str) -> list[dict]:  # noqa: C90
     config_path = work_dir / "bots" / schema / "configuration.json"
 
     if not config_path.exists():
-        results.append(
-            _warn(
-                "AGT001",
-                "Agent",
-                "Bot configuration.json not found",
-                f"No configuration.json found at bots/{schema}/configuration.json. Agent settings checks are skipped.",
-            )
-        )
+        results.append(_rule("AGT001", "no_config", schema=schema))
         return results
 
     try:
@@ -295,14 +218,7 @@ def _check_agent_config(work_dir: Path, schema: str) -> list[dict]:  # noqa: C90
 
         config = json.loads(config_path.read_text(encoding="utf-8"))
     except Exception as exc:
-        results.append(
-            _fail(
-                "AGT001",
-                "Agent",
-                "configuration.json could not be parsed",
-                f"Failed to parse bots/{schema}/configuration.json: {exc}",
-            )
-        )
+        results.append(_rule("AGT001", "unparseable", schema=schema, error=str(exc)))
         return results
 
     # AGT001 — Agent has a description (pulled from gpt.default/botcomponent.xml)
@@ -311,68 +227,21 @@ def _check_agent_config(work_dir: Path, schema: str) -> list[dict]:  # noqa: C90
         fields = _read_xml(gpt_xml_path, "description")
         desc = fields.get("description", "").strip()
         if desc:
-            results.append(
-                _pass(
-                    "AGT001",
-                    "Agent",
-                    "Agent description is present",
-                    f'Description: "{desc}"',
-                )
-            )
+            results.append(_rule("AGT001", "pass", desc=desc))
         else:
-            results.append(
-                _warn(
-                    "AGT001",
-                    "Agent",
-                    "Agent has no description",
-                    "A description for the agent helps administrators understand its purpose. "
-                    "Add one in Copilot Studio under Settings → General → Description.",
-                )
-            )
+            results.append(_rule("AGT001", "warn"))
     else:
-        results.append(
-            _warn(
-                "AGT001",
-                "Agent",
-                "GPT component (gpt.default) not found — description check skipped",
-                f"Could not find botcomponents/{schema}.gpt.default/botcomponent.xml.",
-            )
-        )
+        results.append(_rule("AGT001", "no_gpt", schema=schema))
 
     # AGT002 — Content moderation level
     ai_settings = config.get("aISettings", {}) or {}
     moderation = (ai_settings.get("contentModeration") or "").strip()
     if moderation.lower() in ("none", "off", "disabled", ""):
-        results.append(
-            _fail(
-                "AGT002",
-                "Agent",
-                f"Content moderation is disabled ('{moderation or 'not set'}')",
-                "Content moderation is turned off. This allows harmful, offensive, or inappropriate "
-                "content to pass through the agent without filtering. Set to 'Medium' or 'High' in "
-                "Copilot Studio under Settings → AI Capabilities → Content Moderation.",
-            )
-        )
+        results.append(_rule("AGT002", "fail", moderation=moderation or "not set"))
     elif moderation.lower() == "low":
-        results.append(
-            _warn(
-                "AGT002",
-                "Agent",
-                "Content moderation is set to Low",
-                "Content moderation is set to 'Low', which provides minimal protection against "
-                "harmful outputs. Consider raising to 'Medium' or 'High' for enterprise or "
-                "public-facing agents.",
-            )
-        )
+        results.append(_rule("AGT002", "warn"))
     elif moderation:
-        results.append(
-            _pass(
-                "AGT002",
-                "Agent",
-                f"Content moderation is active ('{moderation}')",
-                "Content moderation is enabled, providing a safety layer over agent responses.",
-            )
-        )
+        results.append(_rule("AGT002", "pass", moderation=moderation))
 
     # AGT003 — useModelKnowledge risk
     use_model_knowledge = bool(ai_settings.get("useModelKnowledge", False))
@@ -389,115 +258,33 @@ def _check_agent_config(work_dir: Path, schema: str) -> list[dict]:  # noqa: C90
     )
 
     if use_model_knowledge and not has_grounding:
-        results.append(
-            _warn(
-                "AGT003",
-                "Agent",
-                "Model knowledge is enabled without grounding rules",
-                "useModelKnowledge is true, meaning the agent can draw on broad LLM training data "
-                "beyond provided knowledge sources. Without explicit grounding rules in the system "
-                "instructions, the agent may hallucinate or answer questions outside its intended "
-                "scope. Add grounding directives (e.g., 'Answer exclusively from provided search "
-                "results') to constrain responses.",
-            )
-        )
+        results.append(_rule("AGT003", "warn"))
     elif use_model_knowledge and has_grounding:
-        results.append(
-            _pass(
-                "AGT003",
-                "Agent",
-                "Model knowledge enabled with grounding rules in place",
-                "useModelKnowledge is true and the system instructions contain grounding directives "
-                "that constrain the model to provided data sources.",
-            )
-        )
+        results.append(_rule("AGT003", "pass_grounded"))
     else:
-        results.append(
-            _pass(
-                "AGT003",
-                "Agent",
-                "Model knowledge is disabled (scoped knowledge sources only)",
-                "useModelKnowledge is false. The agent will only use explicitly provided knowledge "
-                "sources, reducing hallucination risk.",
-            )
-        )
+        results.append(_rule("AGT003", "pass_disabled"))
 
     # AGT004 — Recognizer type (Generative AI is modern best practice)
     recognizer = config.get("recognizer", {}) or {}
     recognizer_kind = recognizer.get("$kind", "")
     if "GenerativeAI" in recognizer_kind or "Generative" in recognizer_kind:
-        results.append(
-            _pass(
-                "AGT004",
-                "Agent",
-                "Generative AI recognizer in use",
-                f"The agent uses the '{recognizer_kind}' recognizer, which is the modern "
-                "recommended approach for Copilot Studio agents leveraging LLM-based intent "
-                "recognition.",
-            )
-        )
+        results.append(_rule("AGT004", "pass", recognizer_kind=recognizer_kind))
     elif recognizer_kind:
-        results.append(
-            _warn(
-                "AGT004",
-                "Agent",
-                f"Classic recognizer in use ('{recognizer_kind}')",
-                f"The agent uses '{recognizer_kind}' instead of the Generative AI Recognizer. "
-                "The classic recognizer relies on fixed trigger phrases and NLU training data, "
-                "which is less flexible than the generative approach. Consider migrating to the "
-                "Generative AI Recognizer for improved natural language understanding.",
-            )
-        )
+        results.append(_rule("AGT004", "warn", recognizer_kind=recognizer_kind))
 
     # AGT005 — publishOnImport
     publish_on_import = config.get("publishOnImport", None)
     if publish_on_import is True:
-        results.append(
-            _info(
-                "AGT005",
-                "Agent",
-                "Agent will be auto-published on import (publishOnImport: true)",
-                "The agent is configured to publish automatically when the solution is imported. "
-                "This is convenient for deployments but means the agent becomes live immediately "
-                "without a manual review step. Verify this is the intended behaviour for your "
-                "target environment.",
-            )
-        )
+        results.append(_rule("AGT005", "auto_publish"))
     elif publish_on_import is False:
-        results.append(
-            _info(
-                "AGT005",
-                "Agent",
-                "Agent requires manual publish after import (publishOnImport: false)",
-                "The agent will not be published automatically on solution import. An administrator "
-                "must manually publish the agent in the target environment before it becomes active.",
-            )
-        )
+        results.append(_rule("AGT005", "manual_publish"))
 
     # AGT006 — isAgentConnectable (exposes agent as a plugin/connector)
     is_connectable = config.get("isAgentConnectable", False)
     if is_connectable:
-        results.append(
-            _warn(
-                "AGT006",
-                "Agent",
-                "Agent is connectable (isAgentConnectable: true)",
-                "isAgentConnectable is set to true, meaning this agent can be invoked as a "
-                "skill or plugin by other agents and systems. Ensure this is intentional and "
-                "that the agent's scope, instructions, and access controls are appropriate "
-                "for external invocation.",
-            )
-        )
+        results.append(_rule("AGT006", "warn"))
     else:
-        results.append(
-            _pass(
-                "AGT006",
-                "Agent",
-                "Agent is not exposed as a connectable plugin",
-                "isAgentConnectable is false, limiting the agent's invocation to direct user "
-                "sessions within its configured channels.",
-            )
-        )
+        results.append(_rule("AGT006", "pass"))
 
     return results
 
@@ -507,14 +294,7 @@ def _check_topics(work_dir: Path, schema: str) -> list[dict]:
     botcomponents_dir = work_dir / "botcomponents"
 
     if not botcomponents_dir.exists():
-        results.append(
-            _warn(
-                "TOP000",
-                "Topics",
-                "No botcomponents/ directory found",
-                "The solution does not contain a botcomponents/ directory. Topic checks are skipped.",
-            )
-        )
+        results.append(_rule("TOP000", "no_botcomponents"))
         return results
 
     # Collect all topic components for this bot schema
@@ -536,7 +316,7 @@ def _check_topics(work_dir: Path, schema: str) -> list[dict]:
         name = fields.get("name") or folder
         state = "active" if fields.get("statecode", "0") == "0" else "inactive"
 
-        data = _load_yaml(comp_dir / "data") if _YAML_AVAILABLE else {}
+        data = _load_yaml(comp_dir / "data")
         begin = data.get("beginDialog") or {}
         trigger_kind = begin.get("kind") or ""
         has_actions = bool(begin.get("actions"))
@@ -550,135 +330,46 @@ def _check_topics(work_dir: Path, schema: str) -> list[dict]:
             }
         )
 
-    # TOP001–TOP005 — Required system topics
+    # TOP001 / TOP002 — Required system topics
     found_triggers = {t["trigger_kind"] for t in topics}
-    for trigger, (label, severity) in _REQUIRED_SYSTEM_TOPICS.items():
+    for trigger, topic_cfg in _REQUIRED_SYSTEM_TOPICS.items():
+        label = topic_cfg["label"]
+        rule_id = topic_cfg.get("rule_id", "TOP002")
         if trigger in found_triggers:
-            results.append(
-                _pass(
-                    "TOP001" if trigger == "OnError" else "TOP002",
-                    "Topics",
-                    f"'{label}' system topic is present",
-                    f"The '{label}' topic (trigger: {trigger}) is included in the solution.",
-                )
-            )
+            results.append(_rule(rule_id, "pass", label=label, trigger=trigger))
         else:
-            entry = _fail if severity == "fail" else _warn
-            results.append(
-                entry(
-                    "TOP001" if trigger == "OnError" else "TOP002",
-                    "Topics",
-                    f"'{label}' system topic is missing",
-                    f"No topic with a '{trigger}' trigger was found. This system topic is important "
-                    f"for handling the corresponding lifecycle event. Consider adding it in Copilot "
-                    f"Studio to ensure robust conversational flow.",
-                )
-            )
+            missing_outcome = topic_cfg.get("missing_outcome", "warn")
+            results.append(_rule(rule_id, missing_outcome, label=label, trigger=trigger))
 
     # TOP003 — Inactive topics
     inactive = [t for t in topics if t["state"] == "inactive"]
     if inactive:
-        names = ", ".join(t["display_name"] for t in inactive[:5])
+        names_list = ", ".join(t["display_name"] for t in inactive[:5])
         suffix = f" and {len(inactive) - 5} more" if len(inactive) > 5 else ""
-        results.append(
-            _warn(
-                "TOP003",
-                "Topics",
-                f"{len(inactive)} inactive topic(s) detected",
-                f"The following topic(s) are inactive and will not be triggered: {names}{suffix}. "
-                "Inactive topics clutter the solution and may cause confusion during maintenance. "
-                "Consider removing unused topics before promoting to production.",
-            )
-        )
+        results.append(_rule("TOP003", "warn", count=len(inactive), names=f"{names_list}{suffix}"))
     else:
-        results.append(
-            _pass(
-                "TOP003",
-                "Topics",
-                "No inactive topics detected",
-                "All topics in the solution are active.",
-            )
-        )
+        results.append(_rule("TOP003", "pass"))
 
     # TOP004 — Empty topics (no actions in beginDialog)
     empty = [t for t in topics if not t["has_actions"] and t["trigger_kind"]]
     if empty:
-        names = ", ".join(t["display_name"] for t in empty[:5])
+        names_list = ", ".join(t["display_name"] for t in empty[:5])
         suffix = f" and {len(empty) - 5} more" if len(empty) > 5 else ""
-        results.append(
-            _warn(
-                "TOP004",
-                "Topics",
-                f"{len(empty)} topic(s) have empty dialog (no actions)",
-                f"The following topic(s) define a trigger but have no actions: {names}{suffix}. "
-                "Empty topics will be triggered but do nothing, resulting in silent failures or "
-                "confusing user experiences. Add at least one action (e.g., a message or redirect) "
-                "or disable the topic.",
-            )
-        )
+        results.append(_rule("TOP004", "warn", count=len(empty), names=f"{names_list}{suffix}"))
     else:
-        results.append(
-            _pass(
-                "TOP004",
-                "Topics",
-                "All topics have dialog actions defined",
-                "No topics were found with triggers but empty dialog action lists.",
-            )
-        )
+        results.append(_rule("TOP004", "pass"))
 
     # TOP005 — Large topic count
-    user_topics = [
-        t
-        for t in topics
-        if t["trigger_kind"]
-        and t["trigger_kind"]
-        not in (
-            "OnError",
-            "OnUnknownIntent",
-            "OnConversationStart",
-            "OnEscalate",
-            "OnSignIn",
-            "OnRedirect",
-            "OnActivity",
-            "OnInactivity",
-            "OnSystemRedirect",
-            "OnSelectIntent",
-        )
-    ]
+    very_high = int(_PARAMS.get("topic_very_high_count_threshold", 100))
+    high = int(_PARAMS.get("topic_high_count_threshold", 50))
+    user_topics = [t for t in topics if t["trigger_kind"] and t["trigger_kind"] not in _SYSTEM_TOPIC_TRIGGERS]
     user_count = len(user_topics)
-    if user_count > 100:
-        results.append(
-            _warn(
-                "TOP005",
-                "Topics",
-                f"Very large number of user topics ({user_count})",
-                f"The solution contains {user_count} user-triggered topics. Agents with more than "
-                "100 user topics can be difficult to maintain and may experience slower topic "
-                "disambiguation at runtime. Consider consolidating related topics or off-loading "
-                "logic to Power Automate flows.",
-            )
-        )
-    elif user_count > 50:
-        results.append(
-            _warn(
-                "TOP005",
-                "Topics",
-                f"High number of user topics ({user_count})",
-                f"The solution contains {user_count} user-triggered topics. This is manageable but "
-                "consider grouping topics into logical sections and using redirect chains to keep "
-                "the topic list navigable.",
-            )
-        )
+    if user_count > very_high:
+        results.append(_rule("TOP005", "very_high", count=user_count, very_high_threshold=very_high))
+    elif user_count > high:
+        results.append(_rule("TOP005", "high", count=user_count))
     else:
-        results.append(
-            _pass(
-                "TOP005",
-                "Topics",
-                f"Topic count is within a manageable range ({user_count} user topics)",
-                f"The solution contains {user_count} user-triggered topics, which is within the "
-                "recommended range for maintainability.",
-            )
-        )
+        results.append(_rule("TOP005", "pass", count=user_count))
 
     return results
 
@@ -699,29 +390,13 @@ def _check_knowledge(work_dir: Path, schema: str, config: dict) -> list[dict]:
                 knowledge_dirs.append(comp_dir)
 
     if knowledge_dirs:
-        results.append(
-            _pass(
-                "KNO001",
-                "Knowledge",
-                f"{len(knowledge_dirs)} knowledge source(s) / entity component(s) present",
-                f"The solution includes {len(knowledge_dirs)} file/knowledge/entity component(s), "
-                "providing grounding data for the agent.",
-            )
-        )
+        results.append(_rule("KNO001", "pass", count=len(knowledge_dirs)))
     else:
-        results.append(
-            _info(
-                "KNO001",
-                "Knowledge",
-                "No knowledge sources found",
-                "No file or knowledge source components were found. If this agent is expected to "
-                "answer domain-specific questions, add knowledge sources in Copilot Studio under "
-                "Knowledge → Add Knowledge.",
-            )
-        )
+        results.append(_rule("KNO001", "info"))
 
-    # KNO002 — Oversized file attachments (> 20 MB)
-    MAX_FILE_BYTES = 20 * 1024 * 1024
+    # KNO002 — Oversized file attachments
+    max_mb = int(_PARAMS.get("max_knowledge_file_mb", 20))
+    max_file_bytes = max_mb * 1024 * 1024
     large_files: list[tuple[str, int]] = []
     if botcomponents_dir.exists():
         for fdir in knowledge_dirs:
@@ -730,58 +405,22 @@ def _check_knowledge(work_dir: Path, schema: str, config: dict) -> list[dict]:
                 for f in filedata_dir.iterdir():
                     if f.is_file():
                         size = f.stat().st_size
-                        if size > MAX_FILE_BYTES:
+                        if size > max_file_bytes:
                             large_files.append((f.name, size))
 
     if large_files:
         details = "; ".join(f"{name} ({sz // 1024 // 1024} MB)" for name, sz in large_files[:5])
-        results.append(
-            _warn(
-                "KNO002",
-                "Knowledge",
-                f"{len(large_files)} oversized knowledge file(s) detected",
-                f"The following knowledge files exceed 20 MB: {details}. Very large files increase "
-                "ZIP extraction time, solution import time, and may hit platform size limits. "
-                "Consider chunking large documents or hosting them externally and referencing via "
-                "SharePoint or URL knowledge sources.",
-            )
-        )
+        results.append(_rule("KNO002", "warn", count=len(large_files), details=details, max_mb=max_mb))
     else:
-        results.append(
-            _pass(
-                "KNO002",
-                "Knowledge",
-                "No oversized knowledge files detected",
-                "All knowledge source files are within the 20 MB recommended size limit.",
-            )
-        )
+        results.append(_rule("KNO002", "pass", max_mb=max_mb))
 
     # KNO003 — Semantic search enabled
     ai_settings = config.get("aISettings", {}) or {}
     semantic_search = bool(ai_settings.get("isSemanticSearchEnabled", False))
     if semantic_search:
-        results.append(
-            _pass(
-                "KNO003",
-                "Knowledge",
-                "Semantic search is enabled",
-                "isSemanticSearchEnabled is true. The agent will use vector-based semantic search "
-                "over knowledge sources, improving recall for natural language queries compared to "
-                "keyword matching.",
-            )
-        )
+        results.append(_rule("KNO003", "pass"))
     else:
-        results.append(
-            _warn(
-                "KNO003",
-                "Knowledge",
-                "Semantic search is disabled",
-                "isSemanticSearchEnabled is false. The agent falls back to keyword-based search "
-                "over knowledge sources, which may miss relevant documents when user phrasing "
-                "differs from document text. Enable semantic search in Copilot Studio Settings → "
-                "AI Capabilities for better knowledge retrieval.",
-            )
-        )
+        results.append(_rule("KNO003", "warn"))
 
     # KNO004 — Web browsing enabled
     web_browsing = False
@@ -794,27 +433,9 @@ def _check_knowledge(work_dir: Path, schema: str, config: dict) -> list[dict]:
                 break
 
     if web_browsing:
-        results.append(
-            _warn(
-                "KNO004",
-                "Knowledge",
-                "Web browsing capability is enabled",
-                "The agent has web browsing enabled, allowing it to retrieve information from the "
-                "public internet in real time. This can lead to responses based on unverified "
-                "sources. Ensure your system instructions explicitly scope what the agent may "
-                "or may not retrieve via browsing, or disable web browsing if not required.",
-            )
-        )
+        results.append(_rule("KNO004", "warn"))
     else:
-        results.append(
-            _pass(
-                "KNO004",
-                "Knowledge",
-                "Web browsing is not enabled",
-                "Web browsing is disabled. The agent relies solely on provided knowledge sources "
-                "and model knowledge (if enabled), keeping responses grounded in controlled data.",
-            )
-        )
+        results.append(_rule("KNO004", "pass"))
 
     return results
 
@@ -851,28 +472,11 @@ def _check_security(work_dir: Path, schema: str) -> list[dict]:  # noqa: C901
                     break  # one hit per component is enough
 
     if injection_hits:
-        details = "; ".join(f"'{n}' (matched: \"{s}\")" for n, s in injection_hits[:3])
+        details_str = "; ".join(f"'{n}' (matched: \"{s}\")" for n, s in injection_hits[:3])
         suffix = f" and {len(injection_hits) - 3} more" if len(injection_hits) > 3 else ""
-        results.append(
-            _fail(
-                "SEC001",
-                "Security",
-                f"Prompt injection patterns detected in {len(injection_hits)} topic(s)",
-                f"Potential prompt injection or instruction-override language found in: {details}{suffix}. "
-                "System instructions and topic content must not contain language that could override "
-                "the agent's safety constraints. Review and sanitise the affected topics before "
-                "deploying to production.",
-            )
-        )
+        results.append(_rule("SEC001", "fail", count=len(injection_hits), details=f"{details_str}{suffix}"))
     else:
-        results.append(
-            _pass(
-                "SEC001",
-                "Security",
-                "No prompt injection patterns detected in topic content",
-                "None of the topic data files contain common prompt injection or instruction-override patterns.",
-            )
-        )
+        results.append(_rule("SEC001", "pass"))
 
     # SEC002 — Hardcoded secrets / credentials in topic data
     secret_hits: list[tuple[str, str]] = []
@@ -907,29 +511,11 @@ def _check_security(work_dir: Path, schema: str) -> list[dict]:  # noqa: C901
                     break
 
     if secret_hits:
-        names = ", ".join(f"'{n}'" for n, _ in secret_hits[:3])
+        names_str = ", ".join(f"'{n}'" for n, _ in secret_hits[:3])
         suffix = f" and {len(secret_hits) - 3} more" if len(secret_hits) > 3 else ""
-        results.append(
-            _warn(
-                "SEC002",
-                "Security",
-                f"Possible hardcoded credential patterns in {len(secret_hits)} component(s)",
-                f"Patterns resembling hardcoded secrets were found in: {names}{suffix}. "
-                "Credentials must not be embedded in topic data or bot configuration. "
-                "Use Power Platform Environment Variables or Azure Key Vault references instead. "
-                "Review the flagged components and remove or replace any embedded secrets.",
-            )
-        )
+        results.append(_rule("SEC002", "warn", count=len(secret_hits), names=f"{names_str}{suffix}"))
     else:
-        results.append(
-            _pass(
-                "SEC002",
-                "Security",
-                "No hardcoded credential patterns detected",
-                "No patterns resembling hardcoded API keys, passwords, or tokens were found in "
-                "the botcomponent data files.",
-            )
-        )
+        results.append(_rule("SEC002", "pass"))
 
     # SEC003 — File analysis enabled (can process uploaded files from users)
     config_path = work_dir / "bots" / schema / "configuration.json"
@@ -945,27 +531,9 @@ def _check_security(work_dir: Path, schema: str) -> list[dict]:  # noqa: C901
             pass
 
     if file_analysis_enabled:
-        results.append(
-            _warn(
-                "SEC003",
-                "Security",
-                "File analysis (user file uploads) is enabled",
-                "isFileAnalysisEnabled is true, allowing end users to upload files directly to "
-                "the agent for analysis. This expands the attack surface: users could upload "
-                "malicious documents or attempt prompt injection through file content. Ensure "
-                "this capability is required for the agent's use case, and that uploaded content "
-                "is processed safely.",
-            )
-        )
+        results.append(_rule("SEC003", "warn"))
     else:
-        results.append(
-            _pass(
-                "SEC003",
-                "Security",
-                "File upload analysis is disabled",
-                "isFileAnalysisEnabled is false. End users cannot upload files to this agent.",
-            )
-        )
+        results.append(_rule("SEC003", "pass"))
 
     return results
 
@@ -1069,15 +637,7 @@ def check_solution_zip(zip_bytes: bytes) -> dict:
             results.extend(_check_knowledge(work_dir, schema, bot_config))
             results.extend(_check_security(work_dir, schema))
         else:
-            results.append(
-                _fail(
-                    "AGT000",
-                    "Agent",
-                    "No bot schema detected",
-                    "Could not detect a bot schema name from the bots/ directory. "
-                    "Agent, topic, knowledge, and security checks are skipped.",
-                )
-            )
+            results.append(_rule("AGT000", "no_schema"))
 
     pass_count = sum(1 for r in results if r["severity"] == "pass")
     warn_count = sum(1 for r in results if r["severity"] == "warning")
