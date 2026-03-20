@@ -82,8 +82,9 @@ def mermaid_script() -> rx.Component:
                 observer.observe(document.body, {{ childList: true, subtree: true }});
             }}
 
-            // Load local asset first; fall back to CDN if the local file returns an error
-            // (e.g. during local development before running scripts/download-assets.sh).
+            // Load local asset first only when it is truly a JavaScript file.
+            // In dev, missing static assets can be rewritten to index.html (200 text/html),
+            // which would otherwise trigger "Unexpected token '<'" in the browser.
             function loadScript(src, onLoad, onError) {{
                 var s = document.createElement('script');
                 s.src = src;
@@ -92,11 +93,29 @@ def mermaid_script() -> rx.Component:
                 document.head.appendChild(s);
             }}
 
-            loadScript(_LOCAL, initMermaid, function () {{
+            function loadCdnFallback() {{
                 loadScript(_CDN, initMermaid, function () {{
                     console.error('[mermaid] Failed to load Mermaid.js from both local and CDN.');
                 }});
-            }});
+            }}
+
+            function looksLikeJavascriptContentType(contentType) {{
+                var ct = (contentType || '').toLowerCase();
+                return ct.includes('javascript') || ct.includes('ecmascript') || ct.includes('x-javascript');
+            }}
+
+            fetch(_LOCAL, {{ method: 'HEAD', cache: 'no-store' }})
+                .then(function (response) {{
+                    var contentType = response.headers.get('content-type') || '';
+                    if (response.ok && looksLikeJavascriptContentType(contentType)) {{
+                        loadScript(_LOCAL, initMermaid, loadCdnFallback);
+                    }} else {{
+                        loadCdnFallback();
+                    }}
+                }})
+                .catch(function () {{
+                    loadCdnFallback();
+                }});
         }})();
         """
     )
