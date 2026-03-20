@@ -1,7 +1,16 @@
 """Mermaid diagram rendering support for the Reflex web UI.
 
-Loads Mermaid.js from CDN and uses a MutationObserver to auto-render
-any ``<pre class="mermaid">`` blocks that appear in the DOM.
+Loads Mermaid.js — preferring a locally-bundled copy so that the app works
+in environments where external CDNs are blocked (e.g. Azure Container Apps).
+Falls back to the jsDelivr CDN only if the local asset is unavailable (handy
+for local ``reflex run`` without running the asset-download step).
+
+The local copy lives at ``assets/external/mermaid.min.js`` which is bundled
+into the Docker image at build time (see ``Dockerfile``).  The path is
+gitignored so the 3 MB file is never committed.
+
+A MutationObserver auto-renders any ``<pre class="mermaid">`` blocks that
+appear in the DOM after the initial page load.
 
 Adapted from github.com/Roelzz/mcs-agent-analyser (MIT licence).
 """
@@ -10,68 +19,86 @@ from __future__ import annotations
 
 import reflex as rx
 
+_LOCAL_MERMAID = "/external/mermaid.min.js"
+_CDN_MERMAID = "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"
+
 
 def mermaid_script() -> rx.Component:
     """Return Reflex script components that load Mermaid.js and wire up auto-rendering."""
-    return rx.fragment(
-        rx.script(src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"),
-        rx.script(
-            """
-            (function () {
-                function initMermaid() {
-                    if (typeof mermaid === 'undefined') {
-                        setTimeout(initMermaid, 100);
-                        return;
-                    }
+    return rx.script(
+        f"""
+        (function () {{
+            var _LOCAL = "{_LOCAL_MERMAID}";
+            var _CDN   = "{_CDN_MERMAID}";
 
-                    // Keep large graphs readable: render at natural SVG width and let
-                    // the container scroll horizontally instead of shrinking everything.
-                    if (!document.getElementById('pp-mermaid-viewport-style')) {
-                        var style = document.createElement('style');
-                        style.id = 'pp-mermaid-viewport-style';
-                        style.textContent = `
-                            pre.mermaid svg {
-                                max-width: none !important;
-                                width: auto !important;
-                                min-width: 100%;
-                                height: auto !important;
-                            }
-                            pre.mermaid {
-                                display: flex;
-                                justify-content: center;
-                                align-items: flex-start;
-                                overflow-x: auto;
-                                overflow-y: auto;
-                            }
-                            pre.mermaid .label {
-                                font-weight: 600;
-                                letter-spacing: 0.01em;
-                            }
-                        `;
-                        document.head.appendChild(style);
-                    }
+            function initMermaid() {{
+                if (typeof mermaid === 'undefined') {{
+                    setTimeout(initMermaid, 100);
+                    return;
+                }}
 
-                    mermaid.initialize({ startOnLoad: false, theme: 'neutral' });
+                // Keep large graphs readable: render at natural SVG width and let
+                // the container scroll horizontally instead of shrinking everything.
+                if (!document.getElementById('pp-mermaid-viewport-style')) {{
+                    var style = document.createElement('style');
+                    style.id = 'pp-mermaid-viewport-style';
+                    style.textContent = `
+                        pre.mermaid svg {{
+                            max-width: none !important;
+                            width: auto !important;
+                            min-width: 100%;
+                            height: auto !important;
+                        }}
+                        pre.mermaid {{
+                            display: flex;
+                            justify-content: center;
+                            align-items: flex-start;
+                            overflow-x: auto;
+                            overflow-y: auto;
+                        }}
+                        pre.mermaid .label {{
+                            font-weight: 600;
+                            letter-spacing: 0.01em;
+                        }}
+                    `;
+                    document.head.appendChild(style);
+                }}
 
-                    function renderUnprocessed() {
-                        var els = document.querySelectorAll('pre.mermaid:not([data-processed])');
-                        if (els.length > 0) {
-                            mermaid.run({ nodes: els });
-                        }
-                    }
+                mermaid.initialize({{ startOnLoad: false, theme: 'neutral' }});
 
-                    renderUnprocessed();
+                function renderUnprocessed() {{
+                    var els = document.querySelectorAll('pre.mermaid:not([data-processed])');
+                    if (els.length > 0) {{
+                        mermaid.run({{ nodes: els }});
+                    }}
+                }}
 
-                    var observer = new MutationObserver(function (mutations) {
-                        var hasAdded = mutations.some(function (m) { return m.addedNodes.length > 0; });
-                        if (hasAdded) { renderUnprocessed(); }
-                    });
-                    observer.observe(document.body, { childList: true, subtree: true });
-                }
-                initMermaid();
-            })();
-            """
-        ),
+                renderUnprocessed();
+
+                var observer = new MutationObserver(function (mutations) {{
+                    var hasAdded = mutations.some(function (m) {{ return m.addedNodes.length > 0; }});
+                    if (hasAdded) {{ renderUnprocessed(); }}
+                }});
+                observer.observe(document.body, {{ childList: true, subtree: true }});
+            }}
+
+            // Load local asset first; fall back to CDN if the local file returns an error
+            // (e.g. during local development before running scripts/download-assets.sh).
+            function loadScript(src, onLoad, onError) {{
+                var s = document.createElement('script');
+                s.src = src;
+                s.onload = onLoad;
+                s.onerror = onError;
+                document.head.appendChild(s);
+            }}
+
+            loadScript(_LOCAL, initMermaid, function () {{
+                loadScript(_CDN, initMermaid, function () {{
+                    console.error('[mermaid] Failed to load Mermaid.js from both local and CDN.');
+                }});
+            }});
+        }})();
+        """
     )
 
 

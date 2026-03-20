@@ -47,6 +47,16 @@ RUN mkdir -p uploaded_files \
         /tmp/nginx_fastcgi_temp /tmp/nginx_uwsgi_temp /tmp/nginx_scgi_temp \
     && chmod +x /app/docker-entrypoint.sh
 
+# ── Bundle Mermaid.js locally (avoids CDN dependency at runtime) ──────────────
+# Azure Container Apps may block external CDNs; serving mermaid.min.js from the
+# same origin guarantees diagrams render regardless of network restrictions.
+# The file is placed in assets/external/ which is gitignored (never committed).
+RUN mkdir -p assets/external \
+    && npm install --prefix /tmp/mermaid-pkg mermaid@11 \
+    && cp /tmp/mermaid-pkg/node_modules/mermaid/dist/mermaid.min.js assets/external/mermaid.min.js \
+    && rm -rf /tmp/mermaid-pkg \
+    && echo "--- mermaid.min.js bundled ---"
+
 # ── Reflex frontend setup ─────────────────────────────────────────────────────
 # reflex init: installs npm packages into .web/ (requires web/ app to exist).
 # reflex export: compiles the Next.js production build into .web/_static/.
