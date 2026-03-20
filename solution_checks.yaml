@@ -1,0 +1,564 @@
+# solution_checks.yaml
+# ──────────────────────────────────────────────────────────────────────────────
+# Configuration for the Power Platform / Copilot Studio solution checker.
+#
+# Edit this file to adjust:
+#   • Detection thresholds (parameters)
+#   • Required system topics (required_system_topics)
+#   • Prompt-injection and hardcoded-secret regex patterns
+#   • Rule message text, titles, and severity levels (rules)
+#
+# No Python code changes are needed to update check behaviour or messages.
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+# ── Numeric thresholds used by the check functions ───────────────────────────
+parameters:
+  # KNO002: knowledge files larger than this (in MB) are flagged as oversized.
+  max_knowledge_file_mb: 20
+
+  # TOP005: warn when user-topic count exceeds these values.
+  topic_high_count_threshold: 50
+  topic_very_high_count_threshold: 100
+
+
+# ── Required system topics (TOP001 / TOP002) ─────────────────────────────────
+# Each entry maps a topic trigger kind to its display label, the rule ID that
+# covers it, and the outcome name to emit when the topic is absent.
+required_system_topics:
+  OnError:
+    label: "On Error"
+    rule_id: "TOP001"
+    missing_outcome: "fail"
+  OnUnknownIntent:
+    label: "Fallback (Unknown Intent)"
+    rule_id: "TOP002"
+    missing_outcome: "warn"
+  OnConversationStart:
+    label: "Conversation Start"
+    rule_id: "TOP002"
+    missing_outcome: "warn"
+  OnEscalate:
+    label: "Escalate"
+    rule_id: "TOP002"
+    missing_outcome: "warn"
+  OnSignIn:
+    label: "Sign-In"
+    rule_id: "TOP002"
+    missing_outcome: "warn"
+
+
+# ── Trigger kinds treated as system topics (excluded from user-topic count) ──
+system_topic_triggers:
+  - OnError
+  - OnUnknownIntent
+  - OnConversationStart
+  - OnEscalate
+  - OnSignIn
+  - OnRedirect
+  - OnActivity
+  - OnInactivity
+  - OnSystemRedirect
+  - OnSelectIntent
+
+
+# ── Prompt-injection detection patterns (SEC001) ─────────────────────────────
+# Standard Python regex strings.  All patterns are compiled with re.IGNORECASE.
+injection_patterns:
+  - "ignore (all |previous |above |prior |system |original )?instructions"
+  - "disregard (all |previous |above |prior )?instructions"
+  - "override (all |previous |above |prior )?instructions"
+  - "forget (all |your |previous )?instructions"
+  - "new (role|persona|objective):"
+  - "you are now (a |an )?(?!legal|financial|hr|support)"
+  - "pretend (you are|to be)"
+  - "act as (?!a |an |the )"
+  - "jailbreak"
+  - "DAN mode"
+
+
+# ── Hardcoded-secret / credential detection patterns (SEC002) ────────────────
+# Standard Python regex strings.  Backslashes must be doubled in YAML.
+secret_patterns:
+  - "(?i)(password|passwd|pwd)\\s*[=:]\\s*\\S+"
+  - "(?i)(api[_-]?key|apikey|api[_-]?secret)\\s*[=:]\\s*\\S+"
+  - "(?i)(client[_-]?secret|clientsecret)\\s*[=:]\\s*\\S+"
+  - "(?i)(bearer\\s+[A-Za-z0-9\\-._~+/]+=*)"
+  - "(?i)(access[_-]?token)\\s*[=:]\\s*\\S+"
+  - "(?i)(connection[_-]?string)\\s*[=:]\\s*.{10,}"
+  - "[A-Za-z0-9+/]{64,}={0,2}"
+
+
+# ── Rule definitions ─────────────────────────────────────────────────────────
+# Each rule has a category and a set of named outcomes.
+# Outcome fields:
+#   severity  – one of: pass | warning | fail | info
+#   title     – short summary shown in the UI  (supports {placeholder} templates)
+#   detail    – longer explanation shown on expansion (supports {placeholder} templates)
+#
+# Placeholder values are supplied by the Python check functions at runtime.
+# ──────────────────────────────────────────────────────────────────────────────
+rules:
+
+  # ── Solution category ────────────────────────────────────────────────────
+
+  SOL001:
+    category: Solution
+    outcomes:
+      missing:
+        severity: fail
+        title: "solution.xml is missing"
+        detail: >-
+          The ZIP does not contain a solution.xml at the root level. This is
+          required for all Power Platform solution imports.
+      unparseable:
+        severity: fail
+        title: "solution.xml could not be parsed"
+        detail: "The solution.xml could not be parsed as XML: {error}. The file may be corrupt."
+      pass:
+        severity: pass
+        title: "solution.xml is present and valid"
+        detail: "solution.xml exists and is well-formed XML."
+
+  SOL002:
+    category: Solution
+    outcomes:
+      warn:
+        severity: warning
+        title: "Default publisher prefix detected ('{prefix}')"
+        detail: >-
+          The solution uses the default publisher prefix. This is acceptable for
+          development but for production solutions you should create a dedicated
+          publisher with a unique prefix (e.g., your organisation abbreviation).
+          Clashing prefixes cause import conflicts when multiple solutions share
+          the default publisher.
+      pass:
+        severity: pass
+        title: "Custom publisher prefix in use ('{prefix}')"
+        detail: >-
+          The solution uses the publisher prefix '{prefix}', which is not the
+          default. This reduces the risk of naming conflicts with other solutions.
+
+  SOL003:
+    category: Solution
+    outcomes:
+      warn:
+        severity: warning
+        title: "Solution version is the default (1.0.0.0)"
+        detail: >-
+          The solution version has not been incremented from the initial default.
+          Before promoting to a Test or Production environment, update the version
+          to reflect the release state (e.g., 1.1.0.0 or 2.0.0.0).
+      pass:
+        severity: pass
+        title: "Solution version is set ({version})"
+        detail: >-
+          The solution carries version {version}, indicating it has been versioned
+          for promotion.
+
+  SOL004:
+    category: Solution
+    outcomes:
+      warn:
+        severity: warning
+        title: "Solution has no description"
+        detail: >-
+          Adding a description to the solution helps administrators understand its
+          purpose without opening each component. Edit this in your Power Platform
+          environment under Solutions → Properties.
+      pass:
+        severity: pass
+        title: "Solution description is present"
+        detail: "Solution description: \"{desc}\""
+
+  SOL005:
+    category: Solution
+    outcomes:
+      managed:
+        severity: info
+        title: "Solution is managed"
+        detail: >-
+          This is a managed solution. Components cannot be edited directly in the
+          target environment. This is the expected state for production deployments.
+      unmanaged:
+        severity: info
+        title: "Solution is unmanaged"
+        detail: >-
+          This is an unmanaged solution, which allows components to be edited after
+          import. Consider exporting as managed for production environments to
+          prevent accidental changes.
+
+  # ── Agent category ───────────────────────────────────────────────────────
+
+  AGT000:
+    category: Agent
+    outcomes:
+      no_schema:
+        severity: fail
+        title: "No bot schema detected"
+        detail: >-
+          Could not detect a bot schema name from the bots/ directory. Agent,
+          topic, knowledge, and security checks are skipped.
+
+  AGT001:
+    category: Agent
+    outcomes:
+      no_config:
+        severity: warning
+        title: "Bot configuration.json not found"
+        detail: >-
+          No configuration.json found at bots/{schema}/configuration.json.
+          Agent settings checks are skipped.
+      unparseable:
+        severity: fail
+        title: "configuration.json could not be parsed"
+        detail: "Failed to parse bots/{schema}/configuration.json: {error}"
+      no_gpt:
+        severity: warning
+        title: "GPT component (gpt.default) not found — description check skipped"
+        detail: "Could not find botcomponents/{schema}.gpt.default/botcomponent.xml."
+      warn:
+        severity: warning
+        title: "Agent has no description"
+        detail: >-
+          A description for the agent helps administrators understand its purpose.
+          Add one in Copilot Studio under Settings → General → Description.
+      pass:
+        severity: pass
+        title: "Agent description is present"
+        detail: "Description: \"{desc}\""
+
+  AGT002:
+    category: Agent
+    outcomes:
+      fail:
+        severity: fail
+        title: "Content moderation is disabled ('{moderation}')"
+        detail: >-
+          Content moderation is turned off. This allows harmful, offensive, or
+          inappropriate content to pass through the agent without filtering. Set
+          to 'Medium' or 'High' in Copilot Studio under Settings → AI Capabilities
+          → Content Moderation.
+      warn:
+        severity: warning
+        title: "Content moderation is set to Low"
+        detail: >-
+          Content moderation is set to 'Low', which provides minimal protection
+          against harmful outputs. Consider raising to 'Medium' or 'High' for
+          enterprise or public-facing agents.
+      pass:
+        severity: pass
+        title: "Content moderation is active ('{moderation}')"
+        detail: "Content moderation is enabled, providing a safety layer over agent responses."
+
+  AGT003:
+    category: Agent
+    outcomes:
+      warn:
+        severity: warning
+        title: "Model knowledge is enabled without grounding rules"
+        detail: >-
+          useModelKnowledge is true, meaning the agent can draw on broad LLM
+          training data beyond provided knowledge sources. Without explicit
+          grounding rules in the system instructions, the agent may hallucinate
+          or answer questions outside its intended scope. Add grounding directives
+          (e.g., 'Answer exclusively from provided search results') to constrain
+          responses.
+      pass_grounded:
+        severity: pass
+        title: "Model knowledge enabled with grounding rules in place"
+        detail: >-
+          useModelKnowledge is true and the system instructions contain grounding
+          directives that constrain the model to provided data sources.
+      pass_disabled:
+        severity: pass
+        title: "Model knowledge is disabled (scoped knowledge sources only)"
+        detail: >-
+          useModelKnowledge is false. The agent will only use explicitly provided
+          knowledge sources, reducing hallucination risk.
+
+  AGT004:
+    category: Agent
+    outcomes:
+      pass:
+        severity: pass
+        title: "Generative AI recognizer in use"
+        detail: >-
+          The agent uses the '{recognizer_kind}' recognizer, which is the modern
+          recommended approach for Copilot Studio agents leveraging LLM-based
+          intent recognition.
+      warn:
+        severity: warning
+        title: "Classic recognizer in use ('{recognizer_kind}')"
+        detail: >-
+          The agent uses '{recognizer_kind}' instead of the Generative AI
+          Recognizer. The classic recognizer relies on fixed trigger phrases and
+          NLU training data, which is less flexible than the generative approach.
+          Consider migrating to the Generative AI Recognizer for improved natural
+          language understanding.
+
+  AGT005:
+    category: Agent
+    outcomes:
+      auto_publish:
+        severity: info
+        title: "Agent will be auto-published on import (publishOnImport: true)"
+        detail: >-
+          The agent is configured to publish automatically when the solution is
+          imported. This is convenient for deployments but means the agent becomes
+          live immediately without a manual review step. Verify this is the
+          intended behaviour for your target environment.
+      manual_publish:
+        severity: info
+        title: "Agent requires manual publish after import (publishOnImport: false)"
+        detail: >-
+          The agent will not be published automatically on solution import. An
+          administrator must manually publish the agent in the target environment
+          before it becomes active.
+
+  AGT006:
+    category: Agent
+    outcomes:
+      warn:
+        severity: warning
+        title: "Agent is connectable (isAgentConnectable: true)"
+        detail: >-
+          isAgentConnectable is set to true, meaning this agent can be invoked as
+          a skill or plugin by other agents and systems. Ensure this is intentional
+          and that the agent's scope, instructions, and access controls are
+          appropriate for external invocation.
+      pass:
+        severity: pass
+        title: "Agent is not exposed as a connectable plugin"
+        detail: >-
+          isAgentConnectable is false, limiting the agent's invocation to direct
+          user sessions within its configured channels.
+
+  # ── Topics category ──────────────────────────────────────────────────────
+
+  TOP000:
+    category: Topics
+    outcomes:
+      no_botcomponents:
+        severity: warning
+        title: "No botcomponents/ directory found"
+        detail: >-
+          The solution does not contain a botcomponents/ directory. Topic checks
+          are skipped.
+
+  TOP001:
+    category: Topics
+    outcomes:
+      pass:
+        severity: pass
+        title: "'{label}' system topic is present"
+        detail: "The '{label}' topic (trigger: {trigger}) is included in the solution."
+      fail:
+        severity: fail
+        title: "'{label}' system topic is missing"
+        detail: >-
+          No topic with a '{trigger}' trigger was found. This system topic is
+          important for handling the corresponding lifecycle event. Consider adding
+          it in Copilot Studio to ensure robust conversational flow.
+
+  TOP002:
+    category: Topics
+    outcomes:
+      pass:
+        severity: pass
+        title: "'{label}' system topic is present"
+        detail: "The '{label}' topic (trigger: {trigger}) is included in the solution."
+      warn:
+        severity: warning
+        title: "'{label}' system topic is missing"
+        detail: >-
+          No topic with a '{trigger}' trigger was found. This system topic is
+          important for handling the corresponding lifecycle event. Consider adding
+          it in Copilot Studio to ensure robust conversational flow.
+
+  TOP003:
+    category: Topics
+    outcomes:
+      warn:
+        severity: warning
+        title: "{count} inactive topic(s) detected"
+        detail: >-
+          The following topic(s) are inactive and will not be triggered: {names}.
+          Inactive topics clutter the solution and may cause confusion during
+          maintenance. Consider removing unused topics before promoting to
+          production.
+      pass:
+        severity: pass
+        title: "No inactive topics detected"
+        detail: "All topics in the solution are active."
+
+  TOP004:
+    category: Topics
+    outcomes:
+      warn:
+        severity: warning
+        title: "{count} topic(s) have empty dialog (no actions)"
+        detail: >-
+          The following topic(s) define a trigger but have no actions: {names}.
+          Empty topics will be triggered but do nothing, resulting in silent
+          failures or confusing user experiences. Add at least one action (e.g.,
+          a message or redirect) or disable the topic.
+      pass:
+        severity: pass
+        title: "All topics have dialog actions defined"
+        detail: "No topics were found with triggers but empty dialog action lists."
+
+  TOP005:
+    category: Topics
+    outcomes:
+      very_high:
+        severity: warning
+        title: "Very large number of user topics ({count})"
+        detail: >-
+          The solution contains {count} user-triggered topics. Agents with more
+          than {very_high_threshold} user topics can be difficult to maintain and
+          may experience slower topic disambiguation at runtime. Consider
+          consolidating related topics or off-loading logic to Power Automate flows.
+      high:
+        severity: warning
+        title: "High number of user topics ({count})"
+        detail: >-
+          The solution contains {count} user-triggered topics. This is manageable
+          but consider grouping topics into logical sections and using redirect
+          chains to keep the topic list navigable.
+      pass:
+        severity: pass
+        title: "Topic count is within a manageable range ({count} user topics)"
+        detail: >-
+          The solution contains {count} user-triggered topics, which is within the
+          recommended range for maintainability.
+
+  # ── Knowledge category ───────────────────────────────────────────────────
+
+  KNO001:
+    category: Knowledge
+    outcomes:
+      pass:
+        severity: pass
+        title: "{count} knowledge source(s) / entity component(s) present"
+        detail: >-
+          The solution includes {count} file/knowledge/entity component(s),
+          providing grounding data for the agent.
+      info:
+        severity: info
+        title: "No knowledge sources found"
+        detail: >-
+          No file or knowledge source components were found. If this agent is
+          expected to answer domain-specific questions, add knowledge sources in
+          Copilot Studio under Knowledge → Add Knowledge.
+
+  KNO002:
+    category: Knowledge
+    outcomes:
+      warn:
+        severity: warning
+        title: "{count} oversized knowledge file(s) detected"
+        detail: >-
+          The following knowledge files exceed {max_mb} MB: {details}. Very large
+          files increase ZIP extraction time, solution import time, and may hit
+          platform size limits. Consider chunking large documents or hosting them
+          externally and referencing via SharePoint or URL knowledge sources.
+      pass:
+        severity: pass
+        title: "No oversized knowledge files detected"
+        detail: "All knowledge source files are within the {max_mb} MB recommended size limit."
+
+  KNO003:
+    category: Knowledge
+    outcomes:
+      pass:
+        severity: pass
+        title: "Semantic search is enabled"
+        detail: >-
+          isSemanticSearchEnabled is true. The agent will use vector-based
+          semantic search over knowledge sources, improving recall for natural
+          language queries compared to keyword matching.
+      warn:
+        severity: warning
+        title: "Semantic search is disabled"
+        detail: >-
+          isSemanticSearchEnabled is false. The agent falls back to keyword-based
+          search over knowledge sources, which may miss relevant documents when
+          user phrasing differs from document text. Enable semantic search in
+          Copilot Studio Settings → AI Capabilities for better knowledge retrieval.
+
+  KNO004:
+    category: Knowledge
+    outcomes:
+      warn:
+        severity: warning
+        title: "Web browsing capability is enabled"
+        detail: >-
+          The agent has web browsing enabled, allowing it to retrieve information
+          from the public internet in real time. This can lead to responses based
+          on unverified sources. Ensure your system instructions explicitly scope
+          what the agent may or may not retrieve via browsing, or disable web
+          browsing if not required.
+      pass:
+        severity: pass
+        title: "Web browsing is not enabled"
+        detail: >-
+          Web browsing is disabled. The agent relies solely on provided knowledge
+          sources and model knowledge (if enabled), keeping responses grounded in
+          controlled data.
+
+  # ── Security category ────────────────────────────────────────────────────
+
+  SEC001:
+    category: Security
+    outcomes:
+      fail:
+        severity: fail
+        title: "Prompt injection patterns detected in {count} topic(s)"
+        detail: >-
+          Potential prompt injection or instruction-override language found in:
+          {details}. System instructions and topic content must not contain
+          language that could override the agent's safety constraints. Review and
+          sanitise the affected topics before deploying to production.
+      pass:
+        severity: pass
+        title: "No prompt injection patterns detected in topic content"
+        detail: >-
+          None of the topic data files contain common prompt injection or
+          instruction-override patterns.
+
+  SEC002:
+    category: Security
+    outcomes:
+      warn:
+        severity: warning
+        title: "Possible hardcoded credential patterns in {count} component(s)"
+        detail: >-
+          Patterns resembling hardcoded secrets were found in: {names}.
+          Credentials must not be embedded in topic data or bot configuration.
+          Use Power Platform Environment Variables or Azure Key Vault references
+          instead. Review the flagged components and remove or replace any
+          embedded secrets.
+      pass:
+        severity: pass
+        title: "No hardcoded credential patterns detected"
+        detail: >-
+          No patterns resembling hardcoded API keys, passwords, or tokens were
+          found in the botcomponent data files.
+
+  SEC003:
+    category: Security
+    outcomes:
+      warn:
+        severity: warning
+        title: "File analysis (user file uploads) is enabled"
+        detail: >-
+          isFileAnalysisEnabled is true, allowing end users to upload files
+          directly to the agent for analysis. This expands the attack surface:
+          users could upload malicious documents or attempt prompt injection
+          through file content. Ensure this capability is required for the agent's
+          use case, and that uploaded content is processed safely.
+      pass:
+        severity: pass
+        title: "File upload analysis is disabled"
+        detail: "isFileAnalysisEnabled is false. End users cannot upload files to this agent."
