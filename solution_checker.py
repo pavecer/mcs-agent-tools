@@ -644,6 +644,9 @@ def check_solution_zip(zip_bytes: bytes) -> dict:
     fail_count = sum(1 for r in results if r["severity"] == "fail")
     info_count = sum(1 for r in results if r["severity"] == "info")
 
+    _severity_order = {"fail": 0, "warning": 1, "info": 2, "pass": 3}
+    results.sort(key=lambda r: _severity_order.get(r["severity"], 99))
+
     return {
         "results": results,
         "agent_name": agent_name,
