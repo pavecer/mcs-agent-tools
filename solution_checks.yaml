@@ -562,3 +562,136 @@ rules:
         severity: pass
         title: "File upload analysis is disabled"
         detail: "isFileAnalysisEnabled is false. End users cannot upload files to this agent."
+
+  # ── Agent extended checks ─────────────────────────────────────────────────
+
+  AGT007:
+    category: Agent
+    outcomes:
+      no_auth:
+        severity: info
+        title: "Authentication mode: None (anonymous / unauthenticated)"
+        detail: >-
+          The agent accepts unauthenticated requests — any user can interact
+          without signing in. This is appropriate for public-facing bots but
+          should not be used for agents that access sensitive data or internal
+          systems. Configure Azure AD or OAuth2 authentication in Copilot Studio
+          under Settings → Security → Authentication.
+      aad:
+        severity: pass
+        title: "Authentication mode: Azure Active Directory (AAD)"
+        detail: >-
+          The agent requires Azure AD sign-in. Only authenticated users from
+          your tenant (or trusted tenants) can interact with it, which is the
+          recommended setting for internal enterprise agents.
+      oauth2:
+        severity: pass
+        title: "Authentication mode: Generic OAuth2"
+        detail: >-
+          The agent uses Generic OAuth2 for user authentication, suitable for
+          non-Azure identity providers or custom OAuth2-compliant services.
+      manual:
+        severity: info
+        title: "Authentication mode: {auth_mode}"
+        detail: >-
+          The agent authentication is configured with mode '{auth_mode}'.
+          Verify this is the intended setting for the target environment and
+          that the corresponding identity provider is configured.
+
+  AGT008:
+    category: Agent
+    outcomes:
+      has_agent_tools:
+        severity: info
+        title: "{count} connected agent(s) used as tools (multi-agent orchestration)"
+        detail: >-
+          This agent invokes {count} other Copilot Studio agent(s) as tools:
+          {names}. All referenced agents must be imported, published, and
+          accessible in the target environment before this agent can be
+          activated. Multi-agent orchestration adds inter-agent dependencies
+          that must be managed across deployments.
+      pass:
+        severity: pass
+        title: "No multi-agent orchestration configured"
+        detail: >-
+          This agent does not invoke other agents as tools and operates as a
+          standalone agent without external agent dependencies.
+
+  # ── Dependencies category ─────────────────────────────────────────────────
+
+  DEP001:
+    category: Dependencies
+    outcomes:
+      has_refs:
+        severity: info
+        title: "{count} connection reference(s) must be configured in the target environment"
+        detail: >-
+          The following connection references are required: {names}. Each
+          connection reference must be linked to an active Power Platform
+          connection in the target environment — either during solution import
+          (if prompted) or manually after import via the solution's connection
+          references page. Missing or unconfigured connections will prevent
+          Power Automate flows and agent actions that rely on them from running.
+      none:
+        severity: pass
+        title: "No connection references required"
+        detail: >-
+          This solution contains no connection references, so no connector
+          credentials need to be configured in the target environment.
+
+  DEP002:
+    category: Dependencies
+    outcomes:
+      has_vars:
+        severity: info
+        title: "{count} environment variable(s) require review before or after import"
+        detail: >-
+          The solution defines {count} environment variable(s): {names}.
+          Variables without a default value must be explicitly set during or
+          immediately after import. Review and update all values to match the
+          target environment — for example, API base URLs, SharePoint site
+          addresses, or feature flags that differ between environments.
+      none:
+        severity: pass
+        title: "No environment variables defined in this solution"
+        detail: >-
+          No environment variable definitions are included in this solution, so
+          no environment-specific configuration is needed after import.
+
+  DEP003:
+    category: Dependencies
+    outcomes:
+      has_missing:
+        severity: fail
+        title: "{count} unresolved external dependenc(y/ies) will block import"
+        detail: >-
+          The solution requires {count} component(s) not included in this ZIP:
+          {names}. These must exist in the target environment before import.
+          Install the required managed solutions or create the referenced
+          components first, otherwise the import will fail or produce errors.
+      pass:
+        severity: pass
+        title: "No unresolved external dependencies"
+        detail: >-
+          All components referenced by this solution are either included in the
+          ZIP or exist without external dependencies. The solution should import
+          cleanly into a standard Power Platform environment.
+
+  DEP004:
+    category: Dependencies
+    outcomes:
+      has_flows:
+        severity: info
+        title: "{count} Power Automate cloud flow(s) included in this solution"
+        detail: >-
+          The solution contains {count} cloud flow(s): {names}. These flows
+          will be imported with the solution but may require connection
+          references and environment variables to be configured before they run.
+          Verify each flow's connections after import.
+      none:
+        severity: pass
+        title: "No Power Automate cloud flows in this solution"
+        detail: >-
+          No cloud flows are included. The agent relies solely on built-in
+          Copilot Studio capabilities and does not orchestrate external
+          Power Automate flows.

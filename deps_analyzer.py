@@ -1515,6 +1515,174 @@ def _build_component_rows(components: list[_Component]) -> list[dict]:
     return rows
 
 
+def _read_cr_connector_name(cr_dir: Path) -> str:
+    """Try to extract a readable connector name from a connectionreferences folder."""
+    for xml_name in ("connectionReference.xml", "connectionreference.xml"):
+        xml_path = cr_dir / xml_name
+        if xml_path.exists():
+            try:
+                root = ET.parse(xml_path).getroot()
+                for tag in ("connectorId", "displayname", "connectionreferencelogicalname"):
+                    val = root.findtext(tag) or root.get(tag) or ""
+                    if val:
+                        return val.strip()
+            except Exception:
+                pass
+    return ""
+
+
+def _read_ev_definition(ev_dir: Path) -> dict:
+    """Extract environment variable definition details from folder."""
+    result: dict = {
+        "schema": ev_dir.name,
+        "display_name": ev_dir.name,
+        "default_value": "",
+        "type": "",
+        "has_default": False,
+    }
+    for xml_name in ("environmentvariabledefinition.xml", "EnvironmentVariableDefinition.xml"):
+        xml_path = ev_dir / xml_name
+        if xml_path.exists():
+            try:
+                root = ET.parse(xml_path).getroot()
+                dn = root.findtext("displayname") or root.get("displayname") or ""
+                if dn:
+                    result["display_name"] = dn.strip()
+                dv = root.findtext("defaultvalue") or root.get("defaultvalue") or ""
+                if dv:
+                    result["default_value"] = dv.strip()
+                    result["has_default"] = True
+                t = root.findtext("type") or root.get("type") or ""
+                if t:
+                    result["type"] = t.strip()
+            except Exception:
+                pass
+            break
+    return result
+
+
+def _build_prereqs(
+    work_dir: Path,
+    components: list[_Component],
+    missing: list[_MissingDep],
+) -> dict:
+    """Build a structured pre-import requirements dict for checklist rendering.
+
+    Returns a dict with keys:
+      - ``connection_references``: list of {schema, connector_name}
+      - ``environment_variables``: list of {schema, display_name, default_value, type, has_default}
+      - ``custom_connectors``: list of {name, schema}
+      - ``ai_models``: list of {name}
+      - ``cloud_flows``: list of {name}
+      - ``missing_dependencies``: list of {name, type_label}
+    """
+
+    # 1. Connection References
+    connection_refs: list[dict] = []
+    cr_dir = work_dir / "connectionreferences"
+    if cr_dir.is_dir():
+        for item in sorted(cr_dir.iterdir()):
+            if item.is_dir():
+                connector_name = _read_cr_connector_name(item)
+                connection_refs.append(
+                    {
+                        "schema": item.name,
+                        "connector_name": connector_name,
+                    }
+                )
+    # Supplement from solution.xml components (type 10066) if folder not present
+    if not connection_refs:
+        seen_cr: set[str] = set()
+        for c in components:
+            if c.type_code == 10066:
+                key = (c.schema_name or c.comp_id or "").lower()
+                if key and key not in seen_cr:
+                    seen_cr.add(key)
+                    connection_refs.append(
+                        {
+                            "schema": c.schema_name or c.comp_id or "Unknown",
+                            "connector_name": c.display_name or "",
+                        }
+                    )
+
+    # 2. Environment Variables
+    env_vars: list[dict] = []
+    ev_dir = work_dir / "environmentvariabledefinitions"
+    if ev_dir.is_dir():
+        for item in sorted(ev_dir.iterdir()):
+            if item.is_dir():
+                env_vars.append(_read_ev_definition(item))
+
+    # 3. Custom Connectors (type 400)
+    custom_connectors: list[dict] = []
+    seen_cc: set[str] = set()
+    for c in components:
+        if c.type_code == 400:
+            key = (c.schema_name or c.comp_id or "").lower()
+            if key not in seen_cc:
+                seen_cc.add(key)
+                custom_connectors.append(
+                    {
+                        "name": c.display_name or c.schema_name or c.comp_id or "Unknown",
+                        "schema": c.schema_name or "",
+                    }
+                )
+
+    # 4. AI Models (types 401, 408, 10067)
+    ai_models: list[dict] = []
+    seen_ai: set[str] = set()
+    for c in components:
+        if c.type_code in (401, 408, 10067):
+            key = (c.schema_name or c.comp_id or "").lower()
+            if key not in seen_ai:
+                seen_ai.add(key)
+                ai_models.append(
+                    {
+                        "name": c.display_name or c.schema_name or c.comp_id or "Unknown",
+                    }
+                )
+
+    # 5. Cloud Flows
+    cloud_flows: list[dict] = []
+    wf_dir = work_dir / "Workflows"
+    if wf_dir.is_dir():
+        for wf_file in sorted(wf_dir.iterdir()):
+            if not wf_file.is_file() or wf_file.suffix.lower() != ".json":
+                continue
+            name = ""
+            try:
+                data = json.loads(wf_file.read_text(encoding="utf-8", errors="replace"))
+                name = (data.get("properties") or {}).get("displayName") or data.get("name") or ""
+            except Exception:
+                pass
+            if not name and "-" in wf_file.stem:
+                name = wf_file.stem.rsplit("-", 1)[0].replace("_", " ")
+            cloud_flows.append({"name": name or wf_file.stem})
+
+    # 6. Missing Dependencies (de-duplicated)
+    missing_deps: list[dict] = []
+    seen_md: set[str] = set()
+    for m in missing:
+        if m.dedup_key in seen_md:
+            continue
+        seen_md.add(m.dedup_key)
+        missing_deps.append(
+            {
+                "name": _friendly_component_name(m.req_name, m.req_schema, m.req_identifier),
+                "type_label": m.type_label,
+            }
+        )
+
+    return {
+        "connection_references": connection_refs,
+        "environment_variables": env_vars,
+        "custom_connectors": custom_connectors,
+        "ai_models": ai_models,
+        "cloud_flows": cloud_flows,
+        "missing_dependencies": missing_deps,
+    }
+
+
 def analyze_deps_zip_bytes_report(zip_bytes: bytes, detailed_diagram: bool = False) -> dict:
     """Analyze solution ZIP and return a structured dependency report.
 
@@ -1522,6 +1690,8 @@ def analyze_deps_zip_bytes_report(zip_bytes: bytes, detailed_diagram: bool = Fal
       - ``summary_markdown``: textual overview
       - ``mermaid``: diagram source
       - ``relation_rows``: de-duplicated rows for table rendering
+      - ``component_rows``: all component rows for table rendering
+      - ``prereqs``: structured pre-import requirements dict for checklist rendering
     """
     with tempfile.TemporaryDirectory() as tmp_dir:
         work_dir = Path(tmp_dir)
@@ -1551,6 +1721,7 @@ def analyze_deps_zip_bytes_report(zip_bytes: bytes, detailed_diagram: bool = Fal
             "mermaid": _build_mermaid(metadata, components, missing, detailed_missing_map=detailed_diagram),
             "relation_rows": _merge_relation_rows(_build_relation_rows(missing), asset_relation_rows),
             "component_rows": _build_component_rows(components),
+            "prereqs": _build_prereqs(work_dir, components, missing),
         }
 
 

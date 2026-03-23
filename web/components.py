@@ -2363,6 +2363,7 @@ def _check_result_item(result: dict) -> rx.Component:
         ("Topics", "#107c10"),
         ("Knowledge", "#c7921e"),
         ("Security", "#a4262c"),
+        ("Dependencies", "#005a9e"),
         "#605e5c",
     )
     return rx.box(
@@ -2527,6 +2528,7 @@ def solution_check_panel() -> rx.Component:
                             _check_category_pill("Topics"),
                             _check_category_pill("Knowledge"),
                             _check_category_pill("Security"),
+                            _check_category_pill("Dependencies"),
                             spacing="2",
                             flex_wrap="wrap",
                         ),
@@ -3924,6 +3926,301 @@ def _deps_relations_table() -> rx.Component:
     )
 
 
+# ── Pre-import requirements checklist ─────────────────────────────────────────
+
+
+def _prereq_item(icon: str, label: str, detail: str = "") -> rx.Component:
+    """Single row in a pre-import requirements list."""
+    return rx.hstack(
+        rx.icon(icon, size=13, color="#605e5c", flex_shrink="0"),
+        rx.vstack(
+            rx.text(label, font_size="12px", color="#201f1e", font_weight="500"),
+            rx.cond(
+                detail != "",
+                rx.text(detail, font_size="11px", color="#a19f9d"),
+                rx.box(),
+            ),
+            spacing="0",
+            align="start",
+        ),
+        spacing="2",
+        align="start",
+        width="100%",
+        padding_y="3px",
+    )
+
+
+def _prereq_section_heading(icon: str, title: str, accent: str) -> rx.Component:
+    return rx.hstack(
+        rx.icon(icon, size=14, color=accent),
+        rx.text(title, font_size="12px", font_weight="700", color=accent),
+        spacing="2",
+        align="center",
+        margin_bottom="6px",
+        margin_top="4px",
+    )
+
+
+def _prereqs_checklist() -> rx.Component:
+    """Pre-import requirements card shown at the top of the Dependencies tab."""
+
+    def _cr_item(cr: dict) -> rx.Component:
+        connector = cr.get("connector_name") or ""
+        return _prereq_item(
+            "plug",
+            cr.get("schema") or "Unknown",
+            connector,
+        )
+
+    def _ev_item(ev: dict) -> rx.Component:
+        default = ev.get("default_value") or ""
+        detail = f"default: {default}" if default else "no default — must be set before/after import"
+        return _prereq_item(
+            "sliders-horizontal",
+            ev.get("display_name") or ev.get("schema") or "Unknown",
+            detail,
+        )
+
+    def _cc_item(cc: dict) -> rx.Component:
+        return _prereq_item("puzzle", cc.get("name") or "Unknown")
+
+    def _ai_item(ai: dict) -> rx.Component:
+        return _prereq_item("brain", ai.get("name") or "Unknown")
+
+    def _cf_item(cf: dict) -> rx.Component:
+        return _prereq_item("zap", cf.get("name") or "Unknown")
+
+    def _md_item(md: dict) -> rx.Component:
+        return rx.hstack(
+            rx.icon("triangle-alert", size=13, color="#a4262c", flex_shrink="0"),
+            rx.vstack(
+                rx.text(
+                    md.get("name") or "Unknown",
+                    font_size="12px",
+                    color="#a4262c",
+                    font_weight="600",
+                ),
+                rx.text(
+                    md.get("type_label") or "",
+                    font_size="11px",
+                    color="#a19f9d",
+                ),
+                spacing="0",
+                align="start",
+            ),
+            spacing="2",
+            align="start",
+            width="100%",
+            padding_y="3px",
+        )
+
+    return card(
+        rx.hstack(
+            rx.icon("clipboard-list", color=PRIMARY, size=18),
+            rx.heading("Pre-Import Requirements", size="3", color="#201f1e"),
+            rx.spacer(),
+            rx.cond(
+                State.deps_prereqs.get("missing_dependencies", []) != [],
+                rx.badge(
+                    "⚠ Missing dependencies",
+                    color_scheme="red",
+                    variant="soft",
+                    size="1",
+                ),
+                rx.box(),
+            ),
+            spacing="2",
+            align="center",
+            width="100%",
+            margin_bottom="8px",
+        ),
+        rx.text(
+            "Items that must be available in the target environment before the solution import succeeds.",
+            font_size="12px",
+            color="#605e5c",
+            margin_bottom="12px",
+        ),
+        # ── Missing dependencies (critical — shown first) ──────────────────
+        rx.cond(
+            State.deps_prereqs.get("missing_dependencies", []) != [],
+            rx.box(
+                _prereq_section_heading("triangle-alert", "Missing Dependencies — must exist before import", "#a4262c"),
+                rx.callout(
+                    "These components are required but not included in this ZIP. "
+                    "Install them in the target environment first.",
+                    icon="triangle-alert",
+                    color_scheme="red",
+                    size="1",
+                    margin_bottom="6px",
+                ),
+                rx.vstack(
+                    rx.foreach(
+                        State.deps_prereqs.get("missing_dependencies", []),
+                        _md_item,
+                    ),
+                    width="100%",
+                    spacing="0",
+                ),
+                margin_bottom="12px",
+                width="100%",
+            ),
+            rx.box(
+                rx.hstack(
+                    rx.icon("circle-check", size=14, color="#107c10"),
+                    rx.text(
+                        "No missing dependencies — solution should import cleanly",
+                        font_size="12px",
+                        color="#107c10",
+                        font_weight="500",
+                    ),
+                    spacing="2",
+                    margin_bottom="12px",
+                ),
+            ),
+        ),
+        # ── Connection References ──────────────────────────────────────────
+        rx.cond(
+            State.deps_prereqs.get("connection_references", []) != [],
+            rx.box(
+                _prereq_section_heading("link", "Connection References", "#005a9e"),
+                rx.text(
+                    "Configure these connections during or immediately after import.",
+                    font_size="11px",
+                    color="#605e5c",
+                    margin_bottom="4px",
+                ),
+                rx.vstack(
+                    rx.foreach(
+                        State.deps_prereqs.get("connection_references", []),
+                        _cr_item,
+                    ),
+                    width="100%",
+                    spacing="0",
+                ),
+                margin_bottom="12px",
+                padding="10px 12px",
+                background="#f0f4ff",
+                border_radius="6px",
+                border="1px solid #c7d7f5",
+                width="100%",
+            ),
+            rx.box(),
+        ),
+        # ── Environment Variables ──────────────────────────────────────────
+        rx.cond(
+            State.deps_prereqs.get("environment_variables", []) != [],
+            rx.box(
+                _prereq_section_heading("sliders-horizontal", "Environment Variables", "#7719aa"),
+                rx.text(
+                    "Review and update values to match the target environment after import.",
+                    font_size="11px",
+                    color="#605e5c",
+                    margin_bottom="4px",
+                ),
+                rx.vstack(
+                    rx.foreach(
+                        State.deps_prereqs.get("environment_variables", []),
+                        _ev_item,
+                    ),
+                    width="100%",
+                    spacing="0",
+                ),
+                margin_bottom="12px",
+                padding="10px 12px",
+                background="#faf0ff",
+                border_radius="6px",
+                border="1px solid #d9b3f5",
+                width="100%",
+            ),
+            rx.box(),
+        ),
+        # ── Custom Connectors ──────────────────────────────────────────────
+        rx.cond(
+            State.deps_prereqs.get("custom_connectors", []) != [],
+            rx.box(
+                _prereq_section_heading("puzzle", "Custom Connectors", "#c7921e"),
+                rx.text(
+                    "Custom connectors must be available in the target environment.",
+                    font_size="11px",
+                    color="#605e5c",
+                    margin_bottom="4px",
+                ),
+                rx.vstack(
+                    rx.foreach(
+                        State.deps_prereqs.get("custom_connectors", []),
+                        _cc_item,
+                    ),
+                    width="100%",
+                    spacing="0",
+                ),
+                margin_bottom="12px",
+                padding="10px 12px",
+                background="#fff8ec",
+                border_radius="6px",
+                border="1px solid #f5d78a",
+                width="100%",
+            ),
+            rx.box(),
+        ),
+        # ── AI Models ─────────────────────────────────────────────────────
+        rx.cond(
+            State.deps_prereqs.get("ai_models", []) != [],
+            rx.box(
+                _prereq_section_heading("brain", "AI Models", "#007558"),
+                rx.text(
+                    "These AI Builder models must exist in the target environment.",
+                    font_size="11px",
+                    color="#605e5c",
+                    margin_bottom="4px",
+                ),
+                rx.vstack(
+                    rx.foreach(
+                        State.deps_prereqs.get("ai_models", []),
+                        _ai_item,
+                    ),
+                    width="100%",
+                    spacing="0",
+                ),
+                margin_bottom="12px",
+                padding="10px 12px",
+                background="#f0faf5",
+                border_radius="6px",
+                border="1px solid #a8d5c2",
+                width="100%",
+            ),
+            rx.box(),
+        ),
+        # ── Cloud Flows ────────────────────────────────────────────────────
+        rx.cond(
+            State.deps_prereqs.get("cloud_flows", []) != [],
+            rx.box(
+                _prereq_section_heading("zap", "Cloud Flows", "#e35b00"),
+                rx.text(
+                    "Included in this solution — configure connections after import.",
+                    font_size="11px",
+                    color="#605e5c",
+                    margin_bottom="4px",
+                ),
+                rx.vstack(
+                    rx.foreach(
+                        State.deps_prereqs.get("cloud_flows", []),
+                        _cf_item,
+                    ),
+                    width="100%",
+                    spacing="0",
+                ),
+                padding="10px 12px",
+                background="#fff5f0",
+                border_radius="6px",
+                border="1px solid #f5c3a3",
+                width="100%",
+            ),
+            rx.box(),
+        ),
+        width="100%",
+    )
+
+
 def deps_panel() -> rx.Component:
     """Full-width dependency analysis panel for the Dependencies tab."""
     return rx.cond(
@@ -3984,6 +4281,8 @@ def deps_panel() -> rx.Component:
                         ),
                         width="100%",
                     ),
+                    # ── Pre-import requirements checklist ─────────────────
+                    _prereqs_checklist(),
                     # ── Segments (markdown summary + Mermaid graph) ───────
                     rx.vstack(
                         rx.foreach(State.deps_visible_segments, _deps_segment_card),
