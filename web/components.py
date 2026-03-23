@@ -2284,7 +2284,7 @@ def _mcs_overview_metric_card(label: str, value: rx.Component, detail: str, acce
 
 # ── Solution Check panel ──────────────────────────────────────────────────────
 
-_CHECK_CATEGORIES: list[str] = ["Solution", "Agent", "Topics", "Knowledge", "Security"]
+_CHECK_CATEGORIES: list[str] = ["Solution", "Agent", "Topics", "Knowledge", "Security", "Dependencies"]
 
 _CAT_ICONS: dict[str, str] = {
     "Solution": "file-text",
@@ -2292,6 +2292,7 @@ _CAT_ICONS: dict[str, str] = {
     "Topics": "list",
     "Knowledge": "database",
     "Security": "shield-alert",
+    "Dependencies": "link",
 }
 
 _CAT_COLORS: dict[str, str] = {
@@ -2300,6 +2301,7 @@ _CAT_COLORS: dict[str, str] = {
     "Topics": "#107c10",
     "Knowledge": "#c7921e",
     "Security": "#a4262c",
+    "Dependencies": "#005a9e",
 }
 
 

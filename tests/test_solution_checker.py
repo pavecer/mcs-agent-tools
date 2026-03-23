@@ -538,11 +538,12 @@ def test_agt007_no_auth_when_auth_settings_absent():
     assert agt007["severity"] == "info"
 
 
-def test_agt007_aad_pass():
+def _make_config_zip(auth_mode_value: str) -> bytes:
+    """Build a minimal solution ZIP with a specific authMode value."""
     config = json.dumps(
         {
             "aISettings": {"contentModeration": "Medium"},
-            "authSettings": {"authMode": "AAD"},
+            "authSettings": {"authMode": auth_mode_value},
         }
     )
     buf = io.BytesIO()
@@ -560,11 +561,128 @@ def test_agt007_aad_pass():
 </ImportExportXml>""",
         )
         zf.writestr("bots/mybot/configuration.json", config)
-    result = check_solution_zip(buf.getvalue())
+    return buf.getvalue()
+
+
+def test_agt007_aad_pass():
+    result = check_solution_zip(_make_config_zip("AAD"))
     agt007 = next((r for r in result["results"] if r["rule_id"] == "AGT007"), None)
     assert agt007 is not None
     assert agt007["severity"] == "pass"
-    assert "AAD" in agt007["title"] or "Azure" in agt007["title"] or "aad" in agt007["title"].lower()
+    assert "aad" in agt007["title"].lower() or "azure" in agt007["title"].lower()
+
+
+def test_agt007_oauth2_pass():
+    result = check_solution_zip(_make_config_zip("oauth2"))
+    agt007 = next((r for r in result["results"] if r["rule_id"] == "AGT007"), None)
+    assert agt007 is not None
+    assert agt007["severity"] == "pass"
+    assert "oauth" in agt007["title"].lower() or "oauth2" in agt007["title"].lower()
+
+
+def test_agt007_manual_info_renders_auth_mode():
+    result = check_solution_zip(_make_config_zip("CustomSAML"))
+    agt007 = next((r for r in result["results"] if r["rule_id"] == "AGT007"), None)
+    assert agt007 is not None
+    assert agt007["severity"] == "info"
+    # The {auth_mode} placeholder must be rendered in the title
+    assert "customsaml" in agt007["title"].lower()
+
+
+# ── AGT008 tests ──────────────────────────────────────────────────────────────
+
+
+def _make_agent_tool_zip(schema: str, tool_names: list[str], tool_xml_names: list[str] | None = None) -> bytes:
+    """Build a solution ZIP with connected-agent-tool botcomponent folders."""
+    config = json.dumps({"aISettings": {"contentModeration": "Medium"}})
+    files: dict[str, str] = {
+        "solution.xml": """<ImportExportXml>
+  <SolutionManifest>
+    <UniqueName>TestSolution</UniqueName>
+    <Version>2.0.0.0</Version>
+    <Managed>0</Managed>
+    <Publisher><CustomizationPrefix>myorg</CustomizationPrefix></Publisher>
+    <Descriptions><Description description="test" /></Descriptions>
+  </SolutionManifest>
+</ImportExportXml>""",
+        f"bots/{schema}/configuration.json": config,
+    }
+    for i, tool in enumerate(tool_names):
+        xml_name = (tool_xml_names or [])[i] if tool_xml_names and i < len(tool_xml_names) else None
+        folder = f"botcomponents/{schema}.agent.{tool}"
+        if xml_name:
+            files[f"{folder}/botcomponent.xml"] = f"<botcomponent><name>{xml_name}</name></botcomponent>"
+        else:
+            files[f"{folder}/.placeholder"] = ""
+    return _make_minimal_zip(files)
+
+
+def test_agt008_detects_connected_agents():
+    data = _make_agent_tool_zip("mybot", ["HelperBot", "ApprovalBot"], ["Helper Bot", "Approval Bot"])
+    result = check_solution_zip(data)
+    agt008 = next((r for r in result["results"] if r["rule_id"] == "AGT008"), None)
+    assert agt008 is not None
+    assert agt008["severity"] == "info"
+    assert agt008["title"].startswith("2")
+    assert "Helper Bot" in agt008["detail"]
+    assert "Approval Bot" in agt008["detail"]
+
+
+def test_agt008_pass_when_no_agent_tools():
+    data = _make_solution_zip()
+    result = check_solution_zip(data)
+    agt008 = next((r for r in result["results"] if r["rule_id"] == "AGT008"), None)
+    assert agt008 is not None
+    assert agt008["severity"] == "pass"
+
+
+def test_agt008_name_fallback_to_folder_when_no_xml():
+    data = _make_agent_tool_zip("mybot", ["SomeAgent"])  # no botcomponent.xml
+    result = check_solution_zip(data)
+    agt008 = next((r for r in result["results"] if r["rule_id"] == "AGT008"), None)
+    assert agt008 is not None
+    assert agt008["severity"] == "info"
+    assert "SomeAgent" in agt008["detail"]
+
+
+def test_agt008_deduplicates_and_sorts():
+    """Duplicate entries and case ordering must be stable."""
+    # Build a zip with two agent tools whose folder names differ only in casing
+    config = json.dumps({"aISettings": {"contentModeration": "Medium"}})
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr(
+            "solution.xml",
+            """<ImportExportXml>
+  <SolutionManifest>
+    <UniqueName>TestSolution</UniqueName>
+    <Version>2.0.0.0</Version>
+    <Managed>0</Managed>
+    <Publisher><CustomizationPrefix>myorg</CustomizationPrefix></Publisher>
+    <Descriptions><Description description="test" /></Descriptions>
+  </SolutionManifest>
+</ImportExportXml>""",
+        )
+        zf.writestr("bots/mybot/configuration.json", config)
+        # Two distinct agent tools; botcomponent.xml supplies same display name (simulate dup)
+        zf.writestr(
+            "botcomponents/mybot.agent.ZetaBot/botcomponent.xml",
+            "<botcomponent><name>Zeta Bot</name></botcomponent>",
+        )
+        zf.writestr(
+            "botcomponents/mybot.agent.AlphaBot/botcomponent.xml",
+            "<botcomponent><name>Alpha Bot</name></botcomponent>",
+        )
+    result = check_solution_zip(buf.getvalue())
+    agt008 = next((r for r in result["results"] if r["rule_id"] == "AGT008"), None)
+    assert agt008 is not None
+    assert agt008["severity"] == "info"
+    # Count must be 2
+    assert agt008["title"].startswith("2")
+    # Alpha Bot must appear before Zeta Bot (sorted case-insensitively)
+    alpha_pos = agt008["detail"].index("Alpha Bot")
+    zeta_pos = agt008["detail"].index("Zeta Bot")
+    assert alpha_pos < zeta_pos
 
 
 # ── _build_prereqs tests (via analyze_deps_zip_bytes_report) ──────────────────
