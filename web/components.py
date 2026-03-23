@@ -3931,7 +3931,7 @@ def _deps_relations_table() -> rx.Component:
 # ── Pre-import requirements checklist ─────────────────────────────────────────
 
 
-def _prereq_item(icon: str, label: str, detail: str = "") -> rx.Component:
+def _prereq_item(icon: str, label: str | rx.Var, detail: str | rx.Var = "") -> rx.Component:
     """Single row in a pre-import requirements list."""
     return rx.hstack(
         rx.icon(icon, size=13, color="#605e5c", flex_shrink="0"),
@@ -3967,43 +3967,48 @@ def _prereqs_checklist() -> rx.Component:
     """Pre-import requirements card shown at the top of the Dependencies tab."""
 
     def _cr_item(cr: dict) -> rx.Component:
-        connector = cr.get("connector_name") or ""
         return _prereq_item(
             "plug",
-            cr.get("schema") or "Unknown",
-            connector,
+            rx.cond(cr.get("schema") != "", cr.get("schema"), "Unknown"),
+            rx.cond(cr.get("connector_name") != "", cr.get("connector_name"), ""),
         )
 
     def _ev_item(ev: dict) -> rx.Component:
-        default = ev.get("default_value") or ""
-        detail = f"default: {default}" if default else "no default — must be set before/after import"
         return _prereq_item(
             "sliders-horizontal",
-            ev.get("display_name") or ev.get("schema") or "Unknown",
-            detail,
+            rx.cond(
+                ev.get("display_name") != "",
+                ev.get("display_name"),
+                rx.cond(ev.get("schema") != "", ev.get("schema"), "Unknown"),
+            ),
+            rx.cond(
+                ev.get("default_value") != "",
+                ev.get("default_value"),
+                "no default — must be set before/after import",
+            ),
         )
 
     def _cc_item(cc: dict) -> rx.Component:
-        return _prereq_item("puzzle", cc.get("name") or "Unknown")
+        return _prereq_item("puzzle", rx.cond(cc.get("name") != "", cc.get("name"), "Unknown"))
 
     def _ai_item(ai: dict) -> rx.Component:
-        return _prereq_item("brain", ai.get("name") or "Unknown")
+        return _prereq_item("brain", rx.cond(ai.get("name") != "", ai.get("name"), "Unknown"))
 
     def _cf_item(cf: dict) -> rx.Component:
-        return _prereq_item("zap", cf.get("name") or "Unknown")
+        return _prereq_item("zap", rx.cond(cf.get("name") != "", cf.get("name"), "Unknown"))
 
     def _md_item(md: dict) -> rx.Component:
         return rx.hstack(
             rx.icon("triangle-alert", size=13, color="#a4262c", flex_shrink="0"),
             rx.vstack(
                 rx.text(
-                    md.get("name") or "Unknown",
+                    rx.cond(md.get("name") != "", md.get("name"), "Unknown"),
                     font_size="12px",
                     color="#a4262c",
                     font_weight="600",
                 ),
                 rx.text(
-                    md.get("type_label") or "",
+                    rx.cond(md.get("type_label") != "", md.get("type_label"), ""),
                     font_size="11px",
                     color="#a19f9d",
                 ),
@@ -4022,7 +4027,7 @@ def _prereqs_checklist() -> rx.Component:
             rx.heading("Pre-Import Requirements", size="3", color="#201f1e"),
             rx.spacer(),
             rx.cond(
-                State.deps_prereqs.get("missing_dependencies", []) != [],
+                State.deps_missing_dependencies != [],
                 rx.badge(
                     "⚠ Missing dependencies",
                     color_scheme="red",
@@ -4044,7 +4049,7 @@ def _prereqs_checklist() -> rx.Component:
         ),
         # ── Missing dependencies (critical — shown first) ──────────────────
         rx.cond(
-            State.deps_prereqs.get("missing_dependencies", []) != [],
+            State.deps_missing_dependencies != [],
             rx.box(
                 _prereq_section_heading("triangle-alert", "Missing Dependencies — must exist before import", "#a4262c"),
                 rx.callout(
@@ -4057,7 +4062,7 @@ def _prereqs_checklist() -> rx.Component:
                 ),
                 rx.vstack(
                     rx.foreach(
-                        State.deps_prereqs.get("missing_dependencies", []),
+                        State.deps_missing_dependencies,
                         _md_item,
                     ),
                     width="100%",
@@ -4082,7 +4087,7 @@ def _prereqs_checklist() -> rx.Component:
         ),
         # ── Connection References ──────────────────────────────────────────
         rx.cond(
-            State.deps_prereqs.get("connection_references", []) != [],
+            State.deps_connection_references != [],
             rx.box(
                 _prereq_section_heading("link", "Connection References", "#005a9e"),
                 rx.text(
@@ -4093,7 +4098,7 @@ def _prereqs_checklist() -> rx.Component:
                 ),
                 rx.vstack(
                     rx.foreach(
-                        State.deps_prereqs.get("connection_references", []),
+                        State.deps_connection_references,
                         _cr_item,
                     ),
                     width="100%",
@@ -4110,7 +4115,7 @@ def _prereqs_checklist() -> rx.Component:
         ),
         # ── Environment Variables ──────────────────────────────────────────
         rx.cond(
-            State.deps_prereqs.get("environment_variables", []) != [],
+            State.deps_environment_variables != [],
             rx.box(
                 _prereq_section_heading("sliders-horizontal", "Environment Variables", "#7719aa"),
                 rx.text(
@@ -4121,7 +4126,7 @@ def _prereqs_checklist() -> rx.Component:
                 ),
                 rx.vstack(
                     rx.foreach(
-                        State.deps_prereqs.get("environment_variables", []),
+                        State.deps_environment_variables,
                         _ev_item,
                     ),
                     width="100%",
@@ -4138,7 +4143,7 @@ def _prereqs_checklist() -> rx.Component:
         ),
         # ── Custom Connectors ──────────────────────────────────────────────
         rx.cond(
-            State.deps_prereqs.get("custom_connectors", []) != [],
+            State.deps_custom_connectors != [],
             rx.box(
                 _prereq_section_heading("puzzle", "Custom Connectors", "#c7921e"),
                 rx.text(
@@ -4149,7 +4154,7 @@ def _prereqs_checklist() -> rx.Component:
                 ),
                 rx.vstack(
                     rx.foreach(
-                        State.deps_prereqs.get("custom_connectors", []),
+                        State.deps_custom_connectors,
                         _cc_item,
                     ),
                     width="100%",
@@ -4166,7 +4171,7 @@ def _prereqs_checklist() -> rx.Component:
         ),
         # ── AI Models ─────────────────────────────────────────────────────
         rx.cond(
-            State.deps_prereqs.get("ai_models", []) != [],
+            State.deps_ai_models != [],
             rx.box(
                 _prereq_section_heading("brain", "AI Models", "#007558"),
                 rx.text(
@@ -4177,7 +4182,7 @@ def _prereqs_checklist() -> rx.Component:
                 ),
                 rx.vstack(
                     rx.foreach(
-                        State.deps_prereqs.get("ai_models", []),
+                        State.deps_ai_models,
                         _ai_item,
                     ),
                     width="100%",
@@ -4194,7 +4199,7 @@ def _prereqs_checklist() -> rx.Component:
         ),
         # ── Cloud Flows ────────────────────────────────────────────────────
         rx.cond(
-            State.deps_prereqs.get("cloud_flows", []) != [],
+            State.deps_cloud_flows != [],
             rx.box(
                 _prereq_section_heading("zap", "Cloud Flows", "#e35b00"),
                 rx.text(
@@ -4205,7 +4210,7 @@ def _prereqs_checklist() -> rx.Component:
                 ),
                 rx.vstack(
                     rx.foreach(
-                        State.deps_prereqs.get("cloud_flows", []),
+                        State.deps_cloud_flows,
                         _cf_item,
                     ),
                     width="100%",

@@ -422,6 +422,48 @@ class State(rx.State):
         return bool(self.deps_segments)
 
     @rx.var
+    def deps_missing_dependencies(self) -> list[dict]:
+        raw = self.deps_prereqs.get("missing_dependencies", [])
+        if not isinstance(raw, list):
+            return []
+        return [item for item in raw if isinstance(item, dict)]
+
+    @rx.var
+    def deps_connection_references(self) -> list[dict]:
+        raw = self.deps_prereqs.get("connection_references", [])
+        if not isinstance(raw, list):
+            return []
+        return [item for item in raw if isinstance(item, dict)]
+
+    @rx.var
+    def deps_environment_variables(self) -> list[dict]:
+        raw = self.deps_prereqs.get("environment_variables", [])
+        if not isinstance(raw, list):
+            return []
+        return [item for item in raw if isinstance(item, dict)]
+
+    @rx.var
+    def deps_custom_connectors(self) -> list[dict]:
+        raw = self.deps_prereqs.get("custom_connectors", [])
+        if not isinstance(raw, list):
+            return []
+        return [item for item in raw if isinstance(item, dict)]
+
+    @rx.var
+    def deps_ai_models(self) -> list[dict]:
+        raw = self.deps_prereqs.get("ai_models", [])
+        if not isinstance(raw, list):
+            return []
+        return [item for item in raw if isinstance(item, dict)]
+
+    @rx.var
+    def deps_cloud_flows(self) -> list[dict]:
+        raw = self.deps_prereqs.get("cloud_flows", [])
+        if not isinstance(raw, list):
+            return []
+        return [item for item in raw if isinstance(item, dict)]
+
+    @rx.var
     def deps_visible_segments(self) -> list[dict]:
         """Visible dependency segments for current diagram mode.
 
