@@ -30,8 +30,9 @@ jobs:
         uses: actions/configure-pages@v5
 
       - name: Upload Presentation Artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
+          name: github-pages
           path: ./presentation
 
       - name: Deploy to GitHub Pages
