@@ -362,11 +362,21 @@ def _check_agent_config(work_dir: Path, schema: str) -> list[dict]:  # noqa: C90
                     name = fields.get("name") or name
                 agent_tool_names.append(name)
 
-    if agent_tool_names:
-        names_str = ", ".join(f"'{n}'" for n in agent_tool_names[:5])
-        if len(agent_tool_names) > 5:
-            names_str += f" and {len(agent_tool_names) - 5} more"
-        results.append(_rule("AGT008", "has_agent_tools", count=len(agent_tool_names), names=names_str))
+    # Normalize for deterministic, testable output: de-duplicate and sort case-insensitively.
+    unique_agent_tool_names = sorted(dict.fromkeys(agent_tool_names), key=str.lower) if agent_tool_names else []
+
+    if unique_agent_tool_names:
+        names_str = ", ".join(f"'{n}'" for n in unique_agent_tool_names[:5])
+        if len(unique_agent_tool_names) > 5:
+            names_str += f" and {len(unique_agent_tool_names) - 5} more"
+        results.append(
+            _rule(
+                "AGT008",
+                "has_agent_tools",
+                count=len(unique_agent_tool_names),
+                names=names_str,
+            )
+        )
     else:
         results.append(_rule("AGT008", "pass"))
 
