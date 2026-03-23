@@ -663,7 +663,7 @@ rules:
     outcomes:
       has_missing:
         severity: fail
-        title: "{count} unresolved external dependenc(y/ies) will block import"
+        title: "{count} unresolved external dependencies will block import"
         detail: >-
           The solution requires {count} component(s) not included in this ZIP:
           {names}. These must exist in the target environment before import.
