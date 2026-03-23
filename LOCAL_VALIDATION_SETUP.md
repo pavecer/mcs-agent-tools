@@ -2,7 +2,7 @@
 
 ## What Changed
 
-✅ **GitHub Actions `ci-security.yml` modified** — Now runs ONLY on PRs to `main` (not on every push)
+✅ **Non-deployment CI workflow removed** — Validation ownership is local before deployment
 ✅ **Pre-commit hooks configured** — Automatic validation runs before each commit
 ✅ **Local validation script added** — `scripts/validate-local.sh` for manual verification
 ✅ **Copilot instructions updated** — Full developer workflow documented
@@ -66,17 +66,14 @@ uv run ruff format .
 
 ---
 
-## GitHub Actions Now (Final Safety Net Only)
+## GitHub Actions Now (Deployment-Focused)
 
-**ci-security.yml only triggers on:**
-- Pull requests to `main` branch
-- NOT on every push to feature branches
+Only deployment-related workflows remain.
 
 This means:
-- ✅ You can push to your feature branches without waiting for GitHub checks
-- ✅ You validate locally first (faster feedback)
-- ✅ GitHub Acts as final verification before merging to main
-- ✅ No more "let's push and see what fails" cycles
+- ✅ Local validation is the primary quality and security gate
+- ✅ Deployment pipeline stays focused on Azure release steps
+- ✅ You should run the full checklist before every deployment-related change
 
 ---
 

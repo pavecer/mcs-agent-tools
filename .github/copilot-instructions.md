@@ -149,3 +149,26 @@ git commit --no-verify
 - All ZIP/XML/YAML from uploaded files is untrusted input — use `defusedxml` and validate before processing.
 - `solution_checker.py` runs injection-pattern and hardcoded-credential scans; do not weaken those checks.
 - Never log or print secret/token values; `remote_fetch.py` holds auth logic — keep credentials out of other modules.
+
+## Cloud Coding Agent Rules (Azure Deployment Scope)
+
+- Repository automation is deployment-focused. Keep only deployment-related workflows under `.github/workflows/` plus the required Copilot setup workflow.
+- Keep `.github/workflows/deploy-nightly.yml` as the only Azure deployment pipeline unless explicitly asked to add another deployment target.
+- Keep `.github/workflows/copilot-setup-steps.yml` because its `copilot-setup-steps` job is required for Copilot coding-agent environment setup.
+- Do not reintroduce non-deployment workflows (for example docs/presentation publishing or generic CI safety-net pipelines) unless explicitly requested.
+
+### Mandatory Pre-Deploy Validation Checklist
+
+Run this checklist before triggering deployment or preparing deployment-related changes:
+
+```bash
+uv sync
+uv run ruff check .
+uv run ruff format --check .
+uv run pytest tests/ -v --tb=short
+uv run pip-audit --strict
+uv run bandit -r .
+```
+
+- Deployment changes are incomplete unless all checklist commands pass or failures are intentionally approved with a documented reason.
+- Treat local validation as mandatory ownership now that non-deployment CI workflows are intentionally removed.
