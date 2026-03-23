@@ -165,6 +165,8 @@ def test_rules_contain_all_expected_ids():
         "AGT004",
         "AGT005",
         "AGT006",
+        "AGT007",
+        "AGT008",
         "TOP000",
         "TOP001",
         "TOP002",
@@ -178,6 +180,10 @@ def test_rules_contain_all_expected_ids():
         "SEC001",
         "SEC002",
         "SEC003",
+        "DEP001",
+        "DEP002",
+        "DEP003",
+        "DEP004",
     }
     for rule_id in expected:
         assert rule_id in _RULES, f"Rule '{rule_id}' missing from solution_checks.yaml"
@@ -411,3 +417,334 @@ def test_check_solution_zip_count_consistency():
     assert result["warn_count"] == sum(1 for r in results if r["severity"] == "warning")
     assert result["fail_count"] == sum(1 for r in results if r["severity"] == "fail")
     assert result["info_count"] == sum(1 for r in results if r["severity"] == "info")
+
+
+# ── _check_dependencies tests ─────────────────────────────────────────────────
+
+
+def _make_zip_with_deps(
+    cr_schemas: list[str] | None = None,
+    ev_schemas: list[str] | None = None,
+    missing_xml: str = "",
+    flow_names: list[str] | None = None,
+) -> bytes:
+    """Build a minimal solution ZIP with configurable dependency artefacts."""
+    files: dict[str, str] = {
+        "solution.xml": f"""<ImportExportXml>
+  <SolutionManifest>
+    <UniqueName>TestSolution</UniqueName>
+    <Version>1.0.0.0</Version>
+    <Managed>0</Managed>
+    <Publisher><CustomizationPrefix>myorg</CustomizationPrefix></Publisher>
+    <Descriptions><Description description="test" /></Descriptions>
+    <RootComponents />
+    {missing_xml}
+  </SolutionManifest>
+</ImportExportXml>""",
+        "bots/mybot/configuration.json": "{}",
+    }
+    for schema in (cr_schemas or []):
+        files[f"connectionreferences/{schema}/.placeholder"] = ""
+    for schema in (ev_schemas or []):
+        files[f"environmentvariabledefinitions/{schema}/.placeholder"] = ""
+    for name in (flow_names or []):
+        import json as _json
+        files[f"Workflows/{name}.json"] = _json.dumps(
+            {"properties": {"displayName": name}, "name": name}
+        )
+    return _make_minimal_zip(files)
+
+
+def test_dep001_reports_connection_references_present():
+    data = _make_zip_with_deps(cr_schemas=["cr_sharepoint_abc", "cr_office365_xyz"])
+    result = check_solution_zip(data)
+    dep001 = next((r for r in result["results"] if r["rule_id"] == "DEP001"), None)
+    assert dep001 is not None
+    assert dep001["severity"] == "info"
+    assert "2" in dep001["title"]
+
+
+def test_dep001_pass_when_no_connection_references():
+    data = _make_zip_with_deps()
+    result = check_solution_zip(data)
+    dep001 = next((r for r in result["results"] if r["rule_id"] == "DEP001"), None)
+    assert dep001 is not None
+    assert dep001["severity"] == "pass"
+
+
+def test_dep002_reports_environment_variables_present():
+    data = _make_zip_with_deps(ev_schemas=["myapp_baseurl"])
+    result = check_solution_zip(data)
+    dep002 = next((r for r in result["results"] if r["rule_id"] == "DEP002"), None)
+    assert dep002 is not None
+    assert dep002["severity"] == "info"
+    assert "1" in dep002["title"]
+
+
+def test_dep002_pass_when_no_environment_variables():
+    data = _make_zip_with_deps()
+    result = check_solution_zip(data)
+    dep002 = next((r for r in result["results"] if r["rule_id"] == "DEP002"), None)
+    assert dep002 is not None
+    assert dep002["severity"] == "pass"
+
+
+def test_dep003_fails_when_missing_dependencies_present():
+    missing_xml = """<MissingDependencies>
+      <MissingDependency>
+        <Required type="30" schemaName="MyFlow" displayName="My Flow" />
+        <Dependent type="431" id="{00000000-0000-0000-0000-000000000001}" />
+      </MissingDependency>
+    </MissingDependencies>"""
+    data = _make_zip_with_deps(missing_xml=missing_xml)
+    result = check_solution_zip(data)
+    dep003 = next((r for r in result["results"] if r["rule_id"] == "DEP003"), None)
+    assert dep003 is not None
+    assert dep003["severity"] == "fail"
+    # displayName takes precedence over schemaName in the detail
+    assert "Flow" in dep003["detail"]
+
+
+def test_dep003_pass_when_no_missing_dependencies():
+    data = _make_zip_with_deps()
+    result = check_solution_zip(data)
+    dep003 = next((r for r in result["results"] if r["rule_id"] == "DEP003"), None)
+    assert dep003 is not None
+    assert dep003["severity"] == "pass"
+
+
+def test_dep004_reports_cloud_flows_present():
+    data = _make_zip_with_deps(flow_names=["My Approval Flow"])
+    result = check_solution_zip(data)
+    dep004 = next((r for r in result["results"] if r["rule_id"] == "DEP004"), None)
+    assert dep004 is not None
+    assert dep004["severity"] == "info"
+    assert "1" in dep004["title"]
+
+
+def test_dep004_pass_when_no_flows():
+    data = _make_zip_with_deps()
+    result = check_solution_zip(data)
+    dep004 = next((r for r in result["results"] if r["rule_id"] == "DEP004"), None)
+    assert dep004 is not None
+    assert dep004["severity"] == "pass"
+
+
+def test_agt007_no_auth_when_auth_settings_absent():
+    data = _make_solution_zip()  # config has no authSettings
+    result = check_solution_zip(data)
+    agt007 = next((r for r in result["results"] if r["rule_id"] == "AGT007"), None)
+    assert agt007 is not None
+    assert agt007["severity"] == "info"
+
+
+def _make_config_zip(auth_mode_value: str) -> bytes:
+    """Build a minimal solution ZIP with a specific authMode value."""
+    config = json.dumps(
+        {
+            "aISettings": {"contentModeration": "Medium"},
+            "authSettings": {"authMode": auth_mode_value},
+        }
+    )
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr(
+            "solution.xml",
+            """<ImportExportXml>
+  <SolutionManifest>
+    <UniqueName>TestSolution</UniqueName>
+    <Version>2.0.0.0</Version>
+    <Managed>0</Managed>
+    <Publisher><CustomizationPrefix>myorg</CustomizationPrefix></Publisher>
+    <Descriptions><Description description="test" /></Descriptions>
+  </SolutionManifest>
+</ImportExportXml>""",
+        )
+        zf.writestr("bots/mybot/configuration.json", config)
+    return buf.getvalue()
+
+
+def test_agt007_aad_pass():
+    result = check_solution_zip(_make_config_zip("AAD"))
+    agt007 = next((r for r in result["results"] if r["rule_id"] == "AGT007"), None)
+    assert agt007 is not None
+    assert agt007["severity"] == "pass"
+    assert "aad" in agt007["title"].lower() or "azure" in agt007["title"].lower()
+
+
+def test_agt007_oauth2_pass():
+    result = check_solution_zip(_make_config_zip("oauth2"))
+    agt007 = next((r for r in result["results"] if r["rule_id"] == "AGT007"), None)
+    assert agt007 is not None
+    assert agt007["severity"] == "pass"
+    assert "oauth" in agt007["title"].lower() or "oauth2" in agt007["title"].lower()
+
+
+def test_agt007_manual_info_renders_auth_mode():
+    result = check_solution_zip(_make_config_zip("CustomSAML"))
+    agt007 = next((r for r in result["results"] if r["rule_id"] == "AGT007"), None)
+    assert agt007 is not None
+    assert agt007["severity"] == "info"
+    # The {auth_mode} placeholder must be rendered in the title
+    assert "customsaml" in agt007["title"].lower()
+
+
+# ── AGT008 tests ──────────────────────────────────────────────────────────────
+
+
+def _make_agent_tool_zip(schema: str, tool_names: list[str], tool_xml_names: list[str] | None = None) -> bytes:
+    """Build a solution ZIP with connected-agent-tool botcomponent folders."""
+    config = json.dumps({"aISettings": {"contentModeration": "Medium"}})
+    files: dict[str, str] = {
+        "solution.xml": """<ImportExportXml>
+  <SolutionManifest>
+    <UniqueName>TestSolution</UniqueName>
+    <Version>2.0.0.0</Version>
+    <Managed>0</Managed>
+    <Publisher><CustomizationPrefix>myorg</CustomizationPrefix></Publisher>
+    <Descriptions><Description description="test" /></Descriptions>
+  </SolutionManifest>
+</ImportExportXml>""",
+        f"bots/{schema}/configuration.json": config,
+    }
+    for i, tool in enumerate(tool_names):
+        xml_name = (tool_xml_names or [])[i] if tool_xml_names and i < len(tool_xml_names) else None
+        folder = f"botcomponents/{schema}.agent.{tool}"
+        if xml_name:
+            files[f"{folder}/botcomponent.xml"] = f"<botcomponent><name>{xml_name}</name></botcomponent>"
+        else:
+            files[f"{folder}/.placeholder"] = ""
+    return _make_minimal_zip(files)
+
+
+def test_agt008_detects_connected_agents():
+    data = _make_agent_tool_zip("mybot", ["HelperBot", "ApprovalBot"], ["Helper Bot", "Approval Bot"])
+    result = check_solution_zip(data)
+    agt008 = next((r for r in result["results"] if r["rule_id"] == "AGT008"), None)
+    assert agt008 is not None
+    assert agt008["severity"] == "info"
+    assert agt008["title"].startswith("2")
+    assert "Helper Bot" in agt008["detail"]
+    assert "Approval Bot" in agt008["detail"]
+
+
+def test_agt008_pass_when_no_agent_tools():
+    data = _make_solution_zip()
+    result = check_solution_zip(data)
+    agt008 = next((r for r in result["results"] if r["rule_id"] == "AGT008"), None)
+    assert agt008 is not None
+    assert agt008["severity"] == "pass"
+
+
+def test_agt008_name_fallback_to_folder_when_no_xml():
+    data = _make_agent_tool_zip("mybot", ["SomeAgent"])  # no botcomponent.xml
+    result = check_solution_zip(data)
+    agt008 = next((r for r in result["results"] if r["rule_id"] == "AGT008"), None)
+    assert agt008 is not None
+    assert agt008["severity"] == "info"
+    assert "SomeAgent" in agt008["detail"]
+
+
+def test_agt008_deduplicates_and_sorts():
+    """Duplicate entries and case ordering must be stable."""
+    # Build a zip with two agent tools whose folder names differ only in casing
+    config = json.dumps({"aISettings": {"contentModeration": "Medium"}})
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr(
+            "solution.xml",
+            """<ImportExportXml>
+  <SolutionManifest>
+    <UniqueName>TestSolution</UniqueName>
+    <Version>2.0.0.0</Version>
+    <Managed>0</Managed>
+    <Publisher><CustomizationPrefix>myorg</CustomizationPrefix></Publisher>
+    <Descriptions><Description description="test" /></Descriptions>
+  </SolutionManifest>
+</ImportExportXml>""",
+        )
+        zf.writestr("bots/mybot/configuration.json", config)
+        # Two distinct agent tools; botcomponent.xml supplies same display name (simulate dup)
+        zf.writestr(
+            "botcomponents/mybot.agent.ZetaBot/botcomponent.xml",
+            "<botcomponent><name>Zeta Bot</name></botcomponent>",
+        )
+        zf.writestr(
+            "botcomponents/mybot.agent.AlphaBot/botcomponent.xml",
+            "<botcomponent><name>Alpha Bot</name></botcomponent>",
+        )
+    result = check_solution_zip(buf.getvalue())
+    agt008 = next((r for r in result["results"] if r["rule_id"] == "AGT008"), None)
+    assert agt008 is not None
+    assert agt008["severity"] == "info"
+    # Count must be 2
+    assert agt008["title"].startswith("2")
+    # Alpha Bot must appear before Zeta Bot (sorted case-insensitively)
+    alpha_pos = agt008["detail"].index("Alpha Bot")
+    zeta_pos = agt008["detail"].index("Zeta Bot")
+    assert alpha_pos < zeta_pos
+
+
+# ── _build_prereqs tests (via analyze_deps_zip_bytes_report) ──────────────────
+
+
+def test_deps_analyzer_prereqs_returned_by_report():
+    """analyze_deps_zip_bytes_report returns a 'prereqs' dict with expected keys."""
+    from deps_analyzer import analyze_deps_zip_bytes_report
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr(
+            "solution.xml",
+            """<ImportExportXml>
+  <SolutionManifest>
+    <UniqueName>TestSolution</UniqueName>
+    <Version>1.0.0.0</Version>
+    <Managed>0</Managed>
+    <Publisher><CustomizationPrefix>myorg</CustomizationPrefix></Publisher>
+    <Descriptions><Description description="test" /></Descriptions>
+    <RootComponents />
+  </SolutionManifest>
+</ImportExportXml>""",
+        )
+        zf.writestr("bots/mybot/configuration.json", "{}")
+        zf.writestr("connectionreferences/cr_sharepoint_abc/.placeholder", "")
+        zf.writestr("environmentvariabledefinitions/myapp_baseurl/.placeholder", "")
+
+    report = analyze_deps_zip_bytes_report(buf.getvalue())
+    assert "prereqs" in report
+    prereqs = report["prereqs"]
+    for key in ("connection_references", "environment_variables", "custom_connectors", "ai_models", "cloud_flows", "missing_dependencies"):
+        assert key in prereqs, f"prereqs missing key '{key}'"
+    cr_schemas = [c["schema"] for c in prereqs["connection_references"]]
+    assert "cr_sharepoint_abc" in cr_schemas
+    ev_schemas = [e["schema"] for e in prereqs["environment_variables"]]
+    assert "myapp_baseurl" in ev_schemas
+
+
+def test_deps_analyzer_prereqs_empty_for_minimal_solution():
+    """prereqs contains all keys but empty lists when no dependencies exist."""
+    from deps_analyzer import analyze_deps_zip_bytes_report
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr(
+            "solution.xml",
+            """<ImportExportXml>
+  <SolutionManifest>
+    <UniqueName>TestSolution</UniqueName>
+    <Version>1.0.0.0</Version>
+    <Managed>0</Managed>
+    <Publisher><CustomizationPrefix>myorg</CustomizationPrefix></Publisher>
+    <Descriptions><Description description="test" /></Descriptions>
+    <RootComponents />
+  </SolutionManifest>
+</ImportExportXml>""",
+        )
+        zf.writestr("bots/mybot/configuration.json", "{}")
+
+    report = analyze_deps_zip_bytes_report(buf.getvalue())
+    prereqs = report["prereqs"]
+    assert prereqs["connection_references"] == []
+    assert prereqs["environment_variables"] == []
+    assert prereqs["missing_dependencies"] == []

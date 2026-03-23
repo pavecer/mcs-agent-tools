@@ -239,6 +239,7 @@ class State(rx.State):
     deps_segments: list[dict] = []
     deps_relation_rows: list[dict] = []
     deps_component_rows: list[dict] = []
+    deps_prereqs: dict = {}  # structured pre-import requirements from _build_prereqs()
     deps_diagram_mode: str = "aggregated"  # "aggregated" | "detailed"
     deps_diagram_zoom_pct: int = 100
     deps_relation_query: str = ""
@@ -750,6 +751,7 @@ class State(rx.State):
         self.deps_segments = []
         self.deps_relation_rows = []
         self.deps_component_rows = []
+        self.deps_prereqs = {}
         self.deps_diagram_mode = "aggregated"
         self.deps_diagram_zoom_pct = 100
         self.deps_relation_query = ""
@@ -865,6 +867,7 @@ class State(rx.State):
                 ]
                 self.deps_relation_rows = report.get("relation_rows", [])
                 self.deps_component_rows = report.get("component_rows", [])
+                self.deps_prereqs = report.get("prereqs", {})
                 self.deps_ran = True
                 self.deps_error = ""
             except Exception as dep_exc:
@@ -872,6 +875,7 @@ class State(rx.State):
                 self.deps_segments = []
                 self.deps_relation_rows = []
                 self.deps_component_rows = []
+                self.deps_prereqs = {}
                 self.deps_ran = False
             finally:
                 self.deps_is_analyzing = False
@@ -1252,6 +1256,7 @@ class State(rx.State):
         self.deps_segments = []
         self.deps_relation_rows = []
         self.deps_component_rows = []
+        self.deps_prereqs = {}
         self.deps_diagram_mode = "aggregated"
         self.deps_relation_query = ""
         self.deps_relation_sort_key = "dependent"
@@ -1510,12 +1515,14 @@ class State(rx.State):
             ]
             self.deps_relation_rows = report.get("relation_rows", [])
             self.deps_component_rows = report.get("component_rows", [])
+            self.deps_prereqs = report.get("prereqs", {})
             self.deps_ran = True
         except Exception as dep_exc:
             self.deps_error = str(dep_exc)
             self.deps_segments = []
             self.deps_relation_rows = []
             self.deps_component_rows = []
+            self.deps_prereqs = {}
             self.deps_ran = False
         finally:
             self.deps_is_analyzing = False

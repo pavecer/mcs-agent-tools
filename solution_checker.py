@@ -39,7 +39,7 @@ except Exception:  # pragma: no cover
 
 # ── Category labels ────────────────────────────────────────────────────────────
 
-CATEGORIES: list[str] = ["Solution", "Agent", "Topics", "Knowledge", "Security"]
+CATEGORIES: list[str] = ["Solution", "Agent", "Topics", "Knowledge", "Security", "Dependencies"]
 
 _CAT_ICONS: dict[str, str] = {
     "Solution": "file-text",
@@ -47,6 +47,7 @@ _CAT_ICONS: dict[str, str] = {
     "Topics": "list",
     "Knowledge": "database",
     "Security": "shield-alert",
+    "Dependencies": "link",
 }
 
 
@@ -148,6 +149,43 @@ def _rule(rule_id: str, outcome: str, **kwargs: object) -> dict:
     except (KeyError, ValueError):
         detail = detail_tpl
     return {"rule_id": rule_id, "category": category, "title": title, "severity": severity, "detail": detail}
+
+
+# ── Dependency type lookup (used by _check_dependencies) ──────────────────────
+
+_DEP_TYPE_CODES: dict[str, int] = {
+    "connectionreference": 10066,
+    "environmentvariable": 44,
+    "environmentvariabledefinition": 44,
+    "cloudflow": 30,
+    "workflow": 30,
+    "canvasapp": 300,
+    "bot": 430,
+    "botcomponent": 431,
+}
+
+_DEP_TYPE_NAMES: dict[int, str] = {
+    1: "Table",
+    30: "Cloud Flow",
+    44: "Environment Variable",
+    300: "Canvas App",
+    400: "Custom Connector",
+    401: "AI Model",
+    430: "Copilot Studio Agent",
+    431: "Bot Component",
+    10066: "Connection Reference",
+}
+
+
+def _dep_type_name(raw: str) -> str:
+    """Return a human-readable type label for a dependency type value."""
+    if raw.isdigit():
+        return _DEP_TYPE_NAMES.get(int(raw), f"Component ({raw})")
+    normalized = re.sub(r"[^a-z0-9]", "", raw.lower())
+    code = _DEP_TYPE_CODES.get(normalized)
+    if code:
+        return _DEP_TYPE_NAMES.get(code, raw)
+    return raw or "Unknown"
 
 
 # ── Rule implementations ───────────────────────────────────────────────────────
@@ -285,6 +323,62 @@ def _check_agent_config(work_dir: Path, schema: str) -> list[dict]:  # noqa: C90
         results.append(_rule("AGT006", "warn"))
     else:
         results.append(_rule("AGT006", "pass"))
+
+    # AGT007 — Authentication mode
+    auth_settings = config.get("authSettings", {}) or {}
+    auth_mode = (
+        auth_settings.get("authMode") or auth_settings.get("authType") or ""
+    ).strip().lower()
+    if not auth_mode or auth_mode in ("none", "no_auth", "nonauthenticated"):
+        results.append(_rule("AGT007", "no_auth"))
+    elif auth_mode in ("aad", "azuread", "microsoftaad", "azureaad", "teamssso"):
+        results.append(_rule("AGT007", "aad"))
+    elif "oauth" in auth_mode or auth_mode == "generic":
+        results.append(_rule("AGT007", "oauth2"))
+    else:
+        results.append(_rule("AGT007", "manual", auth_mode=auth_mode))
+
+    # AGT008 — Multi-agent orchestration (other agents used as tools)
+    botcomponents_dir = work_dir / "botcomponents"
+    agent_tool_names: list[str] = []
+    if botcomponents_dir.exists():
+        for comp_dir in sorted(botcomponents_dir.iterdir()):
+            if not comp_dir.is_dir():
+                continue
+            folder = comp_dir.name
+            parts = folder.split(".", 2)
+            # Agent-tool components: belong to this agent (.agent. marker) and reference
+            # a different agent schema (the 3rd part is not "default")
+            if (
+                len(parts) >= 3
+                and parts[0] == schema
+                and parts[1] == "agent"
+                and parts[2].lower() != "default"
+            ):
+                xml_path = comp_dir / "botcomponent.xml"
+                name = parts[2]
+                if xml_path.exists():
+                    fields = _read_xml(xml_path, "name")
+                    name = fields.get("name") or name
+                agent_tool_names.append(name)
+
+    # Normalize for deterministic, testable output: de-duplicate and sort case-insensitively.
+    unique_agent_tool_names = sorted(dict.fromkeys(agent_tool_names), key=str.lower) if agent_tool_names else []
+
+    if unique_agent_tool_names:
+        names_str = ", ".join(f"'{n}'" for n in unique_agent_tool_names[:5])
+        if len(unique_agent_tool_names) > 5:
+            names_str += f" and {len(unique_agent_tool_names) - 5} more"
+        results.append(
+            _rule(
+                "AGT008",
+                "has_agent_tools",
+                count=len(unique_agent_tool_names),
+                names=names_str,
+            )
+        )
+    else:
+        results.append(_rule("AGT008", "pass"))
 
     return results
 
@@ -436,6 +530,149 @@ def _check_knowledge(work_dir: Path, schema: str, config: dict) -> list[dict]:
         results.append(_rule("KNO004", "warn"))
     else:
         results.append(_rule("KNO004", "pass"))
+
+    return results
+
+
+def _check_dependencies(work_dir: Path) -> list[dict]:  # noqa: C901
+    """Check DEP001-DEP004: connection references, env vars, missing deps, cloud flows."""
+    results: list[dict] = []
+    import json as _json
+
+    # DEP001 — Connection references (connectionreferences/ folder or solution.xml type 10066)
+    cr_schemas: list[str] = []
+    cr_dir = work_dir / "connectionreferences"
+    if cr_dir.is_dir():
+        for item in sorted(cr_dir.iterdir()):
+            if item.is_dir():
+                cr_schemas.append(item.name)
+
+    if not cr_schemas:
+        sol_path = work_dir / "solution.xml"
+        if sol_path.exists():
+            try:
+                root = ET.parse(sol_path).getroot()
+                manifest = root.find("SolutionManifest")
+                if manifest is not None:
+                    rc_el = manifest.find("RootComponents")
+                    for rc in (rc_el.findall("RootComponent") if rc_el is not None else []):
+                        try:
+                            if int(rc.get("type", "0")) == 10066:
+                                sname = (rc.get("schemaName") or "").strip()
+                                if sname and sname not in cr_schemas:
+                                    cr_schemas.append(sname)
+                        except (ValueError, AttributeError):
+                            pass
+            except Exception:
+                pass
+
+    if cr_schemas:
+        names_str = ", ".join(f"`{s}`" for s in cr_schemas[:6])
+        if len(cr_schemas) > 6:
+            names_str += f" and {len(cr_schemas) - 6} more"
+        results.append(_rule("DEP001", "has_refs", count=len(cr_schemas), names=names_str))
+    else:
+        results.append(_rule("DEP001", "none"))
+
+    # DEP002 — Environment variables (environmentvariabledefinitions/ folder)
+    ev_schemas: list[str] = []
+    ev_dir = work_dir / "environmentvariabledefinitions"
+    if ev_dir.is_dir():
+        for item in sorted(ev_dir.iterdir()):
+            if item.is_dir():
+                # Prefer display name from the XML if available
+                xml_path = item / "environmentvariabledefinition.xml"
+                display = item.name
+                if xml_path.exists():
+                    try:
+                        xroot = ET.parse(xml_path).getroot()
+                        dn = xroot.findtext("displayname") or xroot.get("displayname") or ""
+                        if dn:
+                            display = dn.strip()
+                    except Exception:
+                        pass
+                ev_schemas.append(display)
+
+    if ev_schemas:
+        names_str = ", ".join(f"`{s}`" for s in ev_schemas[:6])
+        if len(ev_schemas) > 6:
+            names_str += f" and {len(ev_schemas) - 6} more"
+        results.append(_rule("DEP002", "has_vars", count=len(ev_schemas), names=names_str))
+    else:
+        results.append(_rule("DEP002", "none"))
+
+    # DEP003 — Missing dependencies from solution.xml <MissingDependencies>
+    missing_items: list[tuple[str, str]] = []
+    sol_path = work_dir / "solution.xml"
+    if sol_path.exists():
+        try:
+            root = ET.parse(sol_path).getroot()
+            manifest = root.find("SolutionManifest")
+            if manifest is not None:
+                miss_el = manifest.find("MissingDependencies")
+                if miss_el is not None:
+                    seen_keys: set[str] = set()
+                    for md in miss_el.findall("MissingDependency"):
+                        req = md.find("Required")
+                        if req is None:
+                            continue
+                        req_type_raw = req.get("type") or ""
+                        req_name = (
+                            req.get("displayName")
+                            or req.get("schemaName")
+                            or req.get("name")
+                            or "Unknown"
+                        )
+                        # Simplify key=value style names
+                        if "=" in req_name:
+                            for part in req_name.split(","):
+                                k, _, v = part.partition("=")
+                                if any(x in k.lower() for x in ("name", "schema", "logicalname")):
+                                    clean = v.strip().strip("{}")
+                                    if clean:
+                                        req_name = clean
+                                    break
+                        key = f"{req_type_raw}:{req_name.lower()}"
+                        if key in seen_keys:
+                            continue
+                        seen_keys.add(key)
+                        missing_items.append((req_name, _dep_type_name(req_type_raw)))
+        except Exception:
+            pass
+
+    if missing_items:
+        names_str = "; ".join(f"`{n}` ({t})" for n, t in missing_items[:5])
+        if len(missing_items) > 5:
+            names_str += f" and {len(missing_items) - 5} more"
+        results.append(_rule("DEP003", "has_missing", count=len(missing_items), names=names_str))
+    else:
+        results.append(_rule("DEP003", "pass"))
+
+    # DEP004 — Cloud flows in Workflows/ folder
+    flow_names: list[str] = []
+    wf_dir = work_dir / "Workflows"
+    if wf_dir.is_dir():
+        for wf_file in sorted(wf_dir.iterdir()):
+            if not wf_file.is_file() or wf_file.suffix.lower() != ".json":
+                continue
+            name = ""
+            try:
+                data = _json.loads(wf_file.read_text(encoding="utf-8", errors="replace"))
+                name = (data.get("properties") or {}).get("displayName") or data.get("name") or ""
+            except Exception:
+                pass
+            if not name and "-" in wf_file.stem:
+                name = wf_file.stem.rsplit("-", 1)[0].replace("_", " ")
+            if name:
+                flow_names.append(name)
+
+    if flow_names:
+        names_str = ", ".join(f"`{n}`" for n in flow_names[:5])
+        if len(flow_names) > 5:
+            names_str += f" and {len(flow_names) - 5} more"
+        results.append(_rule("DEP004", "has_flows", count=len(flow_names), names=names_str))
+    else:
+        results.append(_rule("DEP004", "none"))
 
     return results
 
@@ -638,6 +875,7 @@ def check_solution_zip(zip_bytes: bytes) -> dict:
             results.extend(_check_security(work_dir, schema))
         else:
             results.append(_rule("AGT000", "no_schema"))
+        results.extend(_check_dependencies(work_dir))
 
     pass_count = sum(1 for r in results if r["severity"] == "pass")
     warn_count = sum(1 for r in results if r["severity"] == "warning")
