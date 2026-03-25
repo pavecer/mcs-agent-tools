@@ -5,6 +5,7 @@ Adapted from github.com/Roelzz/mcs-agent-analyser (MIT licence).
 
 from __future__ import annotations
 
+import html as _html
 import socket
 from datetime import datetime
 from urllib.error import HTTPError, URLError
@@ -31,14 +32,124 @@ _SYSTEM_TRIGGERS = {
     "OnConversationStart",
 }
 
-_GANTT_COLORS = {
-    "DynamicPlan": "crit",
-    "Search": "active",
-    "System": "done",
-    "User": "",  # grey default
-    "Bot": "",
-    "Redirect": "active",
+# SVG timeline colours: (bar_fill, accent/text)
+_SVG_PHASE_COLORS: dict[str, tuple[str, str]] = {
+    "DynamicPlan": ("#ffc8c3", "#c0392b"),
+    "Search": ("#cce0ff", "#0a66ff"),
+    "System": ("#c8f0d8", "#107c10"),
+    "Redirect": ("#ddd4ff", "#5b21b6"),
 }
+_SVG_DEFAULT_COLOR: tuple[str, str] = ("#b8d0f8", "#1a3a6b")
+
+# SVG event-log colours per event type: (actor_char, row_bg, text_color)
+_SVG_EVENT_STYLES: dict[str, tuple[str, str, str]] = {}  # populated after MCSEventType is importable
+
+
+def _svg_event_styles() -> dict:
+    """Lazily build the event-styles map so it doesn't depend on import order."""
+    if _SVG_EVENT_STYLES:
+        return _SVG_EVENT_STYLES
+    _SVG_EVENT_STYLES.update(
+        {
+            MCSEventType.USER_MESSAGE: ("U", "#ddeeff", "#1a3a6b"),
+            MCSEventType.BOT_MESSAGE: ("C", "#d8f5e0", "#0d5c26"),
+            MCSEventType.STEP_TRIGGERED: ("▶", "#fff0cc", "#7a5200"),
+            MCSEventType.STEP_FINISHED: ("✓", "#e0f4e0", "#0a4020"),
+            MCSEventType.KNOWLEDGE_SEARCH: ("S", "#d3eaff", "#0a4299"),
+            MCSEventType.PLAN_RECEIVED: ("P", "#ede9ff", "#3b1a7a"),
+            MCSEventType.PLAN_RECEIVED_DEBUG: ("P", "#ede9ff", "#3b1a7a"),
+            MCSEventType.PLAN_FINISHED: ("P", "#ede9ff", "#3b1a7a"),
+            MCSEventType.DIALOG_REDIRECT: ("→", "#fce8ff", "#6b007a"),
+            MCSEventType.ERROR: ("!", "#fce8e8", "#7a0010"),
+            MCSEventType.DIALOG_TRACING: ("T", "#fff8e0", "#664400"),
+            MCSEventType.VARIABLE_ASSIGNMENT: ("V", "#f0f0f0", "#404040"),
+            MCSEventType.ACTION_HTTP_REQUEST: ("H", "#e8f0ff", "#1a3a6b"),
+            MCSEventType.ACTION_BEGIN_DIALOG: ("D", "#f0f8ff", "#1a5a9a"),
+            MCSEventType.ACTION_SEND_ACTIVITY: ("A", "#f0fff4", "#0a4020"),
+            MCSEventType.ACTION_TRIGGER_EVAL: ("E", "#fff4f0", "#7a3000"),
+            MCSEventType.ACTION_QA: ("Q", "#fffbe0", "#664400"),
+        }
+    )
+    return _SVG_EVENT_STYLES
+
+
+_SVG_EVENT_DEFAULT: tuple[str, str, str] = ("·", "#f3f3f3", "#605e5c")
+
+
+def _render_chat_svg(turns: list[dict]) -> str:
+    """Build a two-column chat swimlane SVG from paired user/bot turns."""
+    limited = turns[:60]
+    n = len(limited)
+    if not n:
+        return ""
+
+    W = 760
+    HEADER_H = 34
+    ROW_H = 52
+    PAD = 12
+    CX = W // 2  # centre divider x
+
+    h = HEADER_H + n * ROW_H + PAD
+
+    out: list[str] = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {h}" '
+        f'width="100%" style="font-family:\'Segoe UI\',system-ui,sans-serif;display:block">',
+        f'<rect width="{W}" height="{h}" rx="10" fill="#f8fbff" stroke="#d7e2f2" stroke-width="1"/>',
+        # Column headers
+        f'<rect x="0" y="0" width="{CX}" height="{HEADER_H}" rx="8" fill="#ddeeff"/>',
+        f'<rect x="{CX}" y="0" width="{CX}" height="{HEADER_H}" rx="8" fill="#d8f5e0"/>',
+        # square off the bottom corners of the rounded header rects
+        f'<rect x="0" y="{HEADER_H - 6}" width="{CX}" height="6" fill="#ddeeff"/>',
+        f'<rect x="{CX}" y="{HEADER_H - 6}" width="{CX}" height="6" fill="#d8f5e0"/>',
+        f'<text x="{CX // 2}" y="22" text-anchor="middle" font-size="13" font-weight="700" fill="#1a3a6b">User</text>',
+        f'<text x="{CX + CX // 2}" y="22" text-anchor="middle" font-size="13" font-weight="700" fill="#0d5c26">Copilot</text>',
+        f'<line x1="0" y1="{HEADER_H}" x2="{W}" y2="{HEADER_H}" stroke="#c0d4ee" stroke-width="1"/>',
+        f'<line x1="{CX}" y1="{HEADER_H}" x2="{CX}" y2="{h - PAD}" stroke="#c0d4ee" stroke-width="1" stroke-dasharray="4,3"/>',
+    ]
+
+    for i, turn in enumerate(limited):
+        y = HEADER_H + i * ROW_H
+        bg = "#f4f8ff" if i % 2 == 0 else "#fbfeff"
+        out.append(f'<rect x="0" y="{y}" width="{W}" height="{ROW_H}" fill="{bg}"/>')
+        if i < n - 1:
+            out.append(f'<line x1="0" y1="{y + ROW_H}" x2="{W}" y2="{y + ROW_H}" stroke="#e8eef8" stroke-width="1"/>')
+
+        umsg = _html.escape((turn.get("user_msg") or "")[:55])
+        bmsg = _html.escape((turn.get("bot_msg") or "")[:55])
+        lat_ms = int(turn.get("latency_ms") or 0)
+        uts = turn.get("user_ts") or ""
+        uts_fmt = uts[-14:-6] if len(uts) >= 14 else uts[-8:] if uts else ""
+
+        # User side (left)
+        out.append(f'<text x="{PAD}" y="{y + 20}" font-size="12" fill="#1a3a6b">{umsg}</text>')
+        if uts_fmt:
+            out.append(f'<text x="{PAD}" y="{y + 38}" font-size="10" fill="#7899c4">{_html.escape(uts_fmt)}</text>')
+
+        # Latency badge straddling the centre line
+        lat_txt = f"{lat_ms}ms"
+        badge_w = max(len(lat_txt) * 7, 44)
+        bx = CX - badge_w // 2
+        by = y + ROW_H // 2 - 9
+        out.append(
+            f'<rect x="{bx}" y="{by}" width="{badge_w}" height="18" rx="9" '
+            f'fill="#fffbe0" stroke="#c7921e" stroke-width="0.8"/>'
+        )
+        out.append(
+            f'<text x="{CX}" y="{by + 13}" text-anchor="middle" '
+            f'font-size="10" font-weight="600" fill="#7a5200">{_html.escape(lat_txt)}</text>'
+        )
+
+        # Bot side (right)
+        out.append(f'<text x="{CX + PAD}" y="{y + 20}" font-size="12" fill="#0d5c26">{bmsg}</text>')
+
+    if len(turns) > 60:
+        out.append(
+            f'<text x="{CX}" y="{h - 4}" text-anchor="middle" font-size="10" fill="#93a8c8">'
+            f"… {len(turns) - 60} more turns not shown</text>"
+        )
+
+    out.append("</svg>")
+    return "\n".join(out)
 
 
 # ---------------------------------------------------------------------------
@@ -467,84 +578,191 @@ def render_model_comparison(profile: MCSBotProfile) -> str:
 
 
 def render_mermaid_sequence(timeline: MCSConversationTimeline) -> str:
+    """Render the full event flow as a self-contained SVG (ppsvg fence, Mermaid-free)."""
     if not timeline.events:
         return ""
 
-    lines: list[str] = [
-        "## Conversation Sequence Diagram",
-        "",
-        "```mermaid",
-        "sequenceDiagram",
-        "    autonumber",
-        "    participant U as User",
-        "    participant C as Copilot",
-        "    participant E as Engine",
-        "",
+    styles = _svg_event_styles()
+    limited = timeline.events[:120]
+    n = len(limited)
+
+    W = 780
+    HEADER_H = 34
+    ROW_H = 38
+    ACTOR_D = 26         # actor badge diameter
+    TYPE_W = 130         # event-type label column width
+    TS_W = 70            # timestamp column width
+    PAD = 10
+    h = HEADER_H + n * ROW_H + PAD
+
+    out: list[str] = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {h}" '
+        f'width="100%" style="font-family:\'Segoe UI\',system-ui,sans-serif;display:block">',
+        f'<rect width="{W}" height="{h}" rx="10" fill="#f8fbff" stroke="#d7e2f2" stroke-width="1"/>',
+        # Header bar
+        f'<rect x="0" y="0" width="{W}" height="{HEADER_H}" rx="8" fill="#eef3fb"/>',
+        f'<rect x="0" y="{HEADER_H - 6}" width="{W}" height="6" fill="#eef3fb"/>',
+        f'<line x1="0" y1="{HEADER_H}" x2="{W}" y2="{HEADER_H}" stroke="#c0d4ee" stroke-width="1"/>',
+        f'<text x="{PAD + ACTOR_D // 2}" y="22" text-anchor="middle" font-size="11" font-weight="700" fill="#4d6287">#</text>',
+        f'<text x="{PAD + ACTOR_D + 8}" y="22" font-size="11" font-weight="700" fill="#4d6287">Actor</text>',
+        f'<text x="{PAD + ACTOR_D + 36}" y="22" font-size="11" font-weight="700" fill="#4d6287">Event Type</text>',
+        f'<text x="{PAD + ACTOR_D + TYPE_W + 44}" y="22" font-size="11" font-weight="700" fill="#4d6287">Summary</text>',
+        f'<text x="{W - PAD}" y="22" text-anchor="end" font-size="11" font-weight="700" fill="#4d6287">Time</text>',
     ]
 
-    for event in timeline.events:
-        ev_type = event.event_type
-        label = (event.summary or "")[:80].replace('"', "'")
+    for i, event in enumerate(limited):
+        y = HEADER_H + i * ROW_H
+        actor_char, row_bg, text_fg = styles.get(event.event_type, _SVG_EVENT_DEFAULT)
+        label = _html.escape((event.summary or "")[:90])
+        ts = _format_clock(event.timestamp)
+        ev_name = _html.escape(
+            (event.event_type.value if hasattr(event.event_type, "value") else str(event.event_type or ""))
+            .replace("Action", "")
+            .replace("MCS", "")
+        )
 
-        if ev_type == MCSEventType.USER_MESSAGE:
-            lines.append(f'    U->>C: "{label}"')
+        if i % 2 == 0:
+            out.append(f'<rect x="0" y="{y}" width="{W}" height="{ROW_H}" fill="#f0f4fa"/>')
 
-        elif ev_type == MCSEventType.BOT_MESSAGE:
-            lines.append(f'    C-->>U: "{label}"')
+        # Row divider
+        if i < n - 1:
+            out.append(
+                f'<line x1="{PAD}" y1="{y + ROW_H}" x2="{W - PAD}" y2="{y + ROW_H}" '
+                f'stroke="#e8eef8" stroke-width="1"/>'
+            )
 
-        elif ev_type == MCSEventType.DIALOG_TRACING:
-            lines.append(f"    Note over C,E: Topic → {label}")
+        mid_y = y + ROW_H // 2
 
-        elif ev_type == MCSEventType.DIALOG_REDIRECT:
-            lines.append(f"    C->>C: Redirect → {label}")
+        # Actor badge (circle)
+        out.append(
+            f'<circle cx="{PAD + ACTOR_D // 2}" cy="{mid_y}" r="{ACTOR_D // 2}" fill="{row_bg}"/>'
+        )
+        out.append(
+            f'<text x="{PAD + ACTOR_D // 2}" y="{mid_y + 4}" text-anchor="middle" '
+            f'font-size="11" font-weight="700" fill="{text_fg}">{_html.escape(actor_char)}</text>'
+        )
 
-        elif ev_type == MCSEventType.PLAN_RECEIVED:
-            lines.append("    E-->>C: DynamicPlan received")
+        # Event type label
+        out.append(
+            f'<text x="{PAD + ACTOR_D + 8}" y="{mid_y + 4}" '
+            f'font-size="10" fill="#4d6287">{ev_name}</text>'
+        )
 
-        elif ev_type == MCSEventType.STEP_TRIGGERED:
-            lines.append(f'    C->>E: Step "{label}"')
+        # Summary
+        label_x = PAD + ACTOR_D + TYPE_W + 44
+        out.append(
+            f'<text x="{label_x}" y="{mid_y + 4}" font-size="11" fill="#2f425f">{label}</text>'
+        )
 
-        elif ev_type == MCSEventType.STEP_FINISHED:
-            lines.append(f'    E-->>C: Done "{label}"')
+        # Timestamp
+        if ts:
+            out.append(
+                f'<text x="{W - PAD}" y="{mid_y + 4}" text-anchor="end" '
+                f'font-size="10" fill="#93a8c8">{_html.escape(ts)}</text>'
+            )
 
-        elif ev_type == MCSEventType.KNOWLEDGE_SEARCH:
-            lines.append(f'    C->>E: Search "{label}"')
+    if len(timeline.events) > 120:
+        out.append(
+            f'<text x="{W // 2}" y="{h - 4}" text-anchor="middle" font-size="10" fill="#93a8c8">'
+            f"… {len(timeline.events) - 120} more events not shown</text>"
+        )
 
-        elif ev_type == MCSEventType.VARIABLE_ASSIGNMENT:
-            lines.append(f"    Note over C: {label}")
-
-        elif ev_type == MCSEventType.ERROR:
-            lines.append(f"    Note over C,E: ERROR — {label}")
-
-    lines += ["```", ""]
-    return "\n".join(lines)
+    out.append("</svg>")
+    svg_str = "\n".join(out)
+    return f"## Conversation Event Flow\n\n```ppsvg\n{svg_str}\n```\n"
 
 
-def render_gantt_chart(timeline: MCSConversationTimeline) -> str:
+def render_svg_timeline(timeline: MCSConversationTimeline) -> str:
+    """Render a self-contained SVG horizontal bar chart for execution phases.
+
+    The SVG is wrapped in a ``ppsvg`` Markdown fence so the web layer renders
+    it via ``rx.html()`` — Mermaid is never involved.
+    """
     if not timeline.phases:
         return ""
 
-    lines: list[str] = [
-        "## Execution Gantt Chart",
-        "",
-        "```mermaid",
-        "gantt",
-        "    title Conversation Execution Timeline",
-        "    dateFormat  x",
-        "    axisFormat  %H:%M:%S",
-        "",
+    phases = timeline.phases
+    n = len(phases)
+    durations = [max(int(p.duration_ms) if p.duration_ms else 50, 1) for p in phases]
+    total_ms = sum(durations)
+
+    ROW_H = 36
+    LABEL_W = 210
+    BAR_AREA_W = 560
+    AXIS_H = 28
+    HEADER_H = 44
+    PAD = 16
+    w = PAD + LABEL_W + BAR_AREA_W + PAD
+    h = HEADER_H + n * ROW_H + AXIS_H + PAD
+
+    out: list[str] = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}" '
+        f'width="100%" style="font-family:\'Segoe UI\',system-ui,sans-serif;display:block">',
+        f'<rect width="{w}" height="{h}" rx="12" fill="#f8fbff" stroke="#d7e2f2" stroke-width="1"/>',
+        f'<text x="{w // 2}" y="28" text-anchor="middle" font-size="14" '
+        f'font-weight="700" fill="#102548">Execution Phases</text>',
+        f'<line x1="{PAD + LABEL_W}" y1="{HEADER_H - 4}" '
+        f'x2="{PAD + LABEL_W}" y2="{HEADER_H + n * ROW_H + 4}" '
+        f'stroke="#c0cfe8" stroke-width="1"/>',
     ]
 
-    for phase in timeline.phases:
-        section_name = (phase.label or phase.phase_type or "Phase").replace(":", " ")
-        lines.append(f"    section {section_name}")
-        color_keyword = _GANTT_COLORS.get(phase.phase_type, "")
-        duration = max(int(phase.duration_ms) if phase.duration_ms else 100, 50)
-        color_part = f"{color_keyword}, " if color_keyword else ""
-        lines.append(f"    {section_name} :{color_part}0, {duration}ms")
+    for i, (phase, dur) in enumerate(zip(phases, durations)):
+        y = HEADER_H + i * ROW_H
+        bar_w = max(int(BAR_AREA_W * dur / max(total_ms, 1)), 4)
+        bar_x = PAD + LABEL_W
+        bar_y = y + 6
+        bar_h = ROW_H - 12
+        label_txt = _html.escape((phase.label or phase.phase_type or "Phase")[:32])
+        fill, accent = _SVG_PHASE_COLORS.get(phase.phase_type, _SVG_DEFAULT_COLOR)
+        ms_txt = _html.escape(f"{int(phase.duration_ms)}ms") if phase.duration_ms else ""
 
-    lines += ["```", ""]
-    return "\n".join(lines)
+        if i % 2 == 0:
+            out.append(
+                f'<rect x="{PAD}" y="{y}" width="{LABEL_W + BAR_AREA_W}" '
+                f'height="{ROW_H}" fill="#eef4ff" rx="3"/>'
+            )
+        out.append(
+            f'<text x="{PAD + LABEL_W - 8}" y="{y + ROW_H // 2 + 5}" '
+            f'text-anchor="end" font-size="12" fill="#2f425f">{label_txt}</text>'
+        )
+        out.append(
+            f'<rect x="{bar_x}" y="{bar_y}" width="{bar_w}" height="{bar_h}" '
+            f'rx="4" fill="{fill}" stroke="{accent}" stroke-width="0.5" stroke-opacity="0.4"/>'
+        )
+        if ms_txt:
+            if bar_w > 50:
+                out.append(
+                    f'<text x="{bar_x + bar_w - 6}" y="{bar_y + bar_h // 2 + 4}" '
+                    f'text-anchor="end" font-size="10" fill="{accent}">{ms_txt}</text>'
+                )
+            else:
+                out.append(
+                    f'<text x="{bar_x + bar_w + 5}" y="{bar_y + bar_h // 2 + 4}" '
+                    f'font-size="10" fill="{accent}">{ms_txt}</text>'
+                )
+
+    axis_y = HEADER_H + n * ROW_H + 6
+    out.append(
+        f'<line x1="{PAD + LABEL_W}" y1="{axis_y}" '
+        f'x2="{PAD + LABEL_W + BAR_AREA_W}" y2="{axis_y}" '
+        f'stroke="#c0cfe8" stroke-width="1"/>'
+    )
+    out.append(
+        f'<text x="{PAD + LABEL_W}" y="{axis_y + 14}" '
+        f'text-anchor="start" font-size="10" fill="#93a8c8">0ms</text>'
+    )
+    out.append(
+        f'<text x="{PAD + LABEL_W + BAR_AREA_W}" y="{axis_y + 14}" '
+        f'text-anchor="end" font-size="10" fill="#93a8c8">{_html.escape(str(total_ms))}ms total</text>'
+    )
+    out.append("</svg>")
+
+    svg_str = "\n".join(out)
+    return f"## Execution Gantt Chart\n\n```ppsvg\n{svg_str}\n```\n"
+
+
+# Keep the old name as an alias for backward-compatibility.
+render_gantt_chart = render_svg_timeline
 
 
 def render_phase_breakdown(timeline: MCSConversationTimeline) -> str:
@@ -862,30 +1080,17 @@ def render_conversation_overview(timeline: MCSConversationTimeline) -> str:
 
 
 def render_message_chat_timeline(timeline: MCSConversationTimeline) -> str:
-    """Render a message-only sequence and turn latency table."""
+    """Render a message-only SVG chat view and turn latency table."""
     turns = _pair_message_turns(timeline)
     if not turns:
         return ""
 
+    svg_src = _render_chat_svg(turns)
     lines: list[str] = [
         "## Message Chat Timeline",
         "",
-        "```mermaid",
-        "sequenceDiagram",
-        "    autonumber",
-        "    participant U as User",
-        "    participant C as Copilot",
-        "",
-    ]
-    for turn in turns[:80]:
-        umsg = turn["user_msg"].replace('"', "'")[:90]
-        bmsg = turn["bot_msg"].replace('"', "'")[:90]
-        uts = (turn["user_ts"] or "")[-14:-6] if turn["user_ts"] else ""
-        bts = (turn["bot_ts"] or "")[-14:-6] if turn["bot_ts"] else ""
-        lines.append(f"    U->>C: [{uts}] {umsg}")
-        lines.append(f"    C-->>U: [{bts}] {bmsg}")
-
-    lines += [
+        "```ppsvg",
+        svg_src,
         "```",
         "",
         "### Turn Latency",
@@ -997,6 +1202,199 @@ def render_errors(timeline: MCSConversationTimeline) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Dynamic Planner trace analysis renderer
+# ---------------------------------------------------------------------------
+
+# Import the term-extraction helper from the analysis module so explanation
+# strings are computed from the same normalisation logic as the scores.
+from toolkit.mcs.planner_analysis import _extract_terms as _planner_extract_terms  # noqa: E402
+
+
+def _compact_tool_id(tool_id: str) -> str:
+    """Shorten 'P:UniversalSearchTool' → 'UniversalSearchTool'."""
+    if not tool_id:
+        return "Unknown Tool"
+    return tool_id.split(":", 1)[1] if ":" in tool_id else tool_id
+
+
+def _relevance_icon(score: float) -> str:
+    """Return a coloured circle icon for a relevance score."""
+    if score >= 0.5:
+        return "🟢"
+    if score >= 0.1:
+        return "🟡"
+    return "🔴"
+
+
+def _overall_quality_label(step) -> str:
+    if "HIGH_QUALITY" in step.score_flags:
+        return "Good ✅"
+    if "PARTIAL_QUALITY" in step.score_flags:
+        return "Partial ⚠️"
+    return "Poor ❌"
+
+
+def _flag_labels(step) -> list[str]:
+    """Convert raw score_flags to human-readable labels for display."""
+    mapping = {
+        "TOP_RESULT_RELEVANT": "Top result is relevant ✅",
+        "NO_RESULTS": "No results returned ❌",
+        "SOURCES_FILTERED": "Some sources produced no results ⚠️",
+        "ALL_SOURCES_RETURNED": "All sources returned results ✅",
+        "HIGH_QUALITY": "High retrieval quality ✅",
+        "PARTIAL_QUALITY": "Partial retrieval quality ⚠️",
+        "LOW_QUALITY": "Low retrieval quality ❌",
+    }
+    return [mapping[f] for f in step.score_flags if f in mapping]
+
+
+def render_planner_analysis(timeline: MCSConversationTimeline) -> str:
+    """Render the Dynamic Planner Trace Analysis section.
+
+    Shows, per planner step:
+    - User ask (verbatim from DynamicPlanReceivedDebug)
+    - Planner reasoning thought (from DynamicPlanStepTriggered)
+    - Generated search payload (query, keywords, summarisation flag)
+    - Knowledge source routing (candidate vs output)
+    - Retrieved documents table with per-item relevance scores
+    - Quality scorecard (query fidelity, item hit rate, source coverage, overall)
+    """
+    analysis = timeline.planner_analysis
+    if not analysis or not analysis.has_planner_events or not analysis.steps:
+        return ""
+
+    lines: list[str] = [
+        "## Dynamic Planner Trace Analysis",
+        "",
+        "> Detailed breakdown of how the generative AI planner interpreted the user request, "
+        "generated search queries, routed knowledge sources, and the relevance of retrieved results.",
+        "",
+    ]
+
+    for i, step in enumerate(analysis.steps, 1):
+        tool_short = _compact_tool_id(step.tool_id)
+        lines += [
+            f"### Step {i} of {analysis.step_count} — {tool_short}",
+            "",
+        ]
+
+        # ── User ask ──────────────────────────────────────────────────────────
+        if step.user_ask:
+            lines += [
+                "**User Ask**",
+                "",
+                f"> {step.user_ask}",
+                "",
+            ]
+
+        # ── Planner reasoning ─────────────────────────────────────────────────
+        if step.planner_thought:
+            lines += [
+                "**Planner Reasoning**",
+                "",
+                f"> {step.planner_thought}",
+                "",
+            ]
+
+        # ── Generated search payload ──────────────────────────────────────────
+        if step.search_query or step.search_keywords:
+            lines += [
+                "**Generated Search Payload**",
+                "",
+                "| Field | Value |",
+                "| --- | --- |",
+            ]
+            if step.search_query:
+                lines.append(f"| Search Query | {step.search_query} |")
+            if step.search_keywords:
+                lines.append(f"| Keywords | {step.search_keywords} |")
+            lines.append(f"| Summarisation | {'On' if step.enable_summarization else 'Off'} |")
+            lines.append("")
+
+        # ── Knowledge source routing ──────────────────────────────────────────
+        if step.knowledge_sources_candidate:
+            lines += [
+                "**Knowledge Source Routing**",
+                "",
+                "| # | Source | Outcome |",
+                "| --- | --- | --- |",
+            ]
+            output_set = set(step.knowledge_sources_output)
+            for j, src in enumerate(step.knowledge_sources_candidate, 1):
+                src_short = src.split(".")[-1] if "." in src else src
+                outcome = "✅ Returned results" if src in output_set else "⚫ Filtered / no results"
+                lines.append(f"| {j} | `{src_short}` | {outcome} |")
+            lines.append("")
+
+        # ── Retrieved documents ───────────────────────────────────────────────
+        exec_ms = f"{step.execution_time_ms:.0f}" if step.execution_time_ms else "—"
+        result_count = len(step.result_items)
+
+        if "NO_RESULTS" in step.score_flags:
+            lines += [
+                f"**Retrieved Documents** — 0 results (execution: {exec_ms} ms)",
+                "",
+                "_No documents were returned by the knowledge search._",
+                "",
+            ]
+        elif step.result_items:
+            lines += [
+                f"**Retrieved Documents** — {result_count} result{'s' if result_count != 1 else ''}"
+                f" (execution: {exec_ms} ms)",
+                "",
+                "| # | Document | Type | Relevance |",
+                "| --- | --- | --- | --- |",
+            ]
+            for j, item in enumerate(step.result_items, 1):
+                doc_name = (item.name or "—")[:90].replace("|", "\\|")
+                file_type = item.file_type or "—"
+                icon = _relevance_icon(item.relevance_score)
+                lines.append(f"| {j} | {doc_name} | {file_type} | {icon} {item.relevance_score:.2f} |")
+            lines.append("")
+
+        # ── Quality scorecard ─────────────────────────────────────────────────
+        src_cand = len(step.knowledge_sources_candidate)
+        src_out = len(step.knowledge_sources_output)
+        src_detail = (
+            f"{src_out} of {src_cand} candidate sources returned results"
+            if src_cand
+            else "No knowledge sources specified"
+        )
+        ask_detail = (
+            f"{step.query_matched_term_count} of {step.ask_term_count} ask-terms reflected in generated query"
+            if step.ask_term_count
+            else "No ask terms to evaluate"
+        )
+        lines += [
+            "**Retrieval Quality Scorecard**",
+            "",
+            "| Metric | Score | Detail |",
+            "| --- | ---: | --- |",
+            f"| Query Generation Fidelity | {step.query_fidelity_pct:.1f}% | {ask_detail} |",
+            f"| Item Relevance Rate | {step.item_hit_rate_pct:.1f}% | "
+            f"{step.matched_item_count} of {result_count} returned documents match ask terms |",
+            f"| Source Coverage | {step.source_fidelity_pct:.1f}% | {src_detail} |",
+            f"| **Overall Retrieval Quality** | **{step.overall_success_pct:.1f}%** | "
+            f"{_overall_quality_label(step)} |",
+            "",
+        ]
+
+        # ── Score flags ───────────────────────────────────────────────────────
+        labels = _flag_labels(step)
+        if labels:
+            lines += [f"**Signals:** {' · '.join(labels)}", ""]
+
+        # ── Search errors ─────────────────────────────────────────────────────
+        if step.search_errors:
+            lines += ["**Search Errors**", ""]
+            for err in step.search_errors:
+                lines.append(f"- {err}")
+            lines.append("")
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # Top-level render functions
 # ---------------------------------------------------------------------------
 
@@ -1023,6 +1421,7 @@ def render_report(profile: MCSBotProfile, timeline: MCSConversationTimeline) -> 
             render_conversation_overview(timeline),
             render_message_chat_timeline(timeline),
             render_tool_diagnostics(timeline),
+            render_planner_analysis(timeline),
             render_conversation_findings(timeline),
             render_mermaid_sequence(timeline),
             render_gantt_chart(timeline),
@@ -1073,6 +1472,7 @@ def render_report_sections(profile: MCSBotProfile, timeline: MCSConversationTime
             render_conversation_overview(timeline),
             render_message_chat_timeline(timeline),
             render_tool_diagnostics(timeline),
+            render_planner_analysis(timeline),
             render_conversation_findings(timeline),
             render_mermaid_sequence(timeline),
             render_gantt_chart(timeline),
@@ -1184,6 +1584,7 @@ def render_transcript_report(
             render_conversation_overview(timeline),
             render_message_chat_timeline(timeline),
             render_tool_diagnostics(timeline),
+            render_planner_analysis(timeline),
             render_conversation_findings(timeline),
             render_mermaid_sequence(timeline),
             render_gantt_chart(timeline),

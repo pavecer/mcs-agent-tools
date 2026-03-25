@@ -122,7 +122,7 @@ def mermaid_script() -> rx.Component:
 
 
 def render_segment(segment: dict) -> rx.Component:
-    """Render a single report segment — either Markdown prose or a Mermaid diagram."""
+    """Render a single report segment — Markdown prose, Mermaid diagram, or raw SVG."""
 
     return rx.cond(
         segment["type"] == "mermaid",
@@ -136,6 +136,18 @@ def render_segment(segment: dict) -> rx.Component:
             border_radius="14px",
             box_shadow="inset 0 1px 0 rgba(255,255,255,0.85)",
         ),
+        rx.cond(
+            segment["type"] == "svg",
+            rx.box(
+                rx.html(segment["content"]),
+                width="100%",
+                overflow_x="auto",
+                padding="18px",
+                background="linear-gradient(180deg, #f8fbff 0%, #f5f9ff 100%)",
+                border="1px solid #d9e5f6",
+                border_radius="14px",
+                box_shadow="inset 0 1px 0 rgba(255,255,255,0.85)",
+            ),
         rx.box(
             rx.markdown(
                 segment["content"],
@@ -225,5 +237,6 @@ def render_segment(segment: dict) -> rx.Component:
             width="100%",
             overflow_x="auto",
             padding="2px 2px 4px",
+        ),
         ),
     )

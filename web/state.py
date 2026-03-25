@@ -104,28 +104,47 @@ def _load_users() -> dict[str, str]:
 
 
 def _md_to_segments(md: str) -> list[dict]:
-    """Split a Markdown string into text / mermaid fence segments."""
+    """Split a Markdown string into text / mermaid / svg fence segments."""
     if not md:
         return []
     segments: list[dict] = []
     remaining = md
-    fence_open = "```mermaid"
+
+    FENCES = [
+        ("```mermaid", "mermaid"),
+        ("```ppsvg", "svg"),
+    ]
     fence_close = "```"
+
     while remaining:
-        start = remaining.find(fence_open)
-        if start == -1:
+        # Find the earliest opening fence
+        best_start = len(remaining)
+        best_fence_open = ""
+        best_seg_type = ""
+        for fence_open, seg_type in FENCES:
+            pos = remaining.find(fence_open)
+            if pos != -1 and pos < best_start:
+                best_start = pos
+                best_fence_open = fence_open
+                best_seg_type = seg_type
+
+        if not best_fence_open:
             segments.append({"type": "text", "content": remaining})
             break
-        if start > 0:
-            segments.append({"type": "text", "content": remaining[:start]})
-        rest = remaining[start + len(fence_open) :]
+
+        if best_start > 0:
+            segments.append({"type": "text", "content": remaining[:best_start]})
+
+        rest = remaining[best_start + len(best_fence_open):]
         end = rest.find(fence_close)
         if end == -1:
-            segments.append({"type": "text", "content": fence_open + rest})
+            segments.append({"type": "text", "content": best_fence_open + rest})
             break
-        mermaid_src = rest[:end].strip()
-        segments.append({"type": "mermaid", "content": mermaid_src})
-        remaining = rest[end + len(fence_close) :]
+
+        block_src = rest[:end].strip()
+        segments.append({"type": best_seg_type, "content": block_src})
+        remaining = rest[end + len(fence_close):]
+
     return segments
 
 

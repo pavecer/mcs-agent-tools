@@ -122,6 +122,77 @@ class MCSTimelineEvent(BaseModel):
     details: dict[str, str] = Field(default_factory=dict)
 
 
+# ── Dynamic Planner Trace models ──────────────────────────────────────────────
+
+
+class MCSSearchResultItem(BaseModel):
+    """A single document returned by a knowledge source search."""
+
+    name: str = ""
+    url: str | None = None
+    file_type: str | None = None
+    source_id: str | None = None
+    relevance_score: float = 0.0  # 0.0–1.0 term-overlap fraction (computed by planner_analysis)
+
+
+class MCSPlannerStepTrace(BaseModel):
+    """Full trace of one Dynamic Planner step (typically UniversalSearchTool).
+
+    Fields are populated from five event valueTypes in order:
+      DynamicPlanReceivedDebug    → user_ask
+      DynamicPlanStepTriggered    → planner_thought, step_type, tool_id
+      DynamicPlanStepBindUpdate   → search_query, search_keywords, enable_summarization
+      UniversalSearchToolTraceData → knowledge_sources_candidate, knowledge_sources_output
+      DynamicPlanStepFinished     → result_items, execution_time_ms, step_state
+    Quality scores are computed by toolkit.mcs.planner_analysis._score_step.
+    """
+
+    step_id: str = ""
+    plan_identifier: str = ""
+    tool_id: str = ""
+
+    # From DynamicPlanReceivedDebug (plan level)
+    user_ask: str = ""
+
+    # From DynamicPlanStepTriggered
+    planner_thought: str = ""
+    step_type: str = ""
+
+    # From DynamicPlanStepBindUpdate
+    search_query: str = ""
+    search_keywords: str = ""
+    enable_summarization: bool = False
+
+    # From UniversalSearchToolTraceData
+    knowledge_sources_candidate: list[str] = Field(default_factory=list)
+    knowledge_sources_output: list[str] = Field(default_factory=list)
+
+    # From DynamicPlanStepFinished
+    result_items: list[MCSSearchResultItem] = Field(default_factory=list)
+    execution_time_ms: float = 0.0
+    search_errors: list[str] = Field(default_factory=list)
+    step_state: str = ""
+
+    # Quality scores (computed by toolkit.mcs.planner_analysis._score_step)
+    query_fidelity_pct: float = 0.0    # % of ask-terms found in generated query
+    item_hit_rate_pct: float = 0.0     # % of returned docs that matched ask terms
+    source_fidelity_pct: float = 0.0   # % of candidate sources that returned results
+    overall_success_pct: float = 0.0   # weighted combination (45/35/20)
+    matched_item_count: int = 0
+    ask_term_count: int = 0            # total unique content terms extracted from user ask
+    query_matched_term_count: int = 0  # ask-terms found in generated query
+    score_flags: list[str] = Field(default_factory=list)
+
+
+class MCSPlannerAnalysis(BaseModel):
+    """Aggregated Dynamic Planner trace analysis for a full conversation session."""
+
+    plan_count: int = 0
+    step_count: int = 0
+    steps: list[MCSPlannerStepTrace] = Field(default_factory=list)
+    has_planner_events: bool = False
+
+
 class MCSExecutionPhase(BaseModel):
     label: str
     phase_type: str = ""
@@ -144,3 +215,4 @@ class MCSConversationTimeline(BaseModel):
     event_count: int = 0
     trace_count: int = 0
     typing_count: int = 0
+    planner_analysis: MCSPlannerAnalysis | None = None

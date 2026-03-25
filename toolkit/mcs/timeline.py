@@ -13,6 +13,7 @@ from toolkit.mcs.models import (
     MCSExecutionPhase,
     MCSTimelineEvent,
 )
+from toolkit.mcs.planner_analysis import build_planner_analysis as _build_planner_analysis
 
 
 def _extract_strings(obj, key_hints: tuple[str, ...], out: list[str], max_items: int = 6) -> None:
@@ -491,6 +492,8 @@ def build_timeline(activities: list[dict], schema_lookup: dict[str, str]) -> MCS
 
     total_elapsed = _ms_between(first_timestamp, last_timestamp)
 
+    planner_analysis = _build_planner_analysis(activities)
+
     return MCSConversationTimeline(
         bot_name=bot_name,
         conversation_id=conversation_id,
@@ -504,4 +507,5 @@ def build_timeline(activities: list[dict], schema_lookup: dict[str, str]) -> MCS
         event_count=event_count,
         trace_count=trace_count,
         typing_count=typing_count,
+        planner_analysis=planner_analysis,
     )
