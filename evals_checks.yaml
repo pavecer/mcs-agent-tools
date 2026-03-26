@@ -1,0 +1,483 @@
+# evals_checks.yaml
+# ──────────────────────────────────────────────────────────────────────────────
+# Configuration for the Copilot Studio eval fit validation engine.
+#
+# Edit this file to adjust:
+#   • Score thresholds, composite weights, and density formula (parameters)
+#   • Instruction-behaviour expectation keywords (expectations)
+#   • System topic triggers excluded from scenario generation (system_topic_exclusions)
+#   • Valid scenario categories (scenario_categories)
+#   • Rule message text, titles, and severity levels (rules)
+#
+# No Python code changes are needed to update check behaviour or messages.
+#
+# How the composite score is calculated:
+#   composite = (topic_score × weight_topic)
+#             + (instruction_score × weight_instruction)
+#             + (tool_score × weight_tool)
+#             + (quality_score × weight_quality)
+#
+# quality_score is itself the average of three sub-scores:
+#   duplication_score = (unique_inputs / total_cases) × 100
+#   assertion_score   = (cases_with_expected_output / total_cases) × 100
+#   density_score     = min(100, (total_cases / density_target) × 100)
+#   density_target    = clamp(topic_count × topics_per_topic + expectation_count,
+#                             density_min, density_max)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+# ── Numeric thresholds, composite weights, and density formula ────────────────
+parameters:
+
+  # ── Composite fit score bands ─────────────────────────────────────────────
+  # Applied to the overall composite_score (0–100).
+  composite_pass_threshold: 80      # FIT001 — score ≥ this → pass
+  composite_warn_threshold: 50      # FIT001 — score between warn and pass thresholds → warning; below → fail
+
+  # ── Per-dimension recommendation thresholds ───────────────────────────────
+  # When any dimension score falls below this value a plain-text recommendation
+  # is appended to the fit report.  Applies to CVR001, CVR002, CVR003, QUA001.
+  dimension_recommendation_threshold: 60
+
+  # ── "Improve" offer threshold ─────────────────────────────────────────────
+  # When composite_score is below this value AND evals already exist, the UI
+  # surfaces an "Improve eval set" call-to-action.
+  improve_offer_threshold: 50
+
+  # ── Case density target formula ───────────────────────────────────────────
+  # density_target = clamp(topic_count × topics_per_topic + expectation_count,
+  #                        density_min, density_max)
+  density_min: 8
+  density_max: 20
+  topics_per_topic: 2               # multiplier applied to active topic count
+
+  # ── Topic match score threshold ───────────────────────────────────────────
+  # A topic is considered "covered" when _topic_match_score() returns at least
+  # this value.  The score is based on phrase-level hits (display name,
+  # description, trigger queries) and token overlap against the case corpus
+  # (input + output + keywords).
+  topic_match_min_score: 2
+
+  # ── Scenario generation limits ────────────────────────────────────────────
+  # Hard ceiling and floor for the number of scenarios produced per run,
+  # whether via LLM or rule-based fallback.
+  scenario_max: 50
+  scenario_min: 20
+
+  # ── Composite score weights (must sum to 1.0) ─────────────────────────────
+  weight_topic: 0.35
+  weight_instruction: 0.25
+  weight_tool: 0.20
+  weight_quality: 0.20
+
+
+# ── System topic triggers excluded from scenario generation ──────────────────
+# Topics whose trigger_kind appears in this list are skipped when generating
+# topic-level test scenarios.  They are deliberately covered by Guardrails
+# scenarios built from the system_topics blueprint instead.
+system_topic_exclusions:
+  - OnError
+  - OnUnknownIntent
+  - OnConversationStart
+  - OnInactivity
+
+
+# ── Inferred expectation definitions ─────────────────────────────────────────
+# Each expectation maps a behaviour ID to the keyword tokens used to detect it
+# in the agent's lower-cased system instructions.
+#
+# trigger_keywords — any of these substrings appearing in the instructions
+#                    activates the expectation.
+# match_tokens     — space-separated token list used during coverage checking;
+#                    a case is considered to cover the expectation when at least
+#                    one of its tokens appears in the case input/output/keywords.
+# label / detail   — human-readable text surfaced in the fit report.
+expectations:
+  grounding:
+    label: "Grounded answers"
+    detail: >-
+      Tests should verify the agent only answers from grounded content and does
+      not invent facts.
+    trigger_keywords:
+      - grounding
+      - search result
+      - document
+      - grounding data
+    match_tokens: "grounding grounded document source citation search result"
+
+  confidentiality:
+    label: "Confidentiality refusals"
+    detail: >-
+      Tests should challenge the agent with confidential or unavailable
+      information requests and verify it refuses appropriately.
+    trigger_keywords:
+      - confidential
+      - password
+      - not provided
+      - cannot provide
+    match_tokens: "confidential password secret unavailable cannot provide"
+
+  pii:
+    label: "PII handling"
+    detail: >-
+      Tests should verify personal data is redacted or declined appropriately.
+    trigger_keywords:
+      - pii
+      - personal data
+      - redact
+    match_tokens: "pii personal data redact private"
+
+  clarify:
+    label: "Clarification behaviour"
+    detail: >-
+      Tests should include ambiguous prompts that require one clarifying
+      question before the agent answers.
+    trigger_keywords:
+      - clarifying question
+      - if a question is unclear
+    match_tokens: "clarify ambiguous unclear question"
+
+  citations:
+    label: "Source citation"
+    detail: >-
+      Tests should verify the answer references the grounded documents it used.
+    trigger_keywords:
+      - cite
+      - link every source
+      - source document
+    match_tokens: "cite citation source document link"
+
+  english:
+    label: "English-only output"
+    detail: >-
+      Tests should include non-English input and verify the answer still stays
+      in English.
+    trigger_keywords:
+      - always respond in english
+      - respond in english
+    match_tokens: "english language translate"
+
+  no_external:
+    label: "No external sources"
+    detail: >-
+      Tests should verify the agent refuses to suggest external websites or
+      non-grounded sources.
+    trigger_keywords:
+      - external websites
+      - external urls
+      - external sources
+    match_tokens: "external website url source refuse"
+
+
+# ── Valid scenario categories ─────────────────────────────────────────────────
+# Scenarios whose category field does not appear in this list are reassigned to
+# "Topic coverage" at generation time.
+scenario_categories:
+  - "Topic coverage"
+  - "Instruction alignment"
+  - "Guardrails"
+  - "Edge cases"
+
+
+# ── Rule definitions ──────────────────────────────────────────────────────────
+# Each rule has a category and a set of named outcomes.
+# Outcome fields:
+#   severity  – one of: pass | warning | fail | info
+#   title     – short summary shown in the UI  (supports {placeholder} templates)
+#   detail    – longer explanation shown on expansion (supports {placeholder} templates)
+#
+# Placeholder values are supplied by the Python check functions at runtime.
+# ──────────────────────────────────────────────────────────────────────────────
+rules:
+
+  # ── Existence category ────────────────────────────────────────────────────
+  # Checks whether the solution ZIP contains any eval or test-case data at all.
+
+  EVL001:
+    category: Existence
+    outcomes:
+      no_evals:
+        severity: fail
+        title: "No eval or test cases found"
+        detail: >-
+          The solution contains no TestCaseDefinition or EvaluationData rows.
+          Generate an initial eval set using the "Generate evals" action to
+          establish baseline coverage before promoting to Test or Production.
+      has_evals:
+        severity: pass
+        title: "{total} eval/test case(s) found ({test_count} test cases, {eval_count} eval rows)"
+        detail: >-
+          The solution contains {test_count} TestCaseDefinition(s) and
+          {eval_count} EvaluationData row(s) across all sets.
+
+  # ── Fit score category ────────────────────────────────────────────────────
+  # The composite score is calculated as:
+  #   topic_score × weight_topic
+  # + instruction_score × weight_instruction
+  # + tool_score × weight_tool
+  # + quality_score × weight_quality
+
+  FIT001:
+    category: Fit Score
+    outcomes:
+      fail:
+        severity: fail
+        title: "Eval fit score is low ({score}/100)"
+        detail: >-
+          The composite eval fit score is {score}/100, which is below the
+          recommended minimum of {warn_threshold}. The eval set does not
+          adequately cover the agent's topics, instruction behaviours, and tool
+          paths. Use "Improve evals" to fill the identified gaps.
+      warn:
+        severity: warning
+        title: "Eval fit score needs improvement ({score}/100)"
+        detail: >-
+          The composite eval fit score is {score}/100 — topic coverage
+          {topic_score}%, instruction alignment {instruction_score}%,
+          tools/grounding {tool_score}%, case quality {quality_score}%.
+          Address the gaps identified in the Coverage and Quality sections to
+          reach the recommended score of {pass_threshold} or above.
+      pass:
+        severity: pass
+        title: "Eval fit score is acceptable ({score}/100)"
+        detail: >-
+          The composite eval fit score is {score}/100 — topic coverage
+          {topic_score}%, instruction alignment {instruction_score}%,
+          tools/grounding {tool_score}%, case quality {quality_score}%.
+
+  # ── Coverage category ─────────────────────────────────────────────────────
+  # Coverage rules measure how well the existing eval corpus exercises the three
+  # structural dimensions of the agent blueprint.
+
+  CVR001:
+    category: Coverage
+    outcomes:
+      fail:
+        severity: fail
+        title: "Low topic coverage ({score}%)"
+        detail: >-
+          Only {covered}/{total} active topics are exercised by the current
+          eval set (threshold for coverage: match score ≥ {match_threshold}).
+          Add test cases that reference the uncovered topics' names or
+          trigger phrases so the agent's primary conversational paths are
+          validated end-to-end.
+      warn:
+        severity: warning
+        title: "Partial topic coverage ({score}%)"
+        detail: >-
+          {covered}/{total} active topics are addressed. Some topics are not
+          triggered by any eval input. Review the topic coverage table and add
+          representative prompts for each uncovered topic.
+      pass:
+        severity: pass
+        title: "Topic coverage is good ({score}%)"
+        detail: "{covered}/{total} active topics are exercised by the eval set."
+
+  CVR002:
+    category: Coverage
+    outcomes:
+      fail:
+        severity: fail
+        title: "Low instruction alignment ({score}%)"
+        detail: >-
+          Only {covered}/{total} inferred instruction behaviours are tested.
+          The agent's system instructions define constraints — grounding rules,
+          PII handling, citation requirements, language restrictions — that must
+          be explicitly validated in the eval set.
+      warn:
+        severity: warning
+        title: "Partial instruction alignment ({score}%)"
+        detail: >-
+          {covered}/{total} instruction behaviours are covered. Add targeted
+          scenarios for the uncovered behaviours, especially safety, refusal,
+          and grounding expectations.
+      pass:
+        severity: pass
+        title: "Instruction alignment is good ({score}%)"
+        detail: "{covered}/{total} inferred instruction behaviours are exercised."
+      no_expectations:
+        severity: info
+        title: "No instruction behaviours inferred from agent instructions"
+        detail: >-
+          No instruction-level expectations could be derived from the agent's
+          system instructions. Either the instructions are absent or do not
+          contain recognised grounding, safety, citation, or language keywords.
+          Add explicit behavioural directives to the instructions to enable this
+          coverage dimension.
+
+  CVR003:
+    category: Coverage
+    outcomes:
+      fail:
+        severity: fail
+        title: "Low tools / grounding coverage ({score}%)"
+        detail: >-
+          Only {covered}/{total} tool action types or knowledge paths are
+          exercised. Ensure the eval set contains prompts that trigger
+          SearchAndSummarizeContent, custom connector actions, and each
+          registered knowledge source.
+      warn:
+        severity: warning
+        title: "Partial tools / grounding coverage ({score}%)"
+        detail: >-
+          {covered}/{total} tool/knowledge paths are covered. Add scenarios
+          that explicitly invoke the uncovered tools and knowledge sources.
+      pass:
+        severity: pass
+        title: "Tools and grounding coverage is good ({score}%)"
+        detail: "{covered}/{total} tool actions and knowledge paths are exercised."
+      no_tools:
+        severity: info
+        title: "No tool actions or knowledge sources detected in the agent"
+        detail: >-
+          The agent blueprint contains no SearchAndSummarizeContent actions,
+          knowledge sources, or other non-control tool kinds. This dimension is
+          scored as fully covered and does not affect the composite score.
+
+  # ── Quality category ──────────────────────────────────────────────────────
+  # Quality rules inspect the structural integrity of the eval cases themselves,
+  # independent of what the agent does.
+
+  QUA001:
+    category: Quality
+    outcomes:
+      fail:
+        severity: fail
+        title: "Case quality is low ({score}%)"
+        detail: >-
+          The quality composite ({score}%) is the average of prompt uniqueness
+          ({duplication_score}%), assertion completeness ({assertion_score}%),
+          and case density ({density_score}%). Address the individual quality
+          rules below to raise this score.
+      warn:
+        severity: warning
+        title: "Case quality needs attention ({score}%)"
+        detail: >-
+          Quality composite: {score}% — prompt uniqueness {duplication_score}%,
+          assertion completeness {assertion_score}%, case density
+          {density_score}%.
+      pass:
+        severity: pass
+        title: "Case quality is acceptable ({score}%)"
+        detail: >-
+          Quality composite: {score}% ({total_cases} cases,
+          {unique_inputs} unique prompts).
+
+  QUA002:
+    category: Quality
+    outcomes:
+      fail:
+        severity: fail
+        title: "High prompt duplication ({score}% unique)"
+        detail: >-
+          Only {unique}/{total} prompts are unique after normalising whitespace
+          and case. Duplicate or near-duplicate inputs add no coverage value.
+          Replace duplicates with distinct phrasing or edge-case variants before
+          promoting to production.
+      warn:
+        severity: warning
+        title: "Some prompt duplication detected ({score}% unique)"
+        detail: >-
+          {unique}/{total} prompts are unique. Review cases with identical or
+          very similar inputs and diversify phrasing to improve coverage signal.
+      pass:
+        severity: pass
+        title: "Prompt uniqueness is good ({score}%)"
+        detail: "{unique}/{total} inputs are unique — minimal duplication detected."
+
+  QUA003:
+    category: Quality
+    outcomes:
+      fail:
+        severity: fail
+        title: "Most cases lack expected outputs ({score}% populated)"
+        detail: >-
+          Only {populated}/{total} cases have an expected_response or
+          expected_output value (including keyword lists). Without expected
+          outputs, automated evaluation cannot verify agent responses. Add
+          expected output text, or at minimum a list of keywords, to every case.
+      warn:
+        severity: warning
+        title: "Some cases missing expected outputs ({score}% populated)"
+        detail: >-
+          {populated}/{total} cases have expected output defined. Cases without
+          expected outputs rely on manual review, reducing automation value.
+      pass:
+        severity: pass
+        title: "Expected outputs are well-populated ({score}%)"
+        detail: "{populated}/{total} cases include expected output or keywords."
+
+  QUA004:
+    category: Quality
+    outcomes:
+      fail:
+        severity: fail
+        title: "Insufficient case density ({total_cases} cases, target ≥ {target})"
+        detail: >-
+          The eval set contains only {total_cases} case(s) against a recommended
+          minimum of {target} (calculated as {topic_count} active topics ×
+          {topics_per_topic} + {expectation_count} inferred behaviours, clamped
+          to [{density_min}, {density_max}]). Generate additional scenarios to
+          achieve adequate statistical coverage.
+      warn:
+        severity: warning
+        title: "Case density is below target ({total_cases} cases, target {target})"
+        detail: >-
+          {total_cases} case(s) exist. The density target of {target} is based
+          on active topic count × {topics_per_topic} plus inferred expectation
+          count. Adding more scenarios improves confidence in the evaluation
+          signal.
+      pass:
+        severity: pass
+        title: "Case density meets the target ({total_cases} cases ≥ {target})"
+        detail: "The eval set meets the recommended minimum density of {target} cases."
+
+  # ── Gaps category ─────────────────────────────────────────────────────────
+  # One outcome is emitted per identified structural gap (uncovered topic,
+  # instruction behaviour, or tool path).
+
+  GAP001:
+    category: Gaps
+    outcomes:
+      uncovered:
+        severity: warning
+        title: "Topic not exercised: '{label}'"
+        detail: >-
+          No eval case references this topic by name, description, or trigger
+          phrase. Add at least one scenario that uses natural-language phrasing
+          matching the topic's trigger queries: {trigger_detail}.
+      all_covered:
+        severity: pass
+        title: "All active topics are exercised"
+        detail: "Every active user topic has at least one corresponding eval case."
+
+  GAP002:
+    category: Gaps
+    outcomes:
+      uncovered:
+        severity: warning
+        title: "Instruction behaviour not tested: '{label}'"
+        detail: "{detail}"
+      all_covered:
+        severity: pass
+        title: "All inferred instruction behaviours are tested"
+        detail: >-
+          All instruction-derived expectations (grounding, safety, citation,
+          language, etc.) have at least one matching eval case.
+
+  GAP003:
+    category: Gaps
+    outcomes:
+      uncovered:
+        severity: warning
+        title: "Tool / knowledge path not exercised: '{label}'"
+        detail: >-
+          No eval case triggers the '{label}' tool action or knowledge source.
+          Add a scenario that forces the agent to invoke this path so failures
+          are detectable during automated eval runs.
+      all_covered:
+        severity: pass
+        title: "All tool actions and knowledge paths are exercised"
+        detail: >-
+          Every registered tool kind and knowledge source is invoked by at
+          least one eval case.

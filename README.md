@@ -47,6 +47,8 @@ Checks are grouped into five categories:
 
 Results are shown with `PASS`, `WARN`, `FAIL`, and `INFO` severity and can be filtered by category.
 
+Check behaviour, thresholds, rule messages, and severity levels are fully driven by [`solution_checks.yaml`](solution_checks.yaml). Edit that file to adjust thresholds, add injection/credential patterns, or change rule text without touching Python code.
+
 ### 4. Analyse Copilot Studio Snapshot + Transcript
 
 For snapshot ZIPs (containing `botContent.yml`), the app provides deeper analysis sections:
@@ -112,6 +114,18 @@ Notes:
 - Generation and improvement are **not automatic**.
 - Export is explicit and button-triggered.
 - The current implementation uses deterministic generation with room for optional LLM-assisted expansion later.
+
+**Configuring eval validation** — All scoring thresholds, composite weights, density formula constants, inferred instruction-behaviour definitions, and rule message text are driven by [`evals_checks.yaml`](evals_checks.yaml). Edit that file to adjust check behaviour without touching Python code.
+
+Key sections in [`evals_checks.yaml`](evals_checks.yaml):
+
+| Section | What it controls |
+|---|---|
+| `parameters` | Score bands, composite weights (topic 35%, instruction 25%, tool 20%, quality 20%), density target formula, topic match threshold, scenario generation limits |
+| `expectations` | Per-behaviour trigger keywords and token lists used to infer instruction coverage requirements from agent system instructions |
+| `system_topic_exclusions` | Trigger kinds excluded from topic scenario generation (covered by Guardrails scenarios instead) |
+| `scenario_categories` | Valid category labels for generated eval scenarios |
+| `rules` | Rule IDs, severity levels, and message templates for all 12 eval validation rules across Existence, Fit Score, Coverage, Quality, and Gaps categories |
 
 ### 7. Rename (solution ZIP only)
 
@@ -300,6 +314,9 @@ models.py            Pydantic models for rename config/results
 visualizer.py        Solution ZIP parser to markdown/mermaid segments
 deps_analyzer.py     Dependency analysis + diagram + relations/component tables
 validator.py         Model-aware instruction validation
+evals_manager.py     Eval fit analysis, scenario generation, and solution ZIP injection
+solution_checks.yaml Solution check rules, thresholds, and message templates
+evals_checks.yaml    Eval fit rules, scoring parameters, and expectation definitions
 toolkit/mcs/         Canonical snapshot analysis package
 web/state.py         Reflex app state and workflows
 web/components.py    UI components
