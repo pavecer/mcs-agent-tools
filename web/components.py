@@ -552,39 +552,15 @@ def _mcs_dataverse_fetch_block() -> rx.Component:
 
 
 def transcript_input_choice_area() -> rx.Component:
-    """Landing first-step choice: upload JSON or fetch from Dataverse."""
+    """Landing first-step choice: upload JSON."""
     return rx.vstack(
         rx.text(
-            "Step 1: Choose transcript input method",
+            "Step 1: Upload transcript JSON",
             font_size="13px",
             font_weight="700",
             color="#201f1e",
         ),
-        rx.hstack(
-            rx.button(
-                "Upload JSON",
-                on_click=State.set_mcs_landing_transcript_mode("upload"),
-                size="2",
-                variant=rx.cond(State.mcs_landing_transcript_mode == "upload", "solid", "outline"),
-                color_scheme=rx.cond(State.mcs_landing_transcript_mode == "upload", "blue", "gray"),
-                cursor="pointer",
-            ),
-            rx.button(
-                "Fetch from Dataverse",
-                on_click=State.set_mcs_landing_transcript_mode("dataverse"),
-                size="2",
-                variant=rx.cond(State.mcs_landing_transcript_mode == "dataverse", "solid", "outline"),
-                color_scheme=rx.cond(State.mcs_landing_transcript_mode == "dataverse", "blue", "gray"),
-                cursor="pointer",
-            ),
-            spacing="2",
-            flex_wrap="wrap",
-        ),
-        rx.cond(
-            State.mcs_landing_transcript_mode == "dataverse",
-            _mcs_dataverse_fetch_block(),
-            json_upload_area(),
-        ),
+        json_upload_area(),
         width="100%",
         spacing="3",
         align="start",

@@ -68,11 +68,14 @@ You can also upload transcript JSON and render a detailed conversation report wi
 - Execution timeline/gantt-style sections
 - Event log and error highlights
 
-Analyse tab also supports direct Dataverse transcript retrieval by transcript ID:
+**Direct Dataverse transcript retrieval (NOT YET IMPLEMENTED):**
 
+Planned feature for Analyse tab to fetch transcripts directly by transcript ID without manual JSON export:
 - Enter environment + transcript ID
 - Authenticate via environment credentials (recommended) or manual token/service principal fields
 - Fetch and render conversation analytics without exporting JSON manually
+
+_This feature is currently in development and will be available in a future release._
 
 ### 5. Dependencies (solution ZIP)
 
