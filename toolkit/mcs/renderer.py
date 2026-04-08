@@ -6,10 +6,11 @@ Adapted from github.com/Roelzz/mcs-agent-analyser (MIT licence).
 from __future__ import annotations
 
 import html as _html
+import re
 import socket
 from datetime import datetime
-from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from toolkit.mcs.credits import MCSCreditEstimate
@@ -245,10 +246,16 @@ def _format_auth_mode(auth_mode: str | None) -> str:
 def _friendly_source_type(raw: str | None) -> str:
     value = (raw or "Unknown").strip()
     low = value.lower()
+    if "sync" in low and "sharepoint" in low:
+        return "SharePoint Sync"
+    if "page" in low and "sharepoint" in low:
+        return "SharePoint Page"
     if "website" in low or "public" in low:
         return "Website"
     if "sharepoint" in low:
         return "SharePoint"
+    if "uploaded file" in low:
+        return "Uploaded File"
     if "dataverse" in low:
         return "Dataverse"
     if "file" in low:
@@ -281,6 +288,334 @@ def _friendly_location(location: str | None) -> str:
     return _compact_component_name(location)
 
 
+def _knowledge_group_label(source_type: str) -> str:
+    low = source_type.lower()
+    if "uploaded file" in low or low == "file":
+        return "Uploaded File"
+    if "sharepoint sync" in low:
+        return "SharePoint Sync"
+    if "sharepoint page" in low:
+        return "SharePoint"
+    if "sharepoint" in low:
+        return "SharePoint"
+    if "website" in low:
+        return "Website"
+    if "dataverse" in low:
+        return "Dataverse"
+    return "Other"
+
+
+def _extract_source_description(source) -> str:
+    return (source.details.get("description", "") if source.details else "").strip()
+
+
+def _has_grounding_guidance(instructions: str) -> bool:
+    if not instructions:
+        return False
+    low = instructions.lower()
+    patterns = (
+        "knowledge source",
+        "sharepoint",
+        "uploaded file",
+        "ground",
+        "cite",
+        "if not found",
+        "when unsure",
+        "use provided documents",
+    )
+    return any(p in low for p in patterns)
+
+
+def _tokenize_terms(text: str) -> set[str]:
+    stop = {
+        "the",
+        "and",
+        "for",
+        "with",
+        "this",
+        "that",
+        "from",
+        "into",
+        "your",
+        "you",
+        "are",
+        "use",
+        "using",
+        "agent",
+        "knowledge",
+        "source",
+        "sources",
+        "information",
+    }
+    return {t for t in re.findall(r"[a-zA-Z0-9]{3,}", text.lower()) if t not in stop}
+
+
+def _classify_result_source_type(source_ref: str) -> str:
+    low = (source_ref or "").lower()
+    if not low:
+        return "Other"
+    if "sharepoint" in low or "sharepoint.com" in low:
+        return "SharePoint"
+    if "dataverse" in low or "dynamics.com" in low or ".crm" in low:
+        return "Dataverse"
+    if re.search(r"\.(pdf|pptx|docx|xlsx|csv|txt|md|json)(\?|$)", low):
+        return "File"
+    if low.startswith("http://") or low.startswith("https://"):
+        return "Website"
+    return "Other"
+
+
+def _result_source_mix_counts(result_sources: list[str], top_results: list[str]) -> dict[str, int]:
+    counts = {
+        "SharePoint": 0,
+        "Dataverse": 0,
+        "Website": 0,
+        "File": 0,
+        "Other": 0,
+    }
+    for source_ref in result_sources + top_results:
+        counts[_classify_result_source_type(source_ref)] += 1
+    return counts
+
+
+def _instruction_alignment_status(source, instructions: str) -> tuple[str, str]:
+    if not instructions.strip():
+        return "High risk", "Instructions are empty, so the orchestrator has no guidance to pick this source."
+
+    name_terms = _tokenize_terms(source.name or "")
+    location_terms: set[str] = set()
+    if source.location:
+        parsed = urlparse(source.location)
+        host_terms = _tokenize_terms(parsed.hostname or "")
+        path_terms = _tokenize_terms(parsed.path or "")
+        location_terms = host_terms | path_terms
+    desc_terms = _tokenize_terms(_extract_source_description(source))
+
+    candidate_terms = set(list(name_terms)[:8]) | set(list(location_terms)[:6]) | set(list(desc_terms)[:8])
+    instr_terms = _tokenize_terms(instructions)
+    overlap = candidate_terms & instr_terms
+
+    if overlap:
+        return "Good", f"Instruction overlap detected: {', '.join(sorted(list(overlap))[:4])}."
+    if _has_grounding_guidance(instructions):
+        return "Partial", "Instructions include general grounding guidance but do not reference this source explicitly."
+    return "Needs work", "No source-specific or grounding guidance found for this source."
+
+
+def _description_quality_status(source) -> tuple[str, str]:
+    desc = _extract_source_description(source)
+    if not desc:
+        return "Needs work", "Missing description. Add scope, coverage, and expected usage in one sentence."
+
+    if len(desc) < 45:
+        return "Needs work", "Description is too short for retrieval guidance. Include domain and intended question types."
+
+    generic_starts = (
+        "this knowledge source searches information contained",
+        "this knowledge source provides information",
+        "diese wissensquelle stellt informationen bereit",
+    )
+    low = desc.lower().strip()
+    if any(low.startswith(prefix) for prefix in generic_starts):
+        return "Partial", "Description is generic template text; add concrete topic/domain cues and freshness context."
+
+    return "Good", "Description appears specific enough for source routing."
+
+
+def _is_generic_description(desc: str) -> bool:
+    low = (desc or "").strip().lower()
+    if not low:
+        return False
+    generic_patterns = (
+        "this knowledge source searches information contained",
+        "this knowledge source provides information",
+        "diese wissensquelle stellt informationen bereit",
+    )
+    return any(p in low for p in generic_patterns)
+
+
+def _render_instruction_patch_suggestion(profile: MCSBotProfile) -> list[str]:
+    if not profile.knowledge_sources:
+        return []
+
+    groups: dict[str, list] = {}
+    for source in profile.knowledge_sources:
+        source_type = _friendly_source_type(source.source_type)
+        groups.setdefault(_knowledge_group_label(source_type), []).append(source)
+
+    ordered_classes = [g for g in ["SharePoint", "SharePoint Sync", "Uploaded File", "Website", "Dataverse", "Other"] if groups.get(g)]
+    if not ordered_classes:
+        return []
+
+    top_sources: list[str] = []
+    for cls in ordered_classes:
+        for source in groups[cls][:2]:
+            top_sources.append(_compact_component_name(source.name or "Unnamed source"))
+
+    class_line = ", ".join(ordered_classes)
+    source_line = ", ".join(top_sources[:6])
+
+    lines: list[str] = [
+        "### Instruction Patch Suggestion",
+        "",
+        "Add this to system instructions to improve orchestrator grounding and source routing:",
+        "",
+        f"- When answering knowledge questions, prioritize source classes in this order: {class_line}.",
+        f"- Prefer these named sources when relevant: {source_line}.",
+        "- If no matching evidence is found, explicitly say evidence was not found in available knowledge sources and ask one clarifying question.",
+        "- For factual claims, cite the source name (and URL when available) in the answer.",
+        "- Do not invent policy, deadlines, or process details that are not present in the retrieved sources.",
+        "",
+    ]
+    return lines
+
+
+def _render_knowledge_validation(profile: MCSBotProfile) -> list[str]:
+    lines: list[str] = ["### Knowledge Description & Instruction Alignment", ""]
+    if not profile.knowledge_sources:
+        lines += ["_No knowledge sources available to validate._", ""]
+        return lines
+
+    instructions = (profile.gpt_info.instructions if profile.gpt_info and profile.gpt_info.instructions else "").strip()
+    if not instructions:
+        lines += ["⚠️ GPT instructions are empty. Knowledge-source routing quality will likely be poor.", ""]
+
+    lines += [
+        "| Knowledge Source | Description Quality | Instruction Alignment |",
+        "| --- | --- | --- |",
+    ]
+
+    desc_issues = 0
+    align_issues = 0
+    generic_desc_sources: list[str] = []
+    for source in profile.knowledge_sources:
+        source_type = _friendly_source_type(source.source_type)
+        label = _compact_component_name(source.name or "Unnamed source")
+        description = _extract_source_description(source)
+        desc_status, desc_note = _description_quality_status(source)
+        align_status, align_note = _instruction_alignment_status(source, instructions)
+
+        if desc_status != "Good":
+            desc_issues += 1
+            if _is_generic_description(description):
+                generic_desc_sources.append(label)
+        if align_status in {"Needs work", "High risk"}:
+            align_issues += 1
+
+        lines.append(
+            f"| {label} ({source_type}) | **{desc_status}** - {desc_note} | **{align_status}** - {align_note} |"
+        )
+
+    lines += [
+        "",
+        f"Summary: {desc_issues} source(s) need better descriptions, {align_issues} source(s) need stronger instruction alignment.",
+        "",
+    ]
+
+    if generic_desc_sources:
+        names = ", ".join(generic_desc_sources)
+        lines += [
+            "🚨 Warning: default or generic KB descriptions detected.",
+            f"Affected sources: {names}",
+            "These descriptions should be replaced with scope-specific guidance so the orchestrator can route retrieval more reliably.",
+            "",
+        ]
+
+    if align_issues:
+        lines += [
+            "Recommended instruction pattern for orchestrator grounding:",
+            "",
+            "- Explicitly list preferred source classes in order (for example SharePoint policy pages before uploaded slide decks).",
+            "- Instruct the agent to acknowledge uncertainty when no matching evidence is found in available sources.",
+            "- Require concise source citation (source name or URL) in final answers for knowledge-backed claims.",
+            "",
+        ]
+
+    if desc_issues or align_issues or generic_desc_sources:
+        lines += _render_instruction_patch_suggestion(profile)
+
+    return lines
+
+
+def _severity_badge(level: str) -> str:
+    norm = (level or "Info").strip().lower()
+    if norm == "critical":
+        return "🚨 **Critical**"
+    if norm == "warning":
+        return "⚠️ **Warning**"
+    return "ℹ️ **Info**"
+
+
+def _knowledge_health_summary(profile: MCSBotProfile) -> list[str]:
+    """Build a compact top-level KB health summary with severity badges."""
+    lines: list[str] = ["### Knowledge Health Summary", ""]
+    if not profile.knowledge_sources:
+        lines += ["_No knowledge sources detected._", ""]
+        return lines
+
+    instructions = (profile.gpt_info.instructions if profile.gpt_info and profile.gpt_info.instructions else "").strip()
+    has_grounding = _has_grounding_guidance(instructions)
+
+    desc_needs_work = 0
+    generic_count = 0
+    align_needs_work = 0
+    align_high_risk = 0
+
+    for source in profile.knowledge_sources:
+        description = _extract_source_description(source)
+        desc_status, _ = _description_quality_status(source)
+        align_status, _ = _instruction_alignment_status(source, instructions)
+
+        if desc_status != "Good":
+            desc_needs_work += 1
+        if _is_generic_description(description):
+            generic_count += 1
+        if align_status in {"Needs work", "High risk"}:
+            align_needs_work += 1
+        if align_status == "High risk":
+            align_high_risk += 1
+
+    if not instructions:
+        grounding_severity = "Critical"
+        grounding_detail = "Instructions missing; orchestrator has no source-usage guidance."
+    elif align_high_risk > 0 or align_needs_work > 0:
+        grounding_severity = "Warning"
+        grounding_detail = f"{align_needs_work} source(s) are not well aligned with instructions."
+    elif has_grounding:
+        grounding_severity = "Info"
+        grounding_detail = "Grounding guidance is present in instructions."
+    else:
+        grounding_severity = "Warning"
+        grounding_detail = "Instructions do not include explicit grounding cues."
+
+    if desc_needs_work == 0:
+        desc_severity = "Info"
+        desc_detail = "All KB descriptions look source-specific."
+    elif generic_count > 0:
+        desc_severity = "Warning"
+        desc_detail = f"{generic_count} source(s) use default/generic template descriptions."
+    else:
+        desc_severity = "Warning"
+        desc_detail = f"{desc_needs_work} source(s) need clearer scope descriptions."
+
+    action_severity = "Critical" if not instructions else ("Warning" if (generic_count or align_needs_work) else "Info")
+    action_detail = (
+        "Add explicit source-priority and citation rules in instructions."
+        if action_severity != "Info"
+        else "Current setup is healthy; keep KB metadata maintained."
+    )
+
+    lines += [
+        "| Check | Severity | Summary |",
+        "| --- | --- | --- |",
+        f"| Instruction grounding readiness | {_severity_badge(grounding_severity)} | {grounding_detail} |",
+        f"| Knowledge description quality | {_severity_badge(desc_severity)} | {desc_detail} |",
+        f"| Recommended action | {_severity_badge(action_severity)} | {action_detail} |",
+        "",
+    ]
+    return lines
+
+
 def render_knowledge_sources_and_tools(profile: MCSBotProfile) -> str:
     """Render knowledge source inventory and external connector/tool usage."""
     lines: list[str] = ["## Knowledge Sources & External Tools", ""]
@@ -296,43 +631,71 @@ def render_knowledge_sources_and_tools(profile: MCSBotProfile) -> str:
             + (f" including **{website_count}** website source(s)." if website_count else "."),
             "",
         ]
-        url_cache: dict[str, tuple[bool, str]] = {}
+        lines += _knowledge_health_summary(profile)
+        grouped: dict[str, list] = {}
         for source in profile.knowledge_sources:
             source_type = _friendly_source_type(source.source_type)
-            label = _compact_component_name(source.name or "Unnamed source")
-            location = _friendly_location(source.location)
+            grouped.setdefault(_knowledge_group_label(source_type), []).append(source)
 
-            line = f"- **{label}**  \n  Type: `{source_type}`  \n  Location: {location}"
-            if source.site_id:
-                line += f"  \n  Site ID: `{source.site_id}`"
+        lines += [
+            "| Source Class | Count |",
+            "| --- | ---: |",
+        ]
+        for group_name in sorted(grouped):
+            lines.append(f"| {group_name} | {len(grouped[group_name])} |")
+        lines.append("")
 
-            if source_type.lower() == "website" and source.location:
-                parsed = urlparse(source.location)
-                if parsed.scheme in {"http", "https"}:
-                    status = url_cache.get(source.location)
-                    if status is None:
-                        status = _check_public_url(source.location)
-                        url_cache[source.location] = status
-                    ok, reason = status
-                    if ok:
-                        line += "  \n  Status: **Accessible✅**"
+        url_cache: dict[str, tuple[bool, str]] = {}
+        group_order = ["Uploaded File", "SharePoint Sync", "SharePoint", "Website", "Dataverse", "Other"]
+        for group_name in group_order:
+            sources = grouped.get(group_name, [])
+            if not sources:
+                continue
+
+            lines += [f"#### {group_name} ({len(sources)})", ""]
+            for source in sources:
+                source_type = _friendly_source_type(source.source_type)
+                label = _compact_component_name(source.name or "Unnamed source")
+                location = _friendly_location(source.location)
+
+                line = f"- **{label}**  \n  Type: `{source_type}`  \n  Location: {location}"
+                if source.site_id:
+                    line += f"  \n  Site ID: `{source.site_id}`"
+
+                if source_type.lower() == "website" and source.location:
+                    parsed = urlparse(source.location)
+                    if parsed.scheme in {"http", "https"}:
+                        status = url_cache.get(source.location)
+                        if status is None:
+                            status = _check_public_url(source.location)
+                            url_cache[source.location] = status
+                        ok, reason = status
+                        if ok:
+                            line += "  \n  Status: **Accessible✅**"
+                        else:
+                            line += f"  \n  Status: **Inaccessible⚠️** ({reason})"
                     else:
-                        line += f"  \n  Status: **Inaccessible⚠️** ({reason})"
-                else:
-                    line += "  \n  Status: **Inaccessible⚠️** (invalid URL scheme)"
-            elif source_type.lower() == "website" and not source.location:
-                line += "  \n  Status: **Missing Resource⚠️** (URL not provided)"
-            elif source.location is None:
-                line += "  \n  Status: **Missing Resource⚠️** (no URL/path provided)"
+                        line += "  \n  Status: **Inaccessible⚠️** (invalid URL scheme)"
+                elif source_type.lower() == "website" and not source.location:
+                    line += "  \n  Status: **Missing Resource⚠️** (URL not provided)"
+                elif source.location is None and group_name != "Uploaded File":
+                    line += "  \n  Status: **Missing Resource⚠️** (no URL/path provided)"
 
-            details = []
-            for key, value in source.details.items():
-                if value:
-                    details.append(f"{key}={value}")
-            if details:
-                line += f"  \n  Details: `{'; '.join(details)}`"
+                description = _extract_source_description(source)
+                if description:
+                    line += f"  \n  Description: {description}"
 
-            lines.append(line)
+                details = []
+                for key, value in source.details.items():
+                    if value and key not in {"description"}:
+                        details.append(f"{key}={value}")
+                if details:
+                    line += f"  \n  Details: `{'; '.join(details)}`"
+
+                lines.append(line)
+            lines.append("")
+
+        lines += _render_knowledge_validation(profile)
         lines.append("")
 
     lines += ["### External Tools, Connectors & Flows", ""]
@@ -855,10 +1218,23 @@ def build_conversation_flow_items(timeline: MCSConversationTimeline) -> list[dic
     """Build chat-style flow items from timeline events for UI rendering.
 
     Output item format:
-    - message: {kind, role, actor, text, timestamp}
-    - event: {kind, event_type, title, summary, timestamp, tone}
+    - message: {kind, role, actor, text, timestamp, lane}
+    - event:   {kind, event_type, title, summary, timestamp, tone, lane}
+
+    lane values: "user" | "bot" | "tool" | "error"
     """
     items: list[dict] = []
+
+    _EVENT_LANE: dict[MCSEventType, str] = {
+        MCSEventType.PLAN_RECEIVED: "bot",
+        MCSEventType.PLAN_FINISHED: "bot",
+        MCSEventType.STEP_TRIGGERED: "bot",
+        MCSEventType.STEP_FINISHED: "bot",
+        MCSEventType.KNOWLEDGE_SEARCH: "tool",
+        MCSEventType.DIALOG_TRACING: "bot",
+        MCSEventType.DIALOG_REDIRECT: "bot",
+        MCSEventType.ERROR: "error",
+    }
 
     def _strip_prefix(text: str, prefix: str) -> str:
         if text.startswith(prefix):
@@ -877,6 +1253,7 @@ def build_conversation_flow_items(timeline: MCSConversationTimeline) -> list[dic
                     "actor": ACTOR_NAMES["user"],
                     "text": _strip_prefix(summary, "User:"),
                     "timestamp": timestamp,
+                    "lane": "user",
                 }
             )
             continue
@@ -889,21 +1266,13 @@ def build_conversation_flow_items(timeline: MCSConversationTimeline) -> list[dic
                     "actor": ACTOR_NAMES["bot"],
                     "text": _strip_prefix(summary, "Bot:"),
                     "timestamp": timestamp,
+                    "lane": "bot",
                 }
             )
             continue
 
         # Keep high-value telemetry items as system cards between chat turns.
-        if ev.event_type in {
-            MCSEventType.PLAN_RECEIVED,
-            MCSEventType.PLAN_FINISHED,
-            MCSEventType.STEP_TRIGGERED,
-            MCSEventType.STEP_FINISHED,
-            MCSEventType.KNOWLEDGE_SEARCH,
-            MCSEventType.DIALOG_TRACING,
-            MCSEventType.DIALOG_REDIRECT,
-            MCSEventType.ERROR,
-        }:
+        if ev.event_type in _EVENT_LANE:
             title_map = {
                 MCSEventType.PLAN_RECEIVED: "Plan Received",
                 MCSEventType.PLAN_FINISHED: "Plan Finished",
@@ -927,6 +1296,7 @@ def build_conversation_flow_items(timeline: MCSConversationTimeline) -> list[dic
                     "summary": detail,
                     "timestamp": timestamp,
                     "tone": tone,
+                    "lane": _EVENT_LANE[ev.event_type],
                 }
             )
 
@@ -1031,12 +1401,232 @@ def build_conversation_visual_summary(timeline: MCSConversationTimeline) -> dict
         },
     ]
 
+    answer_not_found = sum(
+        1
+        for e in timeline.events
+        if e.event_type == MCSEventType.KNOWLEDGE_SEARCH
+        and e.search_trace
+        and (e.search_trace.completion_state or "").lower() == "answernotfoundinsearchresults"
+    )
+    query_rewrites = sum(
+        1
+        for e in timeline.events
+        if e.event_type == MCSEventType.KNOWLEDGE_SEARCH and e.search_trace and e.search_trace.rewritten_question
+    )
+    if answer_not_found:
+        highlights.append({"title": "Answer Not Found", "value": str(answer_not_found), "tone": "bad"})
+    if query_rewrites:
+        highlights.append({"title": "Query Rewrites", "value": str(query_rewrites), "tone": "info"})
+
     return {
         "kpis": kpis,
         "event_mix": event_mix,
         "latency_bands": latency_bands,
         "highlights": highlights,
     }
+
+
+def build_conversation_deep_dive_cards(
+    profile: MCSBotProfile | None,
+    timeline: MCSConversationTimeline,
+) -> list[dict]:
+    instructions = ""
+    if profile and profile.gpt_info and profile.gpt_info.instructions:
+        instructions = profile.gpt_info.instructions.strip()
+    instruction_terms = _tokenize_terms(instructions)
+
+    turns = _build_turn_journey(timeline)
+    if not turns:
+        return []
+
+    search_events = [e for e in timeline.events if e.event_type == MCSEventType.KNOWLEDGE_SEARCH]
+    search_idx = 0
+    cards: list[dict] = []
+
+    for turn in turns:
+        query_count = len(turn.get("search_queries", []))
+        searches: list[dict] = []
+        for _ in range(query_count):
+            if search_idx >= len(search_events):
+                break
+            ev = search_events[search_idx]
+            search_idx += 1
+            trace = ev.search_trace
+            if trace is None:
+                continue
+
+            trace_terms = _tokenize_terms(
+                " ".join(
+                    part
+                    for part in [
+                        trace.rewritten_question or ev.search_query or "",
+                        trace.rewritten_keywords or "",
+                        trace.hypothetical_snippet or "",
+                    ]
+                    if part
+                )
+            )
+            overlap = sorted(trace_terms & instruction_terms)
+            overlap_pct = round((len(overlap) / len(trace_terms)) * 100) if trace_terms and instruction_terms else 0
+            if not instructions:
+                overlap_label = "Unavailable"
+            elif overlap_pct >= 35:
+                overlap_label = "Strong"
+            elif overlap_pct >= 15:
+                overlap_label = "Partial"
+            else:
+                overlap_label = "Weak"
+
+            completion_state = trace.completion_state or trace.gpt_answer_state or "Unknown"
+            state_low = completion_state.lower().replace(" ", "")
+            if "answernotfound" in state_low:
+                signal_tone = "bad"
+                signal_label = "Answer not found in verified search results"
+            elif trace.verified_result_count > 0:
+                signal_tone = "good"
+                signal_label = "Verified search results returned"
+            elif trace.result_count > 0:
+                signal_tone = "warn"
+                signal_label = "Only raw search hits returned"
+            else:
+                signal_tone = "warn"
+                signal_label = "Search executed with no visible hits"
+
+            source_mix = _result_source_mix_counts(trace.result_sources, trace.top_results)
+
+            searches.append(
+                {
+                    "index": len(searches) + 1,
+                    "query": ev.search_query or trace.rewritten_question or "—",
+                    "rewritten_question": trace.rewritten_question or "—",
+                    "keywords": trace.rewritten_keywords or "—",
+                    "snippet": trace.hypothetical_snippet or "—",
+                    "completion_state": completion_state,
+                    "signal_tone": signal_tone,
+                    "signal_label": signal_label,
+                    "endpoint_count": str(len(trace.endpoints)),
+                    "endpoints": trace.endpoints,
+                    "endpoints_text": "\n".join(trace.endpoints) or "No endpoints exposed in this trace.",
+                    "result_count": str(trace.result_count),
+                    "verified_result_count": str(trace.verified_result_count),
+                    "result_summary": f"{trace.result_count} raw / {trace.verified_result_count} verified",
+                    "result_sources": trace.result_sources,
+                    "top_results": trace.top_results,
+                    "top_results_text": "\n".join(trace.top_results) or "No raw search results recorded.",
+                    "verified_top_results": trace.verified_top_results,
+                    "verified_top_results_text": "\n".join(trace.verified_top_results) or "No verified results recorded.",
+                    "rewrite_model": trace.rewrite_model_name or "—",
+                    "rewrite_tokens": (
+                        f"{trace.rewrite_prompt_tokens} in / {trace.rewrite_completion_tokens} out"
+                        if trace.rewrite_prompt_tokens or trace.rewrite_completion_tokens
+                        else "—"
+                    ),
+                    "summary_model": trace.summary_model_name or "—",
+                    "summary_tokens": (
+                        f"{trace.summary_prompt_tokens} in / {trace.summary_completion_tokens} out"
+                        if trace.summary_prompt_tokens or trace.summary_completion_tokens
+                        else "—"
+                    ),
+                    "summary_preview": trace.summary_preview or "—",
+                    "instruction_overlap_pct": str(overlap_pct),
+                    "instruction_overlap_pct_text": f"{overlap_pct}%",
+                    "instruction_overlap_label": overlap_label,
+                    "instruction_overlap_terms": overlap[:8],
+                    "search_errors": trace.search_errors,
+                    "search_errors_text": "\n".join(trace.search_errors) or "No search errors recorded.",
+                    "source_names": trace.source_names,
+                    "output_source_names": trace.output_source_names,
+                    "source_mix_sharepoint": str(source_mix["SharePoint"]),
+                    "source_mix_dataverse": str(source_mix["Dataverse"]),
+                    "source_mix_website": str(source_mix["Website"]),
+                    "source_mix_file": str(source_mix["File"]),
+                    "source_mix_other": str(source_mix["Other"]),
+                }
+            )
+
+        summary_badges: list[str] = []
+        if turn.get("boosting"):
+            summary_badges.append("Generative boosting")
+        if turn.get("fallback"):
+            summary_badges.append("Fallback")
+        if query_count > 1:
+            summary_badges.append("Query reformulation")
+        if int(turn.get("latency_ms", 0)) >= 5000:
+            summary_badges.append("Slow turn")
+        if not summary_badges:
+            summary_badges.append("Standard route")
+
+        if searches:
+            primary = searches[0]
+            has_rewrite = primary["rewritten_question"] != "—"
+            has_raw_hits = int(primary["result_count"]) > 0
+            has_verified_hits = int(primary["verified_result_count"]) > 0
+            answer_not_found = "answernotfound" in primary["completion_state"].lower().replace(" ", "")
+
+            cards.append(
+                {
+                    "turn": turn.get("turn", 0),
+                    "user": turn.get("user", "—"),
+                    "topics": turn.get("topics", []),
+                    "topics_text": ", ".join(turn.get("topics", [])) or "—",
+                    "latency_ms": str(int(turn.get("latency_ms", 0))),
+                    "latency_summary": f"{int(turn.get('latency_ms', 0))} ms | {len(searches)} search traces",
+                    "search_count": str(len(searches)),
+                    "searches": searches,
+                    "summary_badges": summary_badges,
+                    "summary_badges_text": " | ".join(summary_badges),
+                    "search_status": searches[-1]["signal_label"],
+                    "timeline_rewrite_scheme": "green" if has_rewrite else "gray",
+                    "timeline_search_scheme": "green" if has_raw_hits else "amber",
+                    "timeline_verify_scheme": "green" if has_verified_hits else "amber",
+                    "timeline_answer_scheme": "red" if answer_not_found else "green",
+                    "timeline_rewrite_hint": (
+                        f"Query Rewriting — LLM contextualizes the question (model: {primary['rewrite_model']})"
+                        if has_rewrite
+                        else "Query Rewriting — not triggered for this turn"
+                    ),
+                    "timeline_search_hint": (
+                        f"Knowledge Search — {primary['result_count']} raw results"
+                        f" from {primary['endpoint_count']} endpoints"
+                    ),
+                    "timeline_verify_hint": (
+                        f"Verification — {primary['verified_result_count']} of"
+                        f" {primary['result_count']} results passed scoring"
+                    ),
+                    "timeline_answer_hint": f"Answer Generation — {primary['signal_label']}",
+                    "query": primary["query"],
+                    "rewritten_question": primary["rewritten_question"],
+                    "keywords": primary["keywords"],
+                    "snippet": primary["snippet"],
+                    "completion_state": primary["completion_state"],
+                    "signal_tone": primary["signal_tone"],
+                    "signal_label": primary["signal_label"],
+                    "endpoint_count": primary["endpoint_count"],
+                    "endpoints_text": "\n".join(primary["endpoints"]) or "No endpoints exposed in this trace.",
+                    "result_count": primary["result_count"],
+                    "verified_result_count": primary["verified_result_count"],
+                    "result_summary": f"{primary['result_count']} raw / {primary['verified_result_count']} verified",
+                    "top_results_text": "\n".join(primary["top_results"]) or "No raw search results recorded.",
+                    "verified_top_results_text": "\n".join(primary["verified_top_results"]) or "No verified results recorded.",
+                    "rewrite_model": primary["rewrite_model"],
+                    "rewrite_tokens": primary["rewrite_tokens"],
+                    "summary_model": primary["summary_model"],
+                    "summary_tokens": primary["summary_tokens"],
+                    "summary_preview": primary["summary_preview"],
+                    "instruction_overlap_pct": primary["instruction_overlap_pct"],
+                    "instruction_overlap_pct_text": primary["instruction_overlap_pct"] + "%",
+                    "instruction_overlap_label": primary["instruction_overlap_label"],
+                    "instruction_overlap_terms_text": ", ".join(primary["instruction_overlap_terms"]) or "No direct lexical overlap detected.",
+                    "search_errors_text": "\n".join(primary["search_errors"]) or "No search errors recorded.",
+                    "source_chip_sharepoint": f"SharePoint {primary['source_mix_sharepoint']}",
+                    "source_chip_dataverse": f"Dataverse {primary['source_mix_dataverse']}",
+                    "source_chip_website": f"Website {primary['source_mix_website']}",
+                    "source_chip_file": f"File {primary['source_mix_file']}",
+                    "source_chip_other": f"Other {primary['source_mix_other']}",
+                }
+            )
+
+    return cards
 
 
 def render_conversation_overview(timeline: MCSConversationTimeline) -> str:
@@ -1179,6 +1769,235 @@ def render_conversation_findings(timeline: MCSConversationTimeline) -> str:
         f"- Total explicit errors in telemetry: **{len(timeline.errors)}**",
         "",
     ]
+    return "\n".join(lines)
+
+
+def _short_text(text: str | None, max_len: int = 96) -> str:
+    raw = (text or "").strip().replace("|", "\\|")
+    if len(raw) <= max_len:
+        return raw
+    return raw[: max_len - 1] + "…"
+
+
+def _is_fallback_topic(topic: str | None) -> bool:
+    low = (topic or "").lower()
+    return "fallback" in low or "unknown intent" in low
+
+
+def _is_generative_boosting_topic(topic: str | None) -> bool:
+    low = (topic or "").lower()
+    return "search" in low or "boost" in low or "conversational boosting" in low
+
+
+def _build_turn_journey(timeline: MCSConversationTimeline) -> list[dict]:
+    turns: list[dict] = []
+    current: dict | None = None
+    turn_idx = 0
+
+    for ev in timeline.events:
+        if ev.event_type == MCSEventType.USER_MESSAGE:
+            if current is not None:
+                turns.append(current)
+            turn_idx += 1
+            current = {
+                "turn": turn_idx,
+                "user": (ev.summary or "").replace("User: ", "", 1).strip().strip('"'),
+                "topics": [],
+                "search_queries": [],
+                "search_results": [],
+                "fallback": False,
+                "boosting": False,
+                "errors": [],
+            }
+            continue
+
+        if current is None:
+            continue
+
+        if ev.event_type == MCSEventType.STEP_TRIGGERED:
+            topic = ev.topic_name or ""
+            if topic and topic not in current["topics"]:
+                current["topics"].append(topic)
+            if _is_fallback_topic(topic):
+                current["fallback"] = True
+            if _is_generative_boosting_topic(topic):
+                current["boosting"] = True
+
+        if ev.event_type == MCSEventType.KNOWLEDGE_SEARCH:
+            q = (ev.search_query or "").strip()
+            if q:
+                current["search_queries"].append(q)
+            result_count_raw = (ev.details or {}).get("result_count", "0")
+            try:
+                rc = int(str(result_count_raw))
+            except ValueError:
+                rc = 0
+            current["search_results"].append(rc)
+
+        if ev.event_type == MCSEventType.ERROR:
+            current["errors"].append(ev.error or ev.summary or "Error")
+
+    if current is not None:
+        turns.append(current)
+
+    # Attach measured turn latency where available.
+    pair_turns = _pair_message_turns(timeline)
+    for idx, rec in enumerate(turns):
+        rec["latency_ms"] = int(pair_turns[idx]["latency_ms"]) if idx < len(pair_turns) else 0
+
+    return turns
+
+
+def render_turn_journey_analysis(timeline: MCSConversationTimeline) -> str:
+    turns = _build_turn_journey(timeline)
+    if not turns:
+        return ""
+
+    lines: list[str] = [
+        "## Turn-by-Turn Search & Routing Journey",
+        "",
+        "| Turn | User Ask | Triggered Topics | KB Search Query Evolution | KB Result Signal | Latency | Signals |",
+        "| ---: | --- | --- | --- | --- | ---: | --- |",
+    ]
+
+    for t in turns:
+        user = _short_text(t.get("user", ""), 70) or "—"
+        topics = t.get("topics", [])
+        topics_txt = ", ".join(_short_text(x, 28) for x in topics[:3]) if topics else "—"
+
+        queries = t.get("search_queries", [])
+        if queries:
+            unique_queries: list[str] = []
+            for q in queries:
+                if q not in unique_queries:
+                    unique_queries.append(q)
+            if len(unique_queries) == 1:
+                query_txt = _short_text(unique_queries[0], 80)
+            else:
+                first_q = _short_text(unique_queries[0], 42)
+                last_q = _short_text(unique_queries[-1], 42)
+                query_txt = f"{first_q} → {last_q}"
+        else:
+            query_txt = "—"
+
+        results = t.get("search_results", [])
+        if not results:
+            result_signal = "No KB search"
+        elif max(results) == 0:
+            result_signal = "No usable KB result ❌"
+        else:
+            result_signal = f"Best KB hit count: {max(results)}"
+
+        latency = int(t.get("latency_ms", 0))
+        signals: list[str] = []
+        if t.get("fallback"):
+            signals.append("Fallback triggered")
+        if t.get("boosting"):
+            signals.append("Generative boosting invoked")
+        if len(queries) > 1:
+            signals.append("Query reformulated")
+        if latency >= 8000:
+            signals.append("Slow turn")
+        if t.get("errors"):
+            signals.append("Error seen")
+        signal_txt = " · ".join(signals) if signals else "—"
+
+        lines.append(
+            f"| {t.get('turn', 0)} | {user} | {topics_txt} | {query_txt} | {result_signal} | {latency} ms | {signal_txt} |"
+        )
+
+    lines += ["", "### Query Reformulation Notes", ""]
+    reformulated = [t for t in turns if len(set(t.get("search_queries", []))) > 1]
+    if reformulated:
+        for t in reformulated:
+            uq = []
+            for q in t.get("search_queries", []):
+                if q not in uq:
+                    uq.append(q)
+            lines.append(
+                f"- Turn {t['turn']}: query changed from \"{_short_text(uq[0], 110)}\" "
+                f"to \"{_short_text(uq[-1], 110)}\" after planner/tool routing."
+            )
+    else:
+        lines.append("- No explicit query reformulation detected between search attempts.")
+
+    lines.append("")
+    return "\n".join(lines)
+
+
+def render_search_trace_deep_dive(profile: MCSBotProfile | None, timeline: MCSConversationTimeline) -> str:
+    cards = build_conversation_deep_dive_cards(profile, timeline)
+    if not cards:
+        return ""
+
+    lines: list[str] = [
+        "## Generative Search Deep Dive",
+        "",
+        "This section appears only when the conversation contains planner or boosting search traces.",
+        "",
+    ]
+
+    for card in cards:
+        if not card["searches"]:
+            continue
+        lines += [f"### Turn {card['turn']} — {_short_text(card['user'], 90)}", ""]
+        lines.append(f"- Route signals: {'; '.join(card['summary_badges'])}")
+        lines.append(f"- Triggered topics: {', '.join(card['topics']) if card['topics'] else '—'}")
+        lines.append(f"- Latency: {card['latency_ms']} ms")
+        for search in card["searches"]:
+            lines += [
+                f"- Search {search['index']}: {search['signal_label']}",
+                f"  Query: {search['query']}",
+                f"  Keywords: {search['keywords']}",
+                f"  Endpoints: {search['endpoint_count']}",
+                f"  Results: {search['result_count']} raw / {search['verified_result_count']} verified",
+                f"  Completion state: {search['completion_state']}",
+                f"  Instruction lexical overlap: {search['instruction_overlap_pct']}% ({search['instruction_overlap_label']})",
+            ]
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+def render_latency_bottlenecks(timeline: MCSConversationTimeline) -> str:
+    turns = _build_turn_journey(timeline)
+    if not turns:
+        return ""
+
+    slow_turns = [t for t in turns if int(t.get("latency_ms", 0)) >= 5000]
+    lines: list[str] = [
+        "## Latency Bottlenecks",
+        "",
+        f"Detected **{len(slow_turns)}** slow turn(s) (>= 5000 ms).",
+        "",
+    ]
+
+    if not slow_turns:
+        lines += ["- No significant latency bottlenecks detected.", ""]
+        return "\n".join(lines)
+
+    lines += [
+        "| Turn | Latency | Likely Contributors |",
+        "| ---: | ---: | --- |",
+    ]
+    for t in slow_turns:
+        contributors: list[str] = []
+        search_count = len(t.get("search_queries", []))
+        if search_count > 1:
+            contributors.append(f"Multiple KB searches ({search_count})")
+        if t.get("fallback"):
+            contributors.append("Fallback path triggered")
+        if t.get("boosting"):
+            contributors.append("Generative boosting route")
+        if t.get("search_results") and max(t.get("search_results", [0])) == 0:
+            contributors.append("No usable KB results")
+        if t.get("errors"):
+            contributors.append("Error telemetry present")
+        if not contributors:
+            contributors.append("General orchestration/tool latency")
+        lines.append(f"| {t['turn']} | {int(t.get('latency_ms', 0))} ms | {'; '.join(contributors)} |")
+
+    lines.append("")
     return "\n".join(lines)
 
 
@@ -1419,11 +2238,12 @@ def render_report(profile: MCSBotProfile, timeline: MCSConversationTimeline) -> 
     if timeline.events:
         sections += [
             render_conversation_overview(timeline),
-            render_message_chat_timeline(timeline),
+            render_turn_journey_analysis(timeline),
+            render_search_trace_deep_dive(profile, timeline),
             render_tool_diagnostics(timeline),
+            render_latency_bottlenecks(timeline),
             render_planner_analysis(timeline),
             render_conversation_findings(timeline),
-            render_mermaid_sequence(timeline),
             render_gantt_chart(timeline),
             render_phase_breakdown(timeline),
             render_event_log(timeline),
@@ -1470,11 +2290,12 @@ def render_report_sections(profile: MCSBotProfile, timeline: MCSConversationTime
     if timeline.events:
         conv_parts = [
             render_conversation_overview(timeline),
-            render_message_chat_timeline(timeline),
+            render_turn_journey_analysis(timeline),
+            render_search_trace_deep_dive(profile, timeline),
             render_tool_diagnostics(timeline),
+            render_latency_bottlenecks(timeline),
             render_planner_analysis(timeline),
             render_conversation_findings(timeline),
-            render_mermaid_sequence(timeline),
             render_gantt_chart(timeline),
             render_phase_breakdown(timeline),
             render_event_log(timeline),
@@ -1582,6 +2403,8 @@ def render_transcript_report(
     if timeline.events:
         sections += [
             render_conversation_overview(timeline),
+            render_turn_journey_analysis(timeline),
+            render_search_trace_deep_dive(None, timeline),
             render_message_chat_timeline(timeline),
             render_tool_diagnostics(timeline),
             render_planner_analysis(timeline),

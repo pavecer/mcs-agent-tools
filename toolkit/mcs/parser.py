@@ -7,9 +7,11 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import tempfile
 import zipfile
 from pathlib import Path
+from urllib.parse import urlparse
 
 import yaml
 
@@ -85,6 +87,15 @@ def _extract_knowledge_entry(entry: object, bucket: str | None = None) -> MCSKno
         text = entry.strip()
         if not text:
             return None
+        low_bucket = (bucket or "").strip().lower()
+        low_text = text.lower()
+        if low_bucket in {"kind", "mode", "searchfilesmode"} and low_text in {
+            "searchallknowledgesources",
+            "searchspecificknowledgesources",
+            "searchallfiles",
+            "searchspecificfiles",
+        }:
+            return None
         src_type = _normalize_knowledge_type(None, bucket)
         return MCSKnowledgeSource(
             name=text,
@@ -95,12 +106,10 @@ def _extract_knowledge_entry(entry: object, bucket: str | None = None) -> MCSKno
     if not isinstance(entry, dict):
         return None
 
-    src_type = _normalize_knowledge_type(
-        _flatten_scalar(entry.get("type"))
-        or _flatten_scalar(entry.get("kind"))
-        or _flatten_scalar(entry.get("sourceType")),
-        bucket,
-    )
+    raw_type = _flatten_scalar(entry.get("type"))
+    raw_kind = _flatten_scalar(entry.get("kind"))
+    raw_source_type = _flatten_scalar(entry.get("sourceType"))
+    src_type = _normalize_knowledge_type(raw_type or raw_kind or raw_source_type, bucket)
     name = (
         _flatten_scalar(entry.get("name"))
         or _flatten_scalar(entry.get("displayName"))
@@ -123,6 +132,15 @@ def _extract_knowledge_entry(entry: object, bucket: str | None = None) -> MCSKno
         or _flatten_scalar(entry.get("sharePointSiteId"))
         or _flatten_scalar(entry.get("sharepointSiteId"))
     )
+
+    # Ignore selector placeholders that configure retrieval mode but do not
+    # describe an actual source instance.
+    kind_low = (raw_kind or "").strip().lower()
+    has_concrete_location = any(
+        _flatten_scalar(entry.get(k)) for k in ("url", "siteUrl", "path", "resource", "entityName", "tableName")
+    )
+    if kind_low in {"searchallknowledgesources", "searchspecificknowledgesources"} and not has_concrete_location:
+        return None
 
     details: dict[str, str] = {}
     for key in (
@@ -188,7 +206,119 @@ def _extract_knowledge_sources(data: dict) -> list[MCSKnowledgeSource]:
                     seen.add(sig)
                     items.append(src)
 
+    # Snapshot botContent files often represent knowledge as dedicated components
+    # (FileAttachmentComponent / KnowledgeSourceComponent) rather than nested blocks.
+    for src in _extract_component_knowledge_sources(data):
+        sig = (src.source_type, src.name, src.location or "")
+        if sig not in seen:
+            seen.add(sig)
+            items.append(src)
+
     return items
+
+
+def _tokenize_description_hints(text: str | None) -> list[str]:
+    if not text:
+        return []
+    return [token for token in re.findall(r"[a-zA-Z0-9]{3,}", text.lower()) if token not in {"the", "and", "for"}]
+
+
+def _classify_component_knowledge_source(source_kind: str | None, location: str | None) -> str:
+    low_kind = (source_kind or "").strip().lower()
+    low_loc = (location or "").strip().lower()
+
+    if "sharepoint" in low_kind:
+        # Page-level target typically behaves as a direct page source.
+        if "/sitepages/" in low_loc or low_loc.endswith(".aspx"):
+            return "SharePoint Page"
+        # Site/library-level target behaves as a broader sync/search scope.
+        return "SharePoint Sync"
+    if "website" in low_kind or "public" in low_kind:
+        return "Website"
+    if "dataverse" in low_kind:
+        return "Dataverse"
+    if source_kind:
+        return source_kind.replace("_", " ").replace("-", " ").title()
+    return "Knowledge Source"
+
+
+def _extract_component_knowledge_sources(data: dict) -> list[MCSKnowledgeSource]:
+    """Extract knowledge sources represented as dedicated components."""
+    sources: list[MCSKnowledgeSource] = []
+    components = data.get("components", []) or []
+
+    for comp in components:
+        if not isinstance(comp, dict):
+            continue
+
+        kind = _flatten_scalar(comp.get("kind")) or ""
+        display_name = _flatten_scalar(comp.get("displayName")) or _flatten_scalar(comp.get("schemaName")) or "Unnamed"
+        description = _flatten_scalar(comp.get("description"))
+        schema_name = _flatten_scalar(comp.get("schemaName"))
+        state = _flatten_scalar(comp.get("state"))
+
+        if kind == "FileAttachmentComponent":
+            details: dict[str, str] = {"componentKind": kind}
+            if description:
+                details["description"] = description
+            if schema_name:
+                details["schemaName"] = schema_name
+            if state:
+                details["state"] = state
+            hint_terms = _tokenize_description_hints(description)
+            if hint_terms:
+                details["hintTerms"] = ", ".join(hint_terms[:10])
+
+            sources.append(
+                MCSKnowledgeSource(
+                    name=display_name,
+                    source_type="Uploaded File",
+                    location=None,
+                    details=details,
+                )
+            )
+            continue
+
+        if kind != "KnowledgeSourceComponent":
+            continue
+
+        cfg = comp.get("configuration", {}) or {}
+        source_cfg = cfg.get("source", {}) if isinstance(cfg, dict) else {}
+        source_kind = _flatten_scalar(source_cfg.get("kind")) if isinstance(source_cfg, dict) else None
+        location = None
+        if isinstance(source_cfg, dict):
+            location = (
+                _flatten_scalar(source_cfg.get("site"))
+                or _flatten_scalar(source_cfg.get("url"))
+                or _flatten_scalar(source_cfg.get("path"))
+                or _flatten_scalar(source_cfg.get("resource"))
+            )
+
+        src_type = _classify_component_knowledge_source(source_kind, location)
+        details = {"componentKind": kind}
+        if source_kind:
+            details["sourceKind"] = source_kind
+        if description:
+            details["description"] = description
+        if schema_name:
+            details["schemaName"] = schema_name
+        if state:
+            details["state"] = state
+        if location:
+            parsed = urlparse(location)
+            if parsed.hostname:
+                details["host"] = parsed.hostname
+
+        sources.append(
+            MCSKnowledgeSource(
+                name=display_name,
+                source_type=src_type,
+                location=location,
+                details=details,
+            )
+        )
+
+    return sources
 
 
 def _normalize_auth_mode(raw_mode: str | None) -> str | None:

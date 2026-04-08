@@ -6,6 +6,7 @@ import base64
 import hashlib
 import io
 import os
+import re
 import tempfile
 import traceback
 import zipfile
@@ -25,6 +26,7 @@ from toolkit.mcs.parser import parse_dialog_json as mcs_parse_dialog_json
 from toolkit.mcs.parser import parse_yaml as mcs_parse_yaml
 from toolkit.mcs.renderer import render_credit_estimate as mcs_render_credit_estimate
 from toolkit.mcs.renderer import build_conversation_flow_items as mcs_build_conversation_flow_items
+from toolkit.mcs.renderer import build_conversation_deep_dive_cards as mcs_build_conversation_deep_dive_cards
 from toolkit.mcs.renderer import build_conversation_visual_summary as mcs_build_conversation_visual_summary
 from toolkit.mcs.renderer import render_report_sections as mcs_render_report_sections
 from toolkit.mcs.renderer import render_transcript_report as mcs_render_transcript_report
@@ -360,6 +362,14 @@ class State(rx.State):
     mcs_conv_event_mix: list[dict] = []
     mcs_conv_latency_bands: list[dict] = []
     mcs_conv_highlights: list[dict] = []
+    mcs_conv_deep_dive_cards: list[dict] = []
+    mcs_conv_deep_dive_expanded_turn: int = 0
+    mcs_knowledge_health_rows: list[dict] = []
+    mcs_knowledge_source_class_rows: list[dict] = []
+    mcs_knowledge_generic_warning: str = ""
+    mcs_knowledge_summary_line: str = ""
+    mcs_knowledge_health_collapsed: bool = False
+    mcs_knowledge_health_filter: str = "all"  # all | actionable
     mcs_dv_environment: str = ""
     mcs_dv_dataverse_url: str = ""
     mcs_dv_transcript_id: str = ""
@@ -628,6 +638,28 @@ class State(rx.State):
         return bool(self.mcs_conv_kpis)
 
     @rx.var
+    def has_mcs_conv_deep_dive(self) -> bool:
+        return bool(self.mcs_conv_deep_dive_cards)
+
+    @rx.var
+    def has_mcs_knowledge_health(self) -> bool:
+        return bool(self.mcs_knowledge_health_rows)
+
+    @rx.var
+    def has_mcs_knowledge_source_classes(self) -> bool:
+        return bool(self.mcs_knowledge_source_class_rows)
+
+    @rx.var
+    def mcs_knowledge_health_rows_visible(self) -> list[dict]:
+        if self.mcs_knowledge_health_filter != "actionable":
+            return self.mcs_knowledge_health_rows
+        return [
+            row
+            for row in self.mcs_knowledge_health_rows
+            if (row.get("severity_label", "").lower() in {"critical", "warning"})
+        ]
+
+    @rx.var
     def mcs_dv_manual_mode(self) -> bool:
         return not self.mcs_dv_use_env_auth
 
@@ -689,6 +721,18 @@ class State(rx.State):
     @rx.event
     def set_evals_active_eval_set(self, value: str):
         self.evals_active_eval_set = value
+
+    @rx.event
+    def toggle_mcs_knowledge_health_collapsed(self):
+        self.mcs_knowledge_health_collapsed = not self.mcs_knowledge_health_collapsed
+
+    @rx.event
+    def set_mcs_knowledge_health_filter(self, value: str):
+        self.mcs_knowledge_health_filter = value if value in {"all", "actionable"} else "all"
+
+    @rx.event
+    def toggle_mcs_conv_deep_dive_turn(self, value: int):
+        self.mcs_conv_deep_dive_expanded_turn = 0 if self.mcs_conv_deep_dive_expanded_turn == value else value
 
     # ── Event handlers ────────────────────────────────────────────────────
 
@@ -841,6 +885,8 @@ class State(rx.State):
         self.mcs_conv_event_mix = []
         self.mcs_conv_latency_bands = []
         self.mcs_conv_highlights = []
+        self.mcs_conv_deep_dive_cards = []
+        self.mcs_conv_deep_dive_expanded_turn = 0
         self.mcs_report_markdown = ""
         self.mcs_report_title = ""
         self.mcs_upload_error = ""
@@ -1018,6 +1064,7 @@ class State(rx.State):
                     sections = mcs_render_report_sections(profile, timeline)
                     self.mcs_section_profile = sections["profile"]
                     self.mcs_section_knowledge_tools = sections.get("knowledge_tools", "")
+                    self._refresh_mcs_knowledge_ui(self.mcs_section_knowledge_tools)
                     self.mcs_section_topics = sections["topics"]
                     self.mcs_section_graph = sections["graph"]
                     self.mcs_section_model_comparison = sections.get("model_comparison", "")
@@ -1074,6 +1121,10 @@ class State(rx.State):
                     self.mcs_conv_event_mix = conv_summary.get("event_mix", [])
                     self.mcs_conv_latency_bands = conv_summary.get("latency_bands", [])
                     self.mcs_conv_highlights = conv_summary.get("highlights", [])
+                    self.mcs_conv_deep_dive_cards = mcs_build_conversation_deep_dive_cards(profile, timeline)
+                    self.mcs_conv_deep_dive_expanded_turn = (
+                        int(self.mcs_conv_deep_dive_cards[0]["turn"]) if self.mcs_conv_deep_dive_cards else 0
+                    )
                     self.mcs_source = "snapshot"
                     self.mcs_report_markdown = self._compose_mcs_report_markdown()
                     self.mcs_api_comparison_available = True  # enable on-demand API comparison
@@ -1343,6 +1394,8 @@ class State(rx.State):
         self.mcs_conv_event_mix = []
         self.mcs_conv_latency_bands = []
         self.mcs_conv_highlights = []
+        self.mcs_conv_deep_dive_cards = []
+        self.mcs_conv_deep_dive_expanded_turn = 0
         self.mcs_analyse_tab = "profile"
         self.mcs_dv_environment = ""
         self.mcs_dv_dataverse_url = ""
@@ -2163,9 +2216,89 @@ class State(rx.State):
         self.mcs_conv_event_mix = []
         self.mcs_conv_latency_bands = []
         self.mcs_conv_highlights = []
+        self.mcs_conv_deep_dive_cards = []
+        self.mcs_conv_deep_dive_expanded_turn = 0
+        self.mcs_knowledge_health_rows = []
+        self.mcs_knowledge_source_class_rows = []
+        self.mcs_knowledge_generic_warning = ""
+        self.mcs_knowledge_summary_line = ""
+        self.mcs_knowledge_health_collapsed = False
+        self.mcs_knowledge_health_filter = "all"
         self.mcs_analyse_tab = "profile"
 
     # ── Private helpers ───────────────────────────────────────────────────
+
+    @staticmethod
+    def _parse_markdown_table(md: str, header_line: str) -> list[list[str]]:
+        lines = md.splitlines()
+        start = -1
+        for idx, line in enumerate(lines):
+            if line.strip() == header_line:
+                start = idx
+                break
+        if start == -1:
+            return []
+
+        rows: list[list[str]] = []
+        for line in lines[start + 2 :]:
+            raw = line.strip()
+            if not raw.startswith("|"):
+                break
+            cells = [c.strip() for c in raw.strip("|").split("|")]
+            rows.append(cells)
+        return rows
+
+    @staticmethod
+    def _severity_ui_meta(raw: str) -> tuple[str, str, str, str]:
+        text = re.sub(r"[*_`]|🚨|⚠️|ℹ️", "", (raw or "")).strip()
+        low = text.lower()
+        if "critical" in low:
+            return "Critical", "red", "#a4262c", "#fff1f1"
+        if "warning" in low:
+            return "Warning", "amber", "#c7921e", "#fff8ec"
+        return "Info", "blue", "#0f6cbd", "#eef6ff"
+
+    def _refresh_mcs_knowledge_ui(self, md: str) -> None:
+        self.mcs_knowledge_health_rows = []
+        self.mcs_knowledge_source_class_rows = []
+        self.mcs_knowledge_generic_warning = ""
+        self.mcs_knowledge_summary_line = ""
+
+        if not md.strip():
+            return
+
+        class_rows = self._parse_markdown_table(md, "| Source Class | Count |")
+        parsed_class_rows: list[dict] = []
+        for row in class_rows:
+            if len(row) < 2:
+                continue
+            parsed_class_rows.append({"source_class": row[0], "count": row[1]})
+        self.mcs_knowledge_source_class_rows = parsed_class_rows
+
+        health_rows = self._parse_markdown_table(md, "| Check | Severity | Summary |")
+        parsed_health_rows: list[dict] = []
+        for row in health_rows:
+            if len(row) < 3:
+                continue
+            sev_label, sev_scheme, accent, bg = self._severity_ui_meta(row[1])
+            parsed_health_rows.append(
+                {
+                    "check": row[0],
+                    "severity_label": sev_label,
+                    "severity_scheme": sev_scheme,
+                    "summary": row[2],
+                    "accent_color": accent,
+                    "background_color": bg,
+                }
+            )
+        self.mcs_knowledge_health_rows = parsed_health_rows
+
+        for line in md.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("🚨 Warning: default or generic KB descriptions detected"):
+                self.mcs_knowledge_generic_warning = stripped.replace("🚨 ", "")
+            elif stripped.startswith("Summary:"):
+                self.mcs_knowledge_summary_line = stripped
 
     def _apply_transcript_analysis(
         self,
@@ -2228,6 +2361,10 @@ class State(rx.State):
         self.mcs_conv_event_mix = conv_summary.get("event_mix", [])
         self.mcs_conv_latency_bands = conv_summary.get("latency_bands", [])
         self.mcs_conv_highlights = conv_summary.get("highlights", [])
+        self.mcs_conv_deep_dive_cards = mcs_build_conversation_deep_dive_cards(None, timeline)
+        self.mcs_conv_deep_dive_expanded_turn = (
+            int(self.mcs_conv_deep_dive_cards[0]["turn"]) if self.mcs_conv_deep_dive_cards else 0
+        )
 
         if self.mcs_source == "snapshot":
             existing = self.mcs_section_conversation.rstrip()
@@ -2245,6 +2382,7 @@ class State(rx.State):
             "## Knowledge Sources & External Tools\n\n"
             "_No snapshot loaded — drop a Copilot Studio snapshot ZIP for knowledge and connector inventory._\n"
         )
+        self._refresh_mcs_knowledge_ui(self.mcs_section_knowledge_tools)
         self.mcs_section_topics = "## Topics & Components\n\n_No snapshot loaded._\n"
         self.mcs_section_graph = "## Topic Redirect Graph\n\n_No snapshot loaded._\n"
         self.mcs_section_model_comparison_live = ""

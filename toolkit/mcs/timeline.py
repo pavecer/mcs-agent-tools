@@ -11,6 +11,7 @@ from toolkit.mcs.models import (
     MCSConversationTimeline,
     MCSEventType,
     MCSExecutionPhase,
+    MCSKnowledgeSearchTrace,
     MCSTimelineEvent,
 )
 from toolkit.mcs.planner_analysis import build_planner_analysis as _build_planner_analysis
@@ -71,6 +72,144 @@ def _extract_list_count(value: dict, candidate_keys: tuple[str, ...]) -> int:
                 if key in nested and isinstance(nested[key], list):
                     return len(nested[key])
     return 0
+
+
+def _truncate_text(text: str | None, max_len: int = 220) -> str:
+    raw = (text or "").strip().replace("\n", " ")
+    if len(raw) <= max_len:
+        return raw
+    return raw[: max_len - 1] + "…"
+
+
+def _clean_source_name(raw: str) -> str:
+    value = (raw or "").strip()
+    if not value:
+        return "Unknown"
+    return value.split(".")[-1] if "." in value else value
+
+
+def _as_string_list(value, limit: int = 8) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    items: list[str] = []
+    for item in value:
+        if item is None:
+            continue
+        text = str(item).strip()
+        if text and text not in items:
+            items.append(text)
+        if len(items) >= limit:
+            break
+    return items
+
+
+def _result_label(result: dict) -> str:
+    url = str(result.get("url", "") or "")
+    title = url.rsplit("/", 1)[-1] if url else ""
+    if not title:
+        title = str(result.get("title", "") or "")
+    if not title:
+        title = str(result.get("name", "") or "")
+    if not title:
+        snippet = str(result.get("snippet", "") or "")
+        title = _truncate_text(snippet, 72) if snippet else "Untitled result"
+    source_type = str(result.get("searchType", "") or result.get("substrateResultSearchType", "") or "")
+    if source_type:
+        return f"{title} [{source_type}]"
+    return title
+
+
+def _extract_search_trace(value: dict) -> tuple[str, MCSKnowledgeSearchTrace]:
+    sources = [_clean_source_name(s) for s in value.get("knowledgeSources", []) or []]
+    output_sources = [_clean_source_name(s) for s in value.get("outputKnowledgeSources", []) or []]
+    endpoints = _as_string_list(value.get("endpoints", []), limit=6)
+
+    rewrite = value.get("queryRewrittingOpenAIResponse", {}) or {}
+    rewrite_response = rewrite.get("Response", {}) or {}
+    rewrite_usage = rewrite.get("CapiResourceUsage", {}) or {}
+
+    summary_payload = value.get("summarizationOpenAIResponse", {}) or {}
+    summary_result = summary_payload.get("Result", {}) or {}
+    summary_usage = summary_payload.get("CapiResourceUsage", {}) or {}
+
+    rewritten_question = (
+        str(value.get("rewrittenMessage", "") or "")
+        or str(rewrite_response.get("RewrittenQuestion", "") or "")
+    ).strip()
+    rewritten_keywords = (
+        str(value.get("rewrittenMessageKeywords", "") or "")
+        or str(rewrite_response.get("QuestionKeywords", "") or "")
+    ).strip()
+    hypothetical_snippet = str(rewrite_response.get("HypotheticalSnippetQuery", "") or "").strip()
+    summary_preview = (
+        str(summary_result.get("Summary", "") or "")
+        or str(summary_payload.get("RawSummary", "") or "")
+    ).strip()
+
+    search_results = value.get("searchResults", []) or []
+    verified_results = value.get("verifiedSearchResults", []) or []
+    result_sources = _as_string_list(
+        [
+            result.get("searchType") or result.get("substrateResultSearchType")
+            for result in search_results
+            if isinstance(result, dict)
+        ],
+        limit=6,
+    )
+
+    trace = MCSKnowledgeSearchTrace(
+        source_names=sources,
+        output_source_names=output_sources,
+        endpoints=endpoints,
+        rewritten_question=rewritten_question or None,
+        rewritten_keywords=rewritten_keywords or None,
+        hypothetical_snippet=hypothetical_snippet or None,
+        completion_state=str(value.get("completionState", "") or "").strip() or None,
+        gpt_answer_state=str(value.get("gptAnswerState", "") or "").strip() or None,
+        result_count=len(search_results),
+        verified_result_count=len(verified_results),
+        search_errors=_as_string_list(value.get("searchErrors", []), limit=6),
+        result_sources=result_sources,
+        top_results=[_result_label(result) for result in search_results[:3] if isinstance(result, dict)],
+        verified_top_results=[_result_label(result) for result in verified_results[:3] if isinstance(result, dict)],
+        rewrite_model_name=(
+            str(rewrite_usage.get("ModelName", "") or "")
+            or str(rewrite.get("ModelName", "") or "")
+            or None
+        ),
+        rewrite_prompt_tokens=int(rewrite_usage.get("PromptTokens", 0) or rewrite.get("PromptTokens", 0) or 0),
+        rewrite_completion_tokens=int(
+            rewrite_usage.get("CompletionTokens", 0) or rewrite.get("CompletionTokens", 0) or 0
+        ),
+        summary_model_name=(
+            str(summary_usage.get("ModelName", "") or "")
+            or str(summary_payload.get("ModelName", "") or "")
+            or None
+        ),
+        summary_prompt_tokens=int(
+            summary_usage.get("PromptTokens", 0) or summary_payload.get("PromptTokens", 0) or 0
+        ),
+        summary_completion_tokens=int(
+            summary_usage.get("CompletionTokens", 0) or summary_payload.get("CompletionTokens", 0) or 0
+        ),
+        summary_preview=_truncate_text(summary_preview, 280) or None,
+    )
+
+    query_candidates: list[str] = []
+    _extract_strings(
+        value,
+        (
+            "query",
+            "searchquery",
+            "rewrittenquery",
+            "inputquery",
+            "keywords",
+            "searchtext",
+        ),
+        query_candidates,
+    )
+    search_query = rewritten_question or (query_candidates[0] if query_candidates else "")
+    return search_query, trace
 
 
 def _parse_timestamp(ts: str | None) -> datetime | None:
@@ -201,6 +340,40 @@ def build_timeline(activities: list[dict], schema_lookup: dict[str, str]) -> MCS
 
         # Skip typing indicators
         if act_type == "typing":
+            continue
+
+        # Debug/search trace message payloads can carry richer search telemetry than event traces.
+        message_value = activity.get("value", {}) or {}
+        if act_type == "message" and isinstance(message_value, dict) and any(
+            key in message_value
+            for key in ("queryRewrittingOpenAIResponse", "searchResults", "verifiedSearchResults", "completionState")
+        ):
+            search_query, search_trace = _extract_search_trace(message_value)
+            query_preview = search_query[:80] + "..." if len(search_query) > 80 else search_query
+            source_names = search_trace.source_names
+            events.append(
+                MCSTimelineEvent(
+                    timestamp=timestamp,
+                    position=position,
+                    event_type=MCSEventType.KNOWLEDGE_SEARCH,
+                    summary=(
+                        f"Knowledge search: {query_preview}"
+                        if query_preview
+                        else f"Knowledge search: [{', '.join(source_names[:3])}]"
+                        + (f" (+{len(source_names) - 3})" if len(source_names) > 3 else "")
+                    ),
+                    tool_name="UniversalSearchTool",
+                    search_query=search_query or None,
+                    search_trace=search_trace,
+                    details={
+                        "sources": ", ".join(source_names[:8]) if source_names else "none",
+                        "source_count": str(len(source_names)),
+                        "result_count": str(search_trace.result_count),
+                        "verified_result_count": str(search_trace.verified_result_count),
+                        "completion_state": search_trace.completion_state or "",
+                    },
+                )
+            )
             continue
 
         # User message
@@ -388,23 +561,9 @@ def build_timeline(activities: list[dict], schema_lookup: dict[str, str]) -> MCS
                     )
 
             elif value_type == "UniversalSearchToolTraceData":
-                sources = value.get("knowledgeSources", [])
-                source_names = [s.split(".")[-1] if "." in s else s for s in sources]
-                query_candidates: list[str] = []
-                _extract_strings(
-                    value,
-                    (
-                        "query",
-                        "searchquery",
-                        "rewrittenquery",
-                        "inputquery",
-                        "keywords",
-                        "searchtext",
-                    ),
-                    query_candidates,
-                )
-                search_query = query_candidates[0] if query_candidates else ""
-                returned_count = _extract_list_count(
+                search_query, search_trace = _extract_search_trace(value)
+                source_names = search_trace.source_names
+                returned_count = search_trace.result_count or _extract_list_count(
                     value,
                     (
                         "filteredResults",
@@ -428,10 +587,13 @@ def build_timeline(activities: list[dict], schema_lookup: dict[str, str]) -> MCS
                         ),
                         tool_name="UniversalSearchTool",
                         search_query=search_query or None,
+                        search_trace=search_trace,
                         details={
                             "sources": ", ".join(source_names[:8]) if source_names else "none",
                             "source_count": str(len(source_names)),
                             "result_count": str(returned_count),
+                            "verified_result_count": str(search_trace.verified_result_count),
+                            "completion_state": search_trace.completion_state or "",
                         },
                     )
                 )

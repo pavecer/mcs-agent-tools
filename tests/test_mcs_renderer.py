@@ -2,12 +2,24 @@
 
 from __future__ import annotations
 
-from mcs_models import MCSBotProfile, MCSConversationTimeline, MCSEventType, MCSExecutionPhase, MCSTimelineEvent, MCSTopicConnection
+from mcs_models import (
+    MCSBotProfile,
+    MCSConversationTimeline,
+    MCSEventType,
+    MCSExecutionPhase,
+    MCSGptInfo,
+    MCSKnowledgeSearchTrace,
+    MCSTimelineEvent,
+    MCSTopicConnection,
+)
+from mcs_renderer import build_conversation_deep_dive_cards
 from mcs_renderer import build_conversation_flow_items
 from mcs_renderer import build_conversation_visual_summary
 from mcs_renderer import render_gantt_chart
+from mcs_renderer import render_latency_bottlenecks
 from mcs_renderer import render_message_chat_timeline
 from mcs_renderer import render_mermaid_sequence
+from mcs_renderer import render_turn_journey_analysis
 from mcs_renderer import render_topic_graph
 
 
@@ -38,14 +50,17 @@ def test_build_conversation_flow_items_emits_message_and_event_items():
     assert items[0]["kind"] == "message"
     assert items[0]["role"] == "user"
     assert items[0]["text"] == '"My VPN is not working, create ticket"'
+    assert items[0]["lane"] == "user"
 
     assert items[1]["kind"] == "event"
     assert items[1]["event_type"] == MCSEventType.STEP_TRIGGERED.value
     assert items[1]["title"] == "Action Started"
+    assert items[1]["lane"] == "bot"
 
     assert items[2]["kind"] == "message"
     assert items[2]["role"] == "bot"
     assert items[2]["text"] == "The form has been auto-populated from your recent chat history."
+    assert items[2]["lane"] == "bot"
 
 
 def test_build_conversation_flow_items_marks_errors():
@@ -65,6 +80,7 @@ def test_build_conversation_flow_items_marks_errors():
     assert items[0]["kind"] == "event"
     assert items[0]["tone"] == "error"
     assert items[0]["title"] == "Error"
+    assert items[0]["lane"] == "error"
 
 
 def test_build_conversation_visual_summary_contains_kpis_and_mix():
@@ -208,3 +224,150 @@ def test_render_mermaid_sequence_produces_svg_event_log():
     # All event summaries should appear
     assert "Create a support ticket" in output
     assert "Connector timeout" in output
+
+
+def test_render_turn_journey_analysis_surfaces_fallback_boosting_and_query_changes():
+    timeline = MCSConversationTimeline(
+        events=[
+            MCSTimelineEvent(
+                timestamp="2026-03-11T12:00:00+00:00",
+                event_type=MCSEventType.USER_MESSAGE,
+                summary='User: "Need MyImpact guidance"',
+            ),
+            MCSTimelineEvent(
+                timestamp="2026-03-11T12:00:01+00:00",
+                event_type=MCSEventType.STEP_TRIGGERED,
+                topic_name="Conversational boosting",
+                summary="Step start: Search (Topic)",
+            ),
+            MCSTimelineEvent(
+                timestamp="2026-03-11T12:00:02+00:00",
+                event_type=MCSEventType.KNOWLEDGE_SEARCH,
+                search_query="myimpact goals",
+                details={"result_count": "0"},
+                summary="Knowledge search: myimpact goals",
+            ),
+            MCSTimelineEvent(
+                timestamp="2026-03-11T12:00:03+00:00",
+                event_type=MCSEventType.KNOWLEDGE_SEARCH,
+                search_query="myimpact development objective",
+                details={"result_count": "2"},
+                summary="Knowledge search: myimpact development objective",
+            ),
+            MCSTimelineEvent(
+                timestamp="2026-03-11T12:00:04+00:00",
+                event_type=MCSEventType.STEP_TRIGGERED,
+                topic_name="Fallback",
+                summary="Step start: Fallback (Topic)",
+            ),
+            MCSTimelineEvent(
+                timestamp="2026-03-11T12:00:09+00:00",
+                event_type=MCSEventType.BOT_MESSAGE,
+                summary="Bot: I could not find a precise answer.",
+            ),
+        ]
+    )
+
+    output = render_turn_journey_analysis(timeline)
+
+    assert "Turn-by-Turn Search & Routing Journey" in output
+    assert "Fallback triggered" in output
+    assert "Generative boosting invoked" in output
+    assert "Query reformulated" in output
+    assert "myimpact goals" in output
+    assert "myimpact development objective" in output
+
+
+def test_build_conversation_deep_dive_cards_surfaces_trace_details_and_instruction_overlap():
+    profile = MCSBotProfile(
+        gpt_info=MCSGptInfo(
+            instructions=(
+                "Use MyImpact SharePoint guidance, North Star alignment, values, and SMART goals when grounding answers."
+            )
+        )
+    )
+    timeline = MCSConversationTimeline(
+        events=[
+            MCSTimelineEvent(
+                timestamp="2026-03-11T12:00:00+00:00",
+                event_type=MCSEventType.USER_MESSAGE,
+                summary='User: "Help me draft goals"',
+            ),
+            MCSTimelineEvent(
+                timestamp="2026-03-11T12:00:01+00:00",
+                event_type=MCSEventType.STEP_TRIGGERED,
+                topic_name="Conversational boosting",
+                summary="Step start: Search (Topic)",
+            ),
+            MCSTimelineEvent(
+                timestamp="2026-03-11T12:00:02+00:00",
+                event_type=MCSEventType.KNOWLEDGE_SEARCH,
+                search_query="draft 2026 goals",
+                summary="Knowledge search: draft 2026 goals",
+                search_trace=MCSKnowledgeSearchTrace(
+                    endpoints=["https://contoso.sharepoint.com/sites/MyImpact"],
+                    rewritten_question="Help me identify my priorities and draft 2026 MyImpact goals.",
+                    rewritten_keywords="priorities 2026 MyImpact goals",
+                    hypothetical_snippet="Draft SMART goals aligned to the North Star and values.",
+                    completion_state="AnswerNotFoundInSearchResults",
+                    result_count=3,
+                    verified_result_count=1,
+                    top_results=["Goal-Setting-2026-.aspx [SharepointSiteSearch]"],
+                    verified_top_results=["Goal-Setting-2026-.aspx [SharepointSiteSearch]"],
+                    rewrite_model_name="gpt-41-2025-04-14",
+                    rewrite_prompt_tokens=1052,
+                    rewrite_completion_tokens=164,
+                    summary_preview="Ask the user for role and priorities.",
+                ),
+                details={"result_count": "3"},
+            ),
+            MCSTimelineEvent(
+                timestamp="2026-03-11T12:00:06+00:00",
+                event_type=MCSEventType.BOT_MESSAGE,
+                summary="Bot: Tell me more about your role.",
+            ),
+        ]
+    )
+
+    cards = build_conversation_deep_dive_cards(profile, timeline)
+
+    assert len(cards) == 1
+    assert cards[0]["searches"][0]["rewrite_model"] == "gpt-41-2025-04-14"
+    assert cards[0]["searches"][0]["instruction_overlap_label"] in {"Strong", "Partial"}
+    assert cards[0]["searches"][0]["signal_label"] == "Answer not found in verified search results"
+
+
+def test_render_latency_bottlenecks_marks_slow_turn_contributors():
+    timeline = MCSConversationTimeline(
+        events=[
+            MCSTimelineEvent(
+                timestamp="2026-03-11T12:10:00+00:00",
+                event_type=MCSEventType.USER_MESSAGE,
+                summary='User: "Find policy"',
+            ),
+            MCSTimelineEvent(
+                timestamp="2026-03-11T12:10:01+00:00",
+                event_type=MCSEventType.STEP_TRIGGERED,
+                topic_name="Search",
+                summary="Step start: Search (Topic)",
+            ),
+            MCSTimelineEvent(
+                timestamp="2026-03-11T12:10:02+00:00",
+                event_type=MCSEventType.KNOWLEDGE_SEARCH,
+                search_query="policy",
+                details={"result_count": "0"},
+                summary="Knowledge search: policy",
+            ),
+            MCSTimelineEvent(
+                timestamp="2026-03-11T12:10:09+00:00",
+                event_type=MCSEventType.BOT_MESSAGE,
+                summary="Bot: I need more details.",
+            ),
+        ]
+    )
+
+    output = render_latency_bottlenecks(timeline)
+
+    assert "Latency Bottlenecks" in output
+    assert "slow turn" in output.lower()
+    assert "No usable KB results" in output

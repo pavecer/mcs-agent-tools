@@ -107,6 +107,30 @@ class MCSEventType(str, Enum):
     OTHER = "Other"
 
 
+class MCSKnowledgeSearchTrace(BaseModel):
+    source_names: list[str] = Field(default_factory=list)
+    output_source_names: list[str] = Field(default_factory=list)
+    endpoints: list[str] = Field(default_factory=list)
+    rewritten_question: str | None = None
+    rewritten_keywords: str | None = None
+    hypothetical_snippet: str | None = None
+    completion_state: str | None = None
+    gpt_answer_state: str | None = None
+    result_count: int = 0
+    verified_result_count: int = 0
+    search_errors: list[str] = Field(default_factory=list)
+    result_sources: list[str] = Field(default_factory=list)
+    top_results: list[str] = Field(default_factory=list)
+    verified_top_results: list[str] = Field(default_factory=list)
+    rewrite_model_name: str | None = None
+    rewrite_prompt_tokens: int = 0
+    rewrite_completion_tokens: int = 0
+    summary_model_name: str | None = None
+    summary_prompt_tokens: int = 0
+    summary_completion_tokens: int = 0
+    summary_preview: str | None = None
+
+
 class MCSTimelineEvent(BaseModel):
     timestamp: str | None = None
     position: int = 0
@@ -119,6 +143,7 @@ class MCSTimelineEvent(BaseModel):
     plan_identifier: str | None = None
     tool_name: str | None = None
     search_query: str | None = None
+    search_trace: MCSKnowledgeSearchTrace | None = None
     details: dict[str, str] = Field(default_factory=dict)
 
 

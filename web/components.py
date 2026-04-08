@@ -1981,19 +1981,48 @@ def _mcs_flow_message(item: dict) -> rx.Component:
 
 
 def _mcs_flow_event(item: dict) -> rx.Component:
-    """Render a system/tool event card between messages."""
-    is_error = item["tone"] == "error"
+    """Render a system/tool event card between messages, color-coded by lane."""
+    bg = rx.match(
+        item["lane"],
+        ("tool", "#fff8f0"),
+        ("error", "#fff3f3"),
+        "#f5f9ff",
+    )
+    border = rx.match(
+        item["lane"],
+        ("tool", "1px solid #fcd19c"),
+        ("error", "1px solid #e6b3b3"),
+        "1px solid #cde0ff",
+    )
+    icon_tag = rx.match(
+        item["lane"],
+        ("tool", "search"),
+        ("error", "triangle-alert"),
+        "workflow",
+    )
+    icon_color = rx.match(
+        item["lane"],
+        ("tool", "#c47a00"),
+        ("error", "#a4262c"),
+        "#0a66ff",
+    )
+    title_color = rx.match(
+        item["lane"],
+        ("tool", "#7a3d00"),
+        ("error", "#7a0000"),
+        "#1f3a63",
+    )
     return rx.center(
         rx.box(
             rx.hstack(
                 rx.icon(
-                    rx.cond(is_error, "triangle-alert", "workflow"),
+                    icon_tag,
                     size=16,
-                    color=rx.cond(is_error, "#a4262c", "#0a66ff"),
+                    color=icon_color,
                 ),
                 rx.vstack(
                     rx.hstack(
-                        rx.text(item["title"], font_size="12px", font_weight="700", color="#1f3a63"),
+                        rx.text(item["title"], font_size="12px", font_weight="700", color=title_color),
                         rx.cond(
                             item["timestamp"] != "",
                             rx.text(item["timestamp"], font_size="11px", color="#8a8886"),
@@ -2012,8 +2041,8 @@ def _mcs_flow_event(item: dict) -> rx.Component:
                 width="100%",
             ),
             width=["100%", "100%", "78%"],
-            background=rx.cond(is_error, "#fff3f3", "#f5f9ff"),
-            border=rx.cond(is_error, "1px solid #e6b3b3", "1px solid #cde0ff"),
+            background=bg,
+            border=border,
             border_radius="12px",
             padding="10px 12px",
         ),
@@ -2165,6 +2194,405 @@ def _mcs_conversation_visual_dashboard() -> rx.Component:
     )
 
 
+def _mcs_deep_dive_tone_colors(tone: str) -> tuple[rx.Var, rx.Var, rx.Var]:
+    return (
+        rx.match(tone, ("good", "#107c10"), ("bad", "#a4262c"), ("warn", "#c7921e"), "#0a66ff"),
+        rx.match(tone, ("good", "#f4fbf4"), ("bad", "#fff5f5"), ("warn", "#fff8eb"), "#f4f8ff"),
+        rx.match(tone, ("good", "green"), ("bad", "red"), ("warn", "amber"), "blue"),
+    )
+
+
+def _mcs_deep_dive_list(items: list[str], empty_text: str) -> rx.Component:
+    return rx.cond(
+        items.length() > 0,
+        rx.vstack(
+            rx.foreach(
+                items,
+                lambda item: rx.hstack(
+                    rx.box(width="6px", height="6px", border_radius="50%", background="#7d93b2", flex_shrink="0"),
+                    rx.text(item, font_size="12px", color="#314766"),
+                    spacing="2",
+                    align="start",
+                    width="100%",
+                ),
+            ),
+            spacing="1",
+            width="100%",
+            align="start",
+        ),
+        rx.text(empty_text, font_size="12px", color="#7d8ca3"),
+    )
+
+
+def _mcs_search_detail_card(search: dict) -> rx.Component:
+    tone_color, tone_bg, tone_scheme = _mcs_deep_dive_tone_colors(search["signal_tone"])
+    return rx.box(
+        rx.vstack(
+            rx.hstack(
+                rx.hstack(
+                    rx.badge(search["index"], color_scheme="blue", variant="soft", size="1"),
+                    rx.badge(search["signal_label"], color_scheme=tone_scheme, variant="soft", size="1"),
+                    spacing="2",
+                    align="center",
+                    flex_wrap="wrap",
+                ),
+                rx.spacer(),
+                rx.text(
+                    search["result_summary"],
+                    font_size="11px",
+                    font_weight="700",
+                    color="#49617f",
+                ),
+                width="100%",
+                align="center",
+            ),
+            rx.grid(
+                rx.box(
+                    rx.text("Rewritten Question", font_size="11px", font_weight="700", color="#5b6f8d"),
+                    rx.text(search["rewritten_question"], font_size="12px", color="#213757"),
+                ),
+                rx.box(
+                    rx.text("Keywords", font_size="11px", font_weight="700", color="#5b6f8d"),
+                    rx.text(search["keywords"], font_size="12px", color="#213757"),
+                ),
+                columns="2",
+                gap="10px",
+                width="100%",
+            ),
+            rx.box(
+                rx.text("Hypothetical Snippet", font_size="11px", font_weight="700", color="#5b6f8d"),
+                rx.text(search["snippet"], font_size="12px", color="#314766"),
+                width="100%",
+            ),
+            rx.grid(
+                rx.box(
+                    rx.text("Completion State", font_size="11px", font_weight="700", color="#5b6f8d"),
+                    rx.text(search["completion_state"], font_size="12px", color="#213757"),
+                ),
+                rx.box(
+                    rx.text("Instruction Overlap", font_size="11px", font_weight="700", color="#5b6f8d"),
+                    rx.hstack(
+                        rx.text(
+                            search["instruction_overlap_pct_text"],
+                            font_size="18px",
+                            font_weight="800",
+                            color=tone_color,
+                        ),
+                        rx.badge(search["instruction_overlap_label"], color_scheme=tone_scheme, variant="soft", size="1"),
+                        spacing="2",
+                        align="center",
+                    ),
+                ),
+                rx.box(
+                    rx.text("Rewrite Model", font_size="11px", font_weight="700", color="#5b6f8d"),
+                    rx.text(search["rewrite_model"], font_size="12px", color="#213757"),
+                    rx.text(search["rewrite_tokens"], font_size="11px", color="#6e819c"),
+                ),
+                rx.box(
+                    rx.text("Summary Model", font_size="11px", font_weight="700", color="#5b6f8d"),
+                    rx.text(search["summary_model"], font_size="12px", color="#213757"),
+                    rx.text(search["summary_tokens"], font_size="11px", color="#6e819c"),
+                ),
+                columns="4",
+                gap="10px",
+                width="100%",
+            ),
+            rx.grid(
+                rx.box(
+                    rx.text("Accessible Endpoints", font_size="11px", font_weight="700", color="#5b6f8d"),
+                    rx.text(search["endpoints_text"], font_size="12px", color="#314766", white_space="pre-wrap"),
+                ),
+                rx.box(
+                    rx.text("Top Search Results", font_size="11px", font_weight="700", color="#5b6f8d"),
+                    rx.text(search["top_results_text"], font_size="12px", color="#314766", white_space="pre-wrap"),
+                ),
+                rx.box(
+                    rx.text("Verified Results", font_size="11px", font_weight="700", color="#5b6f8d"),
+                    rx.text(search["verified_top_results_text"], font_size="12px", color="#314766", white_space="pre-wrap"),
+                ),
+                columns="3",
+                gap="10px",
+                width="100%",
+            ),
+            rx.box(
+                rx.text("Summary Preview", font_size="11px", font_weight="700", color="#5b6f8d"),
+                rx.text(search["summary_preview"], font_size="12px", color="#314766"),
+                width="100%",
+            ),
+            rx.grid(
+                rx.box(
+                    rx.text("Matched Instruction Terms", font_size="11px", font_weight="700", color="#5b6f8d"),
+                    rx.text(
+                        search["instruction_overlap_terms_text"],
+                        font_size="12px",
+                        color="#314766",
+                        white_space="pre-wrap",
+                    ),
+                    width="100%",
+                ),
+                rx.box(
+                    rx.text("Search Errors", font_size="11px", font_weight="700", color="#5b6f8d"),
+                    rx.text(search["search_errors_text"], font_size="12px", color="#314766", white_space="pre-wrap"),
+                    width="100%",
+                ),
+                columns="2",
+                gap="10px",
+                width="100%",
+            ),
+            spacing="3",
+            width="100%",
+            align="start",
+        ),
+        padding="14px",
+        background=tone_bg,
+        border=f"1px solid {tone_color}33",
+        border_radius="14px",
+        width="100%",
+    )
+
+
+def _mcs_deep_dive_turn_card(card_item: dict) -> rx.Component:
+    is_open = State.mcs_conv_deep_dive_expanded_turn == card_item["turn"]
+    tone_color, tone_bg, tone_scheme = _mcs_deep_dive_tone_colors(card_item["signal_tone"])
+    return rx.box(
+        rx.vstack(
+            rx.button(
+                rx.hstack(
+                    rx.vstack(
+                        rx.hstack(
+                            rx.badge(card_item["turn"], color_scheme="cyan", variant="soft", size="1"),
+                            rx.badge(card_item["summary_badges_text"], color_scheme="blue", variant="outline", size="1"),
+                            spacing="2",
+                            flex_wrap="wrap",
+                            width="100%",
+                            align="center",
+                        ),
+                        rx.text(card_item["user"], font_size="14px", font_weight="700", color="#1f3558"),
+                        spacing="2",
+                        align="start",
+                        width="100%",
+                    ),
+                    rx.spacer(),
+                    rx.vstack(
+                        rx.text(card_item["search_status"], font_size="12px", color="#47617f", font_weight="700"),
+                        rx.text(card_item["latency_summary"], font_size="11px", color="#7387a3"),
+                        rx.text(rx.cond(is_open, "Hide details", "Show details"), font_size="11px", color=PRIMARY),
+                        spacing="1",
+                        align="end",
+                    ),
+                    spacing="3",
+                    align="center",
+                    width="100%",
+                ),
+                on_click=State.toggle_mcs_conv_deep_dive_turn(card_item["turn"]),
+                variant="ghost",
+                width="100%",
+                cursor="pointer",
+                padding="0",
+            ),
+            rx.hstack(
+                rx.tooltip(
+                    rx.badge("Rewrite", color_scheme=card_item["timeline_rewrite_scheme"], variant="soft", size="1"),
+                    content=card_item["timeline_rewrite_hint"],
+                ),
+                rx.text("→", font_size="11px", color="#9aa9bf"),
+                rx.tooltip(
+                    rx.badge("Search", color_scheme=card_item["timeline_search_scheme"], variant="soft", size="1"),
+                    content=card_item["timeline_search_hint"],
+                ),
+                rx.text("→", font_size="11px", color="#9aa9bf"),
+                rx.tooltip(
+                    rx.badge("Verify", color_scheme=card_item["timeline_verify_scheme"], variant="soft", size="1"),
+                    content=card_item["timeline_verify_hint"],
+                ),
+                rx.text("→", font_size="11px", color="#9aa9bf"),
+                rx.tooltip(
+                    rx.badge("Answer", color_scheme=card_item["timeline_answer_scheme"], variant="soft", size="1"),
+                    content=card_item["timeline_answer_hint"],
+                ),
+                spacing="2",
+                align="center",
+                width="100%",
+            ),
+            rx.cond(
+                is_open,
+                rx.vstack(
+                    rx.box(
+                        rx.text("Triggered Topics", font_size="11px", font_weight="700", color="#5b6f8d"),
+                        rx.text(card_item["topics_text"], font_size="12px", color="#314766"),
+                        width="100%",
+                    ),
+                    rx.box(
+                        rx.vstack(
+                            rx.hstack(
+                                rx.badge(card_item["signal_label"], color_scheme=tone_scheme, variant="soft", size="1"),
+                                rx.spacer(),
+                                rx.text(card_item["result_summary"], font_size="11px", font_weight="700", color="#49617f"),
+                                width="100%",
+                                align="center",
+                            ),
+                            rx.hstack(
+                                rx.badge(card_item["source_chip_sharepoint"], color_scheme="blue", variant="outline", size="1"),
+                                rx.badge(card_item["source_chip_dataverse"], color_scheme="teal", variant="outline", size="1"),
+                                rx.badge(card_item["source_chip_website"], color_scheme="indigo", variant="outline", size="1"),
+                                rx.badge(card_item["source_chip_file"], color_scheme="orange", variant="outline", size="1"),
+                                rx.badge(card_item["source_chip_other"], color_scheme="gray", variant="outline", size="1"),
+                                spacing="2",
+                                flex_wrap="wrap",
+                                width="100%",
+                                align="center",
+                            ),
+                            rx.grid(
+                                rx.box(
+                                    rx.text("Rewritten Question", font_size="11px", font_weight="700", color="#5b6f8d"),
+                                    rx.text(card_item["rewritten_question"], font_size="12px", color="#213757"),
+                                ),
+                                rx.box(
+                                    rx.text("Keywords", font_size="11px", font_weight="700", color="#5b6f8d"),
+                                    rx.text(card_item["keywords"], font_size="12px", color="#213757"),
+                                ),
+                                columns="2",
+                                gap="10px",
+                                width="100%",
+                            ),
+                            rx.box(
+                                rx.text("Hypothetical Snippet", font_size="11px", font_weight="700", color="#5b6f8d"),
+                                rx.text(card_item["snippet"], font_size="12px", color="#314766"),
+                                width="100%",
+                            ),
+                            rx.grid(
+                                rx.box(
+                                    rx.text("Completion State", font_size="11px", font_weight="700", color="#5b6f8d"),
+                                    rx.text(card_item["completion_state"], font_size="12px", color="#213757"),
+                                ),
+                                rx.box(
+                                    rx.text("Instruction Overlap", font_size="11px", font_weight="700", color="#5b6f8d"),
+                                    rx.hstack(
+                                        rx.text(
+                                            card_item["instruction_overlap_pct_text"],
+                                            font_size="18px",
+                                            font_weight="800",
+                                            color=tone_color,
+                                        ),
+                                        rx.badge(card_item["instruction_overlap_label"], color_scheme=tone_scheme, variant="soft", size="1"),
+                                        spacing="2",
+                                        align="center",
+                                    ),
+                                ),
+                                rx.box(
+                                    rx.text("Rewrite Model", font_size="11px", font_weight="700", color="#5b6f8d"),
+                                    rx.text(card_item["rewrite_model"], font_size="12px", color="#213757"),
+                                    rx.text(card_item["rewrite_tokens"], font_size="11px", color="#6e819c"),
+                                ),
+                                rx.box(
+                                    rx.text("Summary Model", font_size="11px", font_weight="700", color="#5b6f8d"),
+                                    rx.text(card_item["summary_model"], font_size="12px", color="#213757"),
+                                    rx.text(card_item["summary_tokens"], font_size="11px", color="#6e819c"),
+                                ),
+                                columns="4",
+                                gap="10px",
+                                width="100%",
+                            ),
+                            rx.grid(
+                                rx.box(
+                                    rx.text("Accessible Endpoints", font_size="11px", font_weight="700", color="#5b6f8d"),
+                                    rx.text(card_item["endpoints_text"], font_size="12px", color="#314766", white_space="pre-wrap"),
+                                ),
+                                rx.box(
+                                    rx.text("Top Search Results", font_size="11px", font_weight="700", color="#5b6f8d"),
+                                    rx.text(card_item["top_results_text"], font_size="12px", color="#314766", white_space="pre-wrap"),
+                                ),
+                                rx.box(
+                                    rx.text("Verified Results", font_size="11px", font_weight="700", color="#5b6f8d"),
+                                    rx.text(card_item["verified_top_results_text"], font_size="12px", color="#314766", white_space="pre-wrap"),
+                                ),
+                                columns="3",
+                                gap="10px",
+                                width="100%",
+                            ),
+                            rx.box(
+                                rx.text("Summary Preview", font_size="11px", font_weight="700", color="#5b6f8d"),
+                                rx.text(card_item["summary_preview"], font_size="12px", color="#314766"),
+                                width="100%",
+                            ),
+                            rx.grid(
+                                rx.box(
+                                    rx.text("Matched Instruction Terms", font_size="11px", font_weight="700", color="#5b6f8d"),
+                                    rx.text(card_item["instruction_overlap_terms_text"], font_size="12px", color="#314766"),
+                                ),
+                                rx.box(
+                                    rx.text("Search Errors", font_size="11px", font_weight="700", color="#5b6f8d"),
+                                    rx.text(card_item["search_errors_text"], font_size="12px", color="#314766", white_space="pre-wrap"),
+                                ),
+                                columns="2",
+                                gap="10px",
+                                width="100%",
+                            ),
+                            spacing="3",
+                            width="100%",
+                            align="start",
+                        ),
+                        padding="14px",
+                        background=tone_bg,
+                        border=f"1px solid {tone_color}33",
+                        border_radius="14px",
+                        width="100%",
+                    ),
+                    spacing="3",
+                    width="100%",
+                    align="start",
+                ),
+                rx.box(),
+            ),
+            spacing="3",
+            width="100%",
+            align="start",
+        ),
+        padding="16px",
+        border="1px solid #d9e5f5",
+        border_radius="16px",
+        background="#fbfdff",
+        box_shadow="0 8px 20px rgba(12, 33, 70, 0.05)",
+        width="100%",
+    )
+
+
+def _mcs_conversation_deep_dive_dashboard() -> rx.Component:
+    return card(
+        rx.vstack(
+            rx.hstack(
+                rx.hstack(
+                    rx.icon("sparkles", size=16, color=PRIMARY),
+                    rx.text("Search Brain Deep Dive", font_size="14px", font_weight="700", color="#1f3a63"),
+                    spacing="2",
+                    align="center",
+                ),
+                rx.spacer(),
+                rx.badge("Expandable", color_scheme="blue", variant="soft", size="1"),
+                width="100%",
+                align="center",
+            ),
+            rx.text(
+                "Shows how each user turn was rewritten, which endpoints were available, what search returned, and how closely that trace overlaps with the snapshot instructions.",
+                font_size="12px",
+                color="#5f7089",
+            ),
+            rx.vstack(
+                rx.foreach(State.mcs_conv_deep_dive_cards, _mcs_deep_dive_turn_card),
+                spacing="3",
+                width="100%",
+                align="start",
+            ),
+            spacing="3",
+            width="100%",
+            align="start",
+        ),
+        width="100%",
+        background="linear-gradient(140deg, #f9fcff 0%, #f5fbff 55%, #f8fcf7 100%)",
+        border="1px solid #d4e4f9",
+    )
+
+
 def _mcs_conversation_flow_panel() -> rx.Component:
     return card(
         rx.hstack(
@@ -2191,6 +2619,22 @@ def _mcs_conversation_flow_panel() -> rx.Component:
         ),
         rx.box(
             rx.vstack(
+                rx.hstack(
+                    rx.icon("user-round", size=13, color="#0a66ff"),
+                    rx.text("User", font_size="11px", color="#0a66ff", font_weight="600"),
+                    rx.text("·", font_size="11px", color="#c0c8d4"),
+                    rx.icon("search", size=13, color="#c47a00"),
+                    rx.text("Search/Tool", font_size="11px", color="#c47a00", font_weight="600"),
+                    rx.text("·", font_size="11px", color="#c0c8d4"),
+                    rx.icon("bot", size=13, color="#107c10"),
+                    rx.text("Bot/System", font_size="11px", color="#107c10", font_weight="600"),
+                    spacing="2",
+                    align="center",
+                    padding_bottom="8px",
+                    border_bottom="1px solid #e8eff8",
+                    margin_bottom="4px",
+                    width="100%",
+                ),
                 rx.foreach(State.mcs_conversation_flow, _mcs_flow_item),
                 spacing="4",
                 width="100%",
@@ -2233,6 +2677,192 @@ def _mcs_segment_block(segment: dict) -> rx.Component:
         background="linear-gradient(180deg, #ffffff 0%, #fbfdff 100%)",
         padding="12px 14px",
         box_shadow="0 10px 24px rgba(9, 30, 66, 0.06)",
+    )
+
+
+def _mcs_knowledge_health_item(row: dict) -> rx.Component:
+    return rx.box(
+        rx.vstack(
+            rx.hstack(
+                rx.text(row["check"], font_size="12px", font_weight="700", color="#1f3a63"),
+                rx.spacer(),
+                rx.badge(row["severity_label"], color_scheme=row["severity_scheme"], variant="soft", size="1"),
+                width="100%",
+                align="center",
+            ),
+            rx.text(row["summary"], font_size="12px", color="#324d73", line_height="1.45"),
+            spacing="2",
+            align="start",
+            width="100%",
+        ),
+        width="100%",
+        border="1px solid #d7e3f7",
+        border_left_width="4px",
+        border_left_style="solid",
+        border_left_color=row["accent_color"],
+        border_radius="10px",
+        background=row["background_color"],
+        padding="10px 12px",
+    )
+
+
+def _mcs_source_class_chip(row: dict) -> rx.Component:
+    return rx.box(
+        rx.hstack(
+            rx.text(row["source_class"], font_size="12px", font_weight="600", color="#1f3a63"),
+            rx.badge(row["count"], color_scheme="blue", variant="soft", size="1"),
+            spacing="2",
+            align="center",
+        ),
+        border="1px solid #d8e3f5",
+        border_radius="999px",
+        background="#f8fbff",
+        padding="6px 10px",
+    )
+
+
+def _mcs_knowledge_dashboard() -> rx.Component:
+    return card(
+        rx.vstack(
+            rx.hstack(
+                rx.hstack(
+                    rx.icon("shield-check", size=16, color=PRIMARY),
+                    rx.text("Knowledge Health", font_size="14px", font_weight="700", color="#1f3a63"),
+                    spacing="2",
+                    align="center",
+                ),
+                rx.spacer(),
+                rx.hstack(
+                    rx.button(
+                        rx.hstack(
+                            rx.icon(
+                                rx.cond(State.mcs_knowledge_health_collapsed, "chevron-down", "chevron-up"),
+                                size=14,
+                            ),
+                            rx.text(
+                                rx.cond(State.mcs_knowledge_health_collapsed, "Expand", "Collapse"),
+                                font_size="12px",
+                                font_weight="600",
+                            ),
+                            spacing="1",
+                            align="center",
+                        ),
+                        on_click=State.toggle_mcs_knowledge_health_collapsed,
+                        variant="outline",
+                        color_scheme="gray",
+                        size="1",
+                        cursor="pointer",
+                    ),
+                    spacing="2",
+                    align="center",
+                ),
+                rx.cond(
+                    State.mcs_knowledge_generic_warning != "",
+                    rx.badge("Generic KB Descriptions", color_scheme="amber", variant="soft", size="1"),
+                    rx.badge("No generic KB warning", color_scheme="green", variant="soft", size="1"),
+                ),
+                width="100%",
+                align="center",
+            ),
+            rx.cond(
+                State.mcs_knowledge_health_collapsed,
+                rx.box(),
+                rx.vstack(
+                    rx.hstack(
+                        rx.text("Severity filter", font_size="11px", color="#5d6f8f", font_weight="600"),
+                        rx.button(
+                            "All",
+                            on_click=State.set_mcs_knowledge_health_filter("all"),
+                            variant=rx.cond(State.mcs_knowledge_health_filter == "all", "solid", "outline"),
+                            color_scheme=rx.cond(State.mcs_knowledge_health_filter == "all", "blue", "gray"),
+                            size="1",
+                            cursor="pointer",
+                        ),
+                        rx.button(
+                            "Critical + Warning",
+                            on_click=State.set_mcs_knowledge_health_filter("actionable"),
+                            variant=rx.cond(
+                                State.mcs_knowledge_health_filter == "actionable",
+                                "solid",
+                                "outline",
+                            ),
+                            color_scheme=rx.cond(
+                                State.mcs_knowledge_health_filter == "actionable",
+                                "amber",
+                                "gray",
+                            ),
+                            size="1",
+                            cursor="pointer",
+                        ),
+                        spacing="2",
+                        align="center",
+                        flex_wrap="wrap",
+                        width="100%",
+                    ),
+                    rx.cond(
+                        State.mcs_knowledge_summary_line != "",
+                        rx.text(State.mcs_knowledge_summary_line, font_size="12px", color="#425f86"),
+                        rx.box(),
+                    ),
+                    rx.cond(
+                        State.mcs_knowledge_generic_warning != "",
+                        rx.box(
+                            rx.text(State.mcs_knowledge_generic_warning, font_size="12px", color="#7a4b00"),
+                            width="100%",
+                            border="1px solid #f2d39b",
+                            border_radius="10px",
+                            background="#fff8ec",
+                            padding="8px 10px",
+                        ),
+                        rx.box(),
+                    ),
+                    rx.cond(
+                        State.has_mcs_knowledge_source_classes,
+                        rx.hstack(
+                            rx.foreach(State.mcs_knowledge_source_class_rows, _mcs_source_class_chip),
+                            spacing="2",
+                            flex_wrap="wrap",
+                            width="100%",
+                        ),
+                        rx.box(),
+                    ),
+                    rx.cond(
+                        State.has_mcs_knowledge_health,
+                        rx.cond(
+                            State.mcs_knowledge_health_rows_visible.length() > 0,
+                            rx.grid(
+                                rx.foreach(State.mcs_knowledge_health_rows_visible, _mcs_knowledge_health_item),
+                                columns="repeat(auto-fit, minmax(220px, 1fr))",
+                                gap="8px",
+                                width="100%",
+                            ),
+                            rx.box(
+                                rx.text(
+                                    "No checks match current filter.",
+                                    font_size="12px",
+                                    color="#5d6f8f",
+                                ),
+                                width="100%",
+                                border="1px dashed #d7e2f2",
+                                border_radius="10px",
+                                background="#fbfdff",
+                                padding="10px 12px",
+                            ),
+                        ),
+                        rx.box(),
+                    ),
+                    spacing="3",
+                    width="100%",
+                    align="start",
+                ),
+            ),
+            spacing="3",
+            width="100%",
+            align="start",
+        ),
+        width="100%",
+        background="linear-gradient(130deg, #f9fbff 0%, #f7fbf8 100%)",
+        border="1px solid #d4e4f9",
     )
 
 
@@ -2745,19 +3375,34 @@ def mcs_analyse_panel() -> rx.Component:
                             State.mcs_analyse_tab == "credits",
                             _mcs_credits_panel(),
                             rx.cond(
-                                (State.mcs_analyse_tab == "conversation") & State.has_mcs_conversation_flow,
+                                State.mcs_analyse_tab == "conversation",
                                 rx.vstack(
                                     rx.cond(
                                         State.has_mcs_conv_visual_summary,
                                         _mcs_conversation_visual_dashboard(),
                                         rx.box(),
                                     ),
-                                    _mcs_conversation_flow_panel(),
-                                    rx.vstack(
-                                        rx.foreach(State.mcs_current_section_segments, _mcs_segment_block),
-                                        width="100%",
-                                        spacing="3",
-                                        align="start",
+                                    rx.cond(
+                                        State.has_mcs_conversation_flow,
+                                        _mcs_conversation_flow_panel(),
+                                        rx.box(),
+                                    ),
+                                    rx.cond(
+                                        State.has_mcs_conv_deep_dive,
+                                        _mcs_conversation_deep_dive_dashboard(),
+                                        rx.box(),
+                                    ),
+                                    rx.cond(
+                                        State.has_mcs_conv_visual_summary
+                                        | State.has_mcs_conversation_flow
+                                        | State.has_mcs_conv_deep_dive,
+                                        rx.box(),
+                                        rx.vstack(
+                                            rx.foreach(State.mcs_current_section_segments, _mcs_segment_block),
+                                            width="100%",
+                                            spacing="3",
+                                            align="start",
+                                        ),
                                     ),
                                     width="100%",
                                     spacing="4",
@@ -2846,11 +3491,16 @@ def mcs_analyse_panel() -> rx.Component:
                                         ),
                                         rx.box(),
                                     ),
+                                    rx.cond(
+                                        State.mcs_analyse_tab == "knowledge_tools",
+                                        _mcs_knowledge_dashboard(),
+                                        rx.box(),
+                                    ),
                                     rx.foreach(State.mcs_current_section_segments, _mcs_segment_block),
-                                    width="100%",
-                                    spacing="3",
-                                    align="start",
-                                ),
+                                        width="100%",
+                                        spacing="3",
+                                        align="start",
+                                    ),
                             ),
                         ),
                         spacing="4",
