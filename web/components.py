@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import reflex as rx
 
-from app_meta import FEATURE_URL, ISSUE_URL, LICENSE_NAME, OPEN_ISSUE_URL, get_app_version
+from toolkit.shared.app_meta import FEATURE_URL, ISSUE_URL, LICENSE_NAME, OPEN_ISSUE_URL, get_app_version
 from web.mermaid import render_segment
 from web.state import State, TUTORIAL_TOTAL_STEPS
 

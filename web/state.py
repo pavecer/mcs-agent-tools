@@ -19,7 +19,7 @@ from dotenv import load_dotenv
 # Load environment variables from .env file before any imports that use them
 load_dotenv()
 
-from evals_manager import analyze_evals_zip_bytes, export_solution_with_evals, preview_generated_evals
+from toolkit.core.evals_manager import analyze_evals_zip_bytes, export_solution_with_evals, preview_generated_evals
 from toolkit.mcs.credits import estimate_credits_from_activities
 from toolkit.mcs.models import MCSConversationTimeline as _MCSTl
 from toolkit.mcs.parser import parse_dialog_json as mcs_parse_dialog_json
@@ -33,15 +33,15 @@ from toolkit.mcs.renderer import render_transcript_report as mcs_render_transcri
 from toolkit.mcs.renderer import to_viz_segments as mcs_to_viz_segments
 from toolkit.mcs.timeline import build_timeline as mcs_build_timeline
 from toolkit.mcs.transcript import parse_transcript_json as mcs_parse_transcript
-from renamer import (
+from toolkit.core.renamer import (
     derive_schema_name,
     derive_solution_unique_name,
     inspect_zip,
     rename_solution_from_bytes,
     safe_extractall,
 )
-from deps_analyzer import analyze_deps_zip_bytes_report
-from remote_fetch import (
+from toolkit.core.deps_analyzer import analyze_deps_zip_bytes_report
+from toolkit.core.remote_fetch import (
     authenticate_dataverse,
     begin_device_code_auth,
     check_dataverse_connection,
@@ -51,9 +51,9 @@ from remote_fetch import (
     RemoteFetchError,
     fetch_transcript_by_id,
 )
-from solution_checker import check_solution_zip
-from validator import validate_instructions, validate_zip_bytes
-from visualizer import visualize_zip_bytes, get_evals_data
+from toolkit.core.solution_checker import check_solution_zip
+from toolkit.core.validator import validate_instructions, validate_zip_bytes
+from toolkit.core.visualizer import visualize_zip_bytes, get_evals_data
 
 load_dotenv()
 

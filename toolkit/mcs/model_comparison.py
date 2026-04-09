@@ -407,7 +407,7 @@ def _resolve_catalogue_key(hint: str | None) -> str | None:
     if normalized in _MODEL_CATALOGUE:
         return normalized
     # Try normalising hint to catalogue key via the validator mapping
-    from validator import _HINT_TO_KEY  # type: ignore[attr-defined]
+    from toolkit.core.validator import _HINT_TO_KEY  # type: ignore[attr-defined]
 
     key = _HINT_TO_KEY.get(normalized)
     if key and key in _MODEL_CATALOGUE:

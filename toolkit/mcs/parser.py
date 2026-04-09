@@ -24,7 +24,7 @@ from toolkit.mcs.models import (
     MCSKnowledgeSource,
     MCSTopicConnection,
 )
-from yaml_utils import sanitize_yaml
+from toolkit.core.yaml_utils import sanitize_yaml
 
 
 def _safe_extractall(zf: zipfile.ZipFile, dest: Path) -> None:
